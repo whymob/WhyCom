@@ -22,6 +22,17 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (Refactor + Scheduler — 02/2026) ✅
+- ✅ **Split de `server.py`** (1797 → 70 linhas) em módulos por responsabilidade:
+  - `deps.py`: mongo, JWT, security, constantes
+  - `models.py`: todas as Pydantic classes
+  - `helpers.py`: audit_log, get_order_or_404, recalc_order_status, compute_alerts, csv_response, send_email_async
+  - `seed.py`, `scheduler.py`, `server.py` (thin bootstrap)
+  - `routers/`: 8 sub-routers (auth_users, master_data, pipeline, finance, analytics, technical, exports_audit, notifications)
+- ✅ **APScheduler** — job diário `alerts_digest` via CronTrigger (default: 09:00 Europe/Lisbon, mon-fri). Configurável via env: `SCHEDULER_ENABLED`, `SCHEDULER_TZ`, `ALERTS_DIGEST_CRON_HOUR/MINUTE/DOW`, `ALERTS_DIGEST_RECIPIENTS`.
+- ✅ **Lint**: 45 → 0 issues.
+- ✅ **Testes**: 43/43 regressão + 13/13 notificações (iteration_4). Zero regressões.
+
 ## Implemented (Notifications — Resend — 02/2026) ✅
 - ✅ **Integração Resend refatorada** conforme playbook oficial: SDK `resend>=2.0.0`, chamada não-bloqueante via `asyncio.to_thread(resend.Emails.send, params)`.
 - ✅ `POST /api/notifications/test-email` (admin/ceo) — envia email de teste com HTML custom (validado com email_id retornado pela Resend).
