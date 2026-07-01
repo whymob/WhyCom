@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { eur, ORDER_STATUS, dateShort } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
@@ -53,7 +54,7 @@ export default function Orders() {
           {orders.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="orders-empty">Sem encomendas. Converta uma proposta ganha para criar uma.</div>}
           {orders.map((o) => (
             <div key={o.id} className="grid grid-cols-12 items-center px-4 py-3 border-b border-neutral-100 text-sm hover:bg-neutral-50" data-testid={`order-row-${o.id}`}>
-              <div className="col-span-2 font-mono">{o.number}</div>
+              <div className="col-span-2 font-mono"><Link to={`/encomendas/${o.id}`} className="text-[#002FA7] hover:underline" data-testid={`order-link-${o.id}`}>{o.number}</Link></div>
               <div className="col-span-3 font-medium">{cn(o.client_id)}</div>
               <div className="col-span-2">
                 <Input defaultValue={o.po_number || ""} onBlur={(e) => e.target.value !== o.po_number && patchOrder(o.id, { po_number: e.target.value })} placeholder="PO / Ordem compra" className="rounded-none h-8 text-xs font-mono" data-testid={`po-input-${o.id}`} />

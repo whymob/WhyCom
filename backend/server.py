@@ -769,6 +769,331 @@ async def funnel(user: dict = Depends(get_current_user)):
     return {"stages": stages}
 
 
+# ------------- Billing Plan / Invoices / Payments -------------
+class PlanLineIn(BaseModel):
+    type: Literal["setup", "mensalidade", "trimestralidade", "anuidade", "avos", "consumo_horas", "projeto", "outros"] = "projeto"
+    description: str = ""
+    expected_date: Optional[str] = None
+    value: float = 0.0
+    vab: float = 0.0
+
+
+TOLERANCE = 0.01  # 1 cêntimo
+
+
+async def _get_order(oid: str) -> dict:
+    o = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not o:
+        raise HTTPException(404, "Encomenda não encontrada")
+    return o
+
+
+async def _recalc_order_status(oid: str):
+    """Recalcula estado da encomenda com base em plano/faturas/recebimentos."""
+    order = await _get_order(oid)
+    if order["status"] == "cancelada":
+        return
+    plan = await db.plan_lines.find({"order_id": oid, "status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(1000)
+    invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
+    payments = await db.payments.find({"order_id": oid}, {"_id": 0}).to_list(1000)
+
+    plan_value = sum(p["value"] for p in plan)
+    plan_vab = sum(p["vab"] for p in plan)
+    invoiced_value = sum(i["total_net"] for i in invoices)
+    invoiced_vab = sum(i["total_vab"] for i in invoices)
+    received = sum(pay["amount"] for pay in payments)
+
+    order_value = order["total_net"]
+    order_vab = order["total_vab"]
+
+    def eq(a, b): return abs(a - b) <= TOLERANCE
+
+    new_status = order["status"]
+    if invoiced_value <= TOLERANCE:
+        new_status = "em_planeamento" if plan else "aberta"
+    elif invoiced_value + TOLERANCE < order_value:
+        new_status = "parcialmente_faturada"
+    else:
+        new_status = "faturada"
+
+    if new_status == "faturada" and received + TOLERANCE >= invoiced_value:
+        new_status = "recebida"
+
+    if (
+        new_status == "recebida"
+        and eq(order_value, plan_value)
+        and eq(order_value, invoiced_value)
+        and eq(order_value, received)
+        and eq(order_vab, plan_vab)
+        and eq(order_vab, invoiced_vab)
+    ):
+        new_status = "fulfilled"
+
+    if new_status != order["status"]:
+        await db.orders.update_one({"id": oid}, {"$set": {"status": new_status}})
+
+
+@api.get("/orders/{oid}/plan")
+async def get_plan(oid: str, user: dict = Depends(get_current_user)):
+    await _get_order(oid)
+    lines = await db.plan_lines.find({"order_id": oid}, {"_id": 0}).sort("expected_date", 1).to_list(1000)
+    return {"order_id": oid, "lines": lines}
+
+
+@api.put("/orders/{oid}/plan")
+async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current_user)):
+    await _get_order(oid)
+    lines_in = payload.get("lines", [])
+    # remove and reinsert; only for lines with no invoicing done
+    existing = await db.plan_lines.find({"order_id": oid}, {"_id": 0}).to_list(1000)
+    used_ids = {l["id"] for l in existing if l.get("invoiced_amount", 0) > 0}
+    # keep used lines
+    keep = [l for l in existing if l["id"] in used_ids]
+    new_lines = []
+    for l in lines_in:
+        line_id = l.get("id")
+        if line_id and line_id in used_ids:
+            # already kept
+            continue
+        new_lines.append({
+            "id": new_id(),
+            "order_id": oid,
+            "type": l.get("type", "projeto"),
+            "description": l.get("description", ""),
+            "expected_date": l.get("expected_date"),
+            "value": float(l.get("value") or 0),
+            "vab": float(l.get("vab") or 0),
+            "invoiced_amount": 0.0,
+            "status": "planeada",
+            "created_at": now_iso(),
+        })
+    await db.plan_lines.delete_many({"order_id": oid, "id": {"$nin": list(used_ids)}})
+    if new_lines:
+        await db.plan_lines.insert_many(new_lines)
+    all_lines = await db.plan_lines.find({"order_id": oid}, {"_id": 0}).sort("expected_date", 1).to_list(1000)
+    await _recalc_order_status(oid)
+    return {"order_id": oid, "lines": all_lines}
+
+
+@api.get("/orders/{oid}/reconcile")
+async def reconcile(oid: str, user: dict = Depends(get_current_user)):
+    order = await _get_order(oid)
+    plan = await db.plan_lines.find({"order_id": oid, "status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(1000)
+    invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
+    payments = await db.payments.find({"order_id": oid}, {"_id": 0}).to_list(1000)
+    plan_val = round(sum(p["value"] for p in plan), 2)
+    plan_vab = round(sum(p["vab"] for p in plan), 2)
+    inv_val = round(sum(i["total_net"] for i in invoices), 2)
+    inv_vab = round(sum(i["total_vab"] for i in invoices), 2)
+    received = round(sum(p["amount"] for p in payments), 2)
+    return {
+        "order": {"value": order["total_net"], "vab": order["total_vab"], "status": order["status"]},
+        "plan": {"value": plan_val, "vab": plan_vab, "count": len(plan)},
+        "invoiced": {"value": inv_val, "vab": inv_vab, "count": len(invoices)},
+        "received": {"value": received, "count": len(payments)},
+        "deltas": {
+            "plan_vs_order": round(plan_val - order["total_net"], 2),
+            "invoiced_vs_plan": round(inv_val - plan_val, 2),
+            "received_vs_invoiced": round(received - inv_val, 2),
+            "vab_plan_vs_order": round(plan_vab - order["total_vab"], 2),
+            "vab_invoiced_vs_order": round(inv_vab - order["total_vab"], 2),
+        },
+    }
+
+
+# ------------- Invoices -------------
+class InvoiceLineIn(BaseModel):
+    plan_line_id: str
+    amount: float
+    vab: float = 0.0
+    description: str = ""
+
+
+@api.get("/invoices")
+async def list_invoices(order_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    q = {"order_id": order_id} if order_id else {}
+    return await db.invoices.find(q, {"_id": 0}).sort("issued_at", -1).to_list(2000)
+
+
+@api.post("/invoices")
+async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
+    order_id = payload["order_id"]
+    order = await _get_order(order_id)
+    lines_in = payload.get("lines", [])
+    if not lines_in:
+        raise HTTPException(400, "Fatura deve ter pelo menos 1 linha")
+
+    plan_lines_map = {l["id"]: l for l in await db.plan_lines.find({"order_id": order_id}, {"_id": 0}).to_list(1000)}
+    total_net = 0.0
+    total_vab = 0.0
+    inv_lines = []
+    for l in lines_in:
+        pl = plan_lines_map.get(l["plan_line_id"])
+        if not pl:
+            raise HTTPException(400, f"Linha de plano {l['plan_line_id']} não encontrada")
+        remaining = pl["value"] - pl.get("invoiced_amount", 0)
+        amt = float(l["amount"])
+        if amt <= 0:
+            raise HTTPException(400, "Valor da linha deve ser > 0")
+        if amt > remaining + TOLERANCE:
+            raise HTTPException(400, f"Excede saldo por faturar da linha (restante {remaining:.2f}€)")
+        inv_lines.append({
+            "plan_line_id": pl["id"],
+            "amount": round(amt, 2),
+            "vab": round(float(l.get("vab") or 0), 2),
+            "description": l.get("description") or pl["description"],
+        })
+        total_net += amt
+        total_vab += float(l.get("vab") or 0)
+
+    invoice = {
+        "id": new_id(),
+        "number": payload.get("number") or f"FT-{datetime.now().year}-{(await db.invoices.count_documents({})) + 1:04d}",
+        "order_id": order_id,
+        "client_id": order["client_id"],
+        "issued_at": payload.get("issued_at") or now_iso(),
+        "vat_pct": float(payload.get("vat_pct") or 23),
+        "lines": inv_lines,
+        "total_net": round(total_net, 2),
+        "total_vab": round(total_vab, 2),
+        "total_vat": round(total_net * (float(payload.get("vat_pct") or 23) / 100), 2),
+        "received_amount": 0.0,
+        "status": "emitida",
+        "cancel_reason": "",
+        "notes": payload.get("notes") or "",
+        "created_at": now_iso(),
+    }
+    invoice["total_gross"] = round(invoice["total_net"] + invoice["total_vat"], 2)
+    await db.invoices.insert_one(invoice)
+
+    # update plan_lines invoiced_amount / status
+    for il in inv_lines:
+        pl = plan_lines_map[il["plan_line_id"]]
+        new_amt = pl.get("invoiced_amount", 0) + il["amount"]
+        status = "faturada" if abs(new_amt - pl["value"]) <= TOLERANCE else "parcialmente_faturada"
+        await db.plan_lines.update_one({"id": pl["id"]}, {"$set": {"invoiced_amount": round(new_amt, 2), "status": status}})
+
+    await _recalc_order_status(order_id)
+    invoice.pop("_id", None)
+    return invoice
+
+
+@api.post("/invoices/{iid}/cancel")
+async def cancel_invoice(iid: str, payload: dict, user: dict = Depends(require_roles("admin", "ceo"))):
+    reason = (payload or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(400, "Motivo de anulação obrigatório")
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Fatura não encontrada")
+    if inv["status"] == "anulada":
+        raise HTTPException(400, "Já anulada")
+    # reverse invoiced_amount
+    for il in inv["lines"]:
+        pl = await db.plan_lines.find_one({"id": il["plan_line_id"]})
+        if pl:
+            new_amt = max(0, pl.get("invoiced_amount", 0) - il["amount"])
+            status = "planeada" if new_amt <= TOLERANCE else "parcialmente_faturada"
+            await db.plan_lines.update_one({"id": pl["id"]}, {"$set": {"invoiced_amount": round(new_amt, 2), "status": status}})
+    await db.invoices.update_one({"id": iid}, {"$set": {"status": "anulada", "cancel_reason": reason}})
+    await _recalc_order_status(inv["order_id"])
+    return {"ok": True}
+
+
+# ------------- Payments -------------
+@api.get("/payments")
+async def list_payments(order_id: Optional[str] = None, invoice_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    q = {}
+    if order_id: q["order_id"] = order_id
+    if invoice_id: q["invoice_id"] = invoice_id
+    return await db.payments.find(q, {"_id": 0}).sort("paid_at", -1).to_list(2000)
+
+
+@api.post("/payments")
+async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
+    invoice_id = payload["invoice_id"]
+    inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Fatura não encontrada")
+    if inv["status"] == "anulada":
+        raise HTTPException(400, "Fatura anulada")
+    amount = float(payload["amount"])
+    if amount <= 0:
+        raise HTTPException(400, "Valor deve ser > 0")
+    open_balance = inv["total_net"] - inv.get("received_amount", 0)
+    if amount > open_balance + TOLERANCE:
+        raise HTTPException(400, f"Valor excede saldo em aberto ({open_balance:.2f}€)")
+
+    method = payload.get("method", "transferencia")
+    if method not in ("transferencia", "cartao", "mbway", "cheque", "numerario", "outro"):
+        raise HTTPException(400, "Método de pagamento inválido")
+
+    pay = {
+        "id": new_id(),
+        "invoice_id": invoice_id,
+        "order_id": inv["order_id"],
+        "client_id": inv["client_id"],
+        "amount": round(amount, 2),
+        "method": method,
+        "reference": payload.get("reference", ""),
+        "paid_at": payload.get("paid_at") or now_iso(),
+        "created_at": now_iso(),
+    }
+    await db.payments.insert_one(pay)
+    new_received = inv.get("received_amount", 0) + amount
+    inv_status = "recebida" if abs(new_received - inv["total_net"]) <= TOLERANCE else "parcialmente_recebida"
+    await db.invoices.update_one({"id": invoice_id}, {"$set": {"received_amount": round(new_received, 2), "status": inv_status}})
+    await _recalc_order_status(inv["order_id"])
+    pay.pop("_id", None)
+    return pay
+
+
+# ------------- Alerts -------------
+@api.get("/dashboard/alerts")
+async def alerts(user: dict = Depends(get_current_user)):
+    now = datetime.now(timezone.utc)
+    out = []
+    # Propostas ganhas sem encomenda
+    props = await db.proposals.find({"status": "ganha", "converted_order_id": None}, {"_id": 0}).to_list(1000)
+    for p in props:
+        out.append({"level": "info", "type": "proposta_sem_encomenda", "message": f"Proposta {p['number']} ganha sem encomenda criada", "ref_id": p["id"]})
+
+    # Encomendas sem plano
+    orders = await db.orders.find({"status": {"$in": ["aberta", "em_planeamento"]}}, {"_id": 0}).to_list(1000)
+    for o in orders:
+        cnt = await db.plan_lines.count_documents({"order_id": o["id"]})
+        if cnt == 0:
+            out.append({"level": "warning", "type": "encomenda_sem_plano", "message": f"Encomenda {o['number']} sem plano de faturação", "ref_id": o["id"]})
+
+    # Plano vs encomenda desvios
+    for o in await db.orders.find({"status": {"$nin": ["cancelada", "fulfilled"]}}, {"_id": 0}).to_list(1000):
+        plan = await db.plan_lines.find({"order_id": o["id"], "status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(1000)
+        pv = sum(p["value"] for p in plan)
+        if plan and abs(pv - o["total_net"]) > 0.5:
+            out.append({"level": "warning", "type": "desvio_plano", "message": f"Encomenda {o['number']}: plano {pv:.2f}€ ≠ encomenda {o['total_net']:.2f}€", "ref_id": o["id"]})
+
+    # Linhas de plano vencidas sem fatura
+    for pl in await db.plan_lines.find({"status": {"$in": ["planeada", "parcialmente_faturada"]}}, {"_id": 0}).to_list(2000):
+        exp = pl.get("expected_date")
+        if not exp: continue
+        try:
+            d = datetime.fromisoformat(exp.replace("Z", "+00:00")) if "T" in exp else datetime.fromisoformat(exp + "T00:00:00+00:00")
+            if d < now:
+                out.append({"level": "danger", "type": "plano_atraso", "message": f"Linha de plano vencida ({d.date()}): {pl['description'] or pl['type']}", "ref_id": pl["order_id"]})
+        except Exception:
+            pass
+
+    # Faturas em atraso (>30 dias emitida sem recebimento total)
+    for inv in await db.invoices.find({"status": {"$in": ["emitida", "parcialmente_recebida"]}}, {"_id": 0}).to_list(2000):
+        try:
+            d = datetime.fromisoformat(inv["issued_at"].replace("Z", "+00:00"))
+            if (now - d).days > 30:
+                out.append({"level": "danger", "type": "fatura_atraso", "message": f"Fatura {inv['number']} em atraso ({(now - d).days}d)", "ref_id": inv["id"]})
+        except Exception:
+            pass
+    return {"alerts": out[:50]}
+
+
 # ------------- Seed -------------
 async def seed_startup():
     await db.users.create_index("email", unique=True)

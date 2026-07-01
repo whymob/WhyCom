@@ -2,7 +2,13 @@ import React, { useEffect, useState } from "react";
 import { api } from "@/lib/api";
 import { eur, pct } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
-import { TrendingUp, Sparkles, Target, FileText, Package, Percent } from "lucide-react";
+import { TrendingUp, Sparkles, Target, FileText, Package, Percent, AlertTriangle } from "lucide-react";
+
+const LEVEL_STYLE = {
+  info: "border-l-[#002FA7] bg-[#E0E7FF]/40",
+  warning: "border-l-[#FFC800] bg-[#FEF9C3]",
+  danger: "border-l-[#FF2A00] bg-[#FEE2E2]",
+};
 
 function KPI({ label, value, sub, testid, icon: Icon }) {
   return (
@@ -19,9 +25,11 @@ function KPI({ label, value, sub, testid, icon: Icon }) {
 
 export default function Dashboard() {
   const [kpis, setKpis] = useState(null);
+  const [alerts, setAlerts] = useState([]);
 
   useEffect(() => {
     api.get("/dashboard/kpis").then((r) => setKpis(r.data));
+    api.get("/dashboard/alerts").then((r) => setAlerts(r.data.alerts));
   }, []);
 
   return (
@@ -54,8 +62,23 @@ export default function Dashboard() {
           </div>
           <p className="text-sm text-neutral-600 mt-2 max-w-2xl">
             Uma encomenda só transita para <span className="font-medium text-[#00A859]">Fulfilled</span> quando as quatro linhas de reconciliação
-            coincidirem — em valor e em VAB. Módulos de plano/faturação/recebimento a chegar na Fase 2.
+            coincidirem — em valor e em VAB.
           </p>
+        </section>
+
+        <section>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3 flex items-center gap-2"><AlertTriangle size={12} /> Alertas & Desvios</div>
+          <div className="border border-neutral-200" data-testid="alerts-list">
+            {alerts.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="alerts-empty">Sem alertas ativos.</div>}
+            {alerts.map((a, i) => (
+              <div key={i} className={`border-l-4 px-4 py-2.5 text-sm border-b border-neutral-100 ${LEVEL_STYLE[a.level] || ""}`} data-testid={`alert-${i}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <span>{a.message}</span>
+                  <span className="text-[10px] uppercase tracking-widest text-neutral-500">{a.type}</span>
+                </div>
+              </div>
+            ))}
+          </div>
         </section>
       </div>
     </div>

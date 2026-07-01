@@ -1,0 +1,21 @@
+{
+  "summary": "Phase 2 (Financeiro/Provisões) smoke tested end-to-end. Backend reconcile/plan/invoices/payments/alerts endpoints working. Frontend Dashboard alerts widget renders (empty state), Orders list links to OrderDetail, OrderDetail shows full reconciliation cards, plan lines, invoices and Fulfilled badge for ENC-2026-0001.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "Auth login admin@whymob.pt/admin123 returns JWT",
+    "GET /api/orders/{id}/reconcile returns order/plan/invoiced/received/deltas (all zeros for ENC-2026-0001)",
+    "GET /api/dashboard/alerts returns {alerts: []}",
+    "Dashboard renders alerts-list + alerts-empty ('Sem alertas ativos.')",
+    "Orders page shows order-link-{id} and navigates to /encomendas/:id",
+    "OrderDetail: recon-order (9000 / VAB 3500), recon-plan (9000 / VAB 3500), recon-invoiced (9000 / VAB 3500), recon-received (9000) all present with matching values",
+    "OrderDetail: order-status-badge = 'Fulfilled' (auto-transition validated)",
+    "OrderDetail: plan-add-line, plan-save-btn, new-invoice-btn present; plan lines rendered with 3 rows (setup + 2 mensalidades) and invoice rows (FT-2026-0002/0003) visible",
+    "No JS/console errors detected on Dashboard or OrderDetail"
+  ],
+  "failed": [],
+  "action_items": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true,
+  "notes": "Only 1 order exists in DB (ENC-2026-0001 already fulfilled). Did not exercise create-invoice / register-payment dialogs since the fulfilled order has no open balance. Backend validated those via curl per main agent's context. Full dialog interaction testing deferred to full QA pass with a fresh non-fulfilled order."
+}
