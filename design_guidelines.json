@@ -1,0 +1,88 @@
+{
+  "theme": "LIGHT",
+  "archetype": "4 (Swiss & High-Contrast)",
+  "typography": {
+    "headings": {
+      "fontFamily": "Cabinet Grotesk",
+      "weights": ["font-bold", "font-black"],
+      "tracking": "tracking-tight"
+    },
+    "body": {
+      "fontFamily": "IBM Plex Sans",
+      "weights": ["font-normal", "font-medium"]
+    },
+    "mono": {
+      "fontFamily": "IBM Plex Mono",
+      "weights": ["font-medium"],
+      "usage": "For data tables, VAB metrics, currency (EUR), percentages"
+    }
+  },
+  "colors": {
+    "background": "bg-white",
+    "surface": "bg-[#FCFCFC]",
+    "border": "border-[#E5E5E5]",
+    "text_primary": "text-[#111111]",
+    "text_secondary": "text-[#404040]",
+    "primary": "bg-[#002FA7]",
+    "primary_hover": "hover:bg-[#002277]",
+    "accent_red": "text-[#FF2A00]",
+    "accent_green": "text-[#00A859]",
+    "accent_yellow": "text-[#FFC800]",
+    "funnel_stages": {
+      "lead": "bg-[#F3F4F6] text-[#111111]",
+      "opportunity": "bg-[#E0E7FF] text-[#002FA7]",
+      "proposal": "bg-[#FEF08A] text-[#854D0E]",
+      "order": "bg-[#DCFCE7] text-[#00A859]"
+    }
+  },
+  "layout_and_spacing": {
+    "strategy": "Control Room Grid",
+    "dashboard_grid": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4",
+    "spacing_scale": "Tight padding for data density. p-4 or p-6 for widgets.",
+    "borders": "1px solid borders (border-border), no soft shadows. Sharp and objective.",
+    "radii": "rounded-none or max rounded-sm"
+  },
+  "components": {
+    "cards": "Flat background, 1px subtle border, no shadow. Hover: slight border color darken.",
+    "tables": "Dense. Use IBM Plex Mono for numbers. Right-align currency columns.",
+    "buttons": "Sharp edges. High contrast. Primary buttons in International Klein Blue.",
+    "navigation": "Sticky top nav or dense left sidebar. Must include Cmd+K search pattern.",
+    "forms": "Left-aligned labels. Use Shadcn components heavily. Validation in Portuguese.",
+    "data_testid": "MANDATORY on all interactive elements (e.g., data-testid='submit-proposal-btn')."
+  },
+  "icons": {
+    "library": "Phosphor Icons",
+    "style": "Regular or Light weight. Minimalist."
+  },
+  "media": {
+    "images": [
+      {
+        "url": "https://images.unsplash.com/photo-1767300258298-21f93cbe723f?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjh8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBtb2Rlcm4lMjBvZmZpY2UlMjBhYnN0cmFjdHxlbnwwfHx8fDE3ODI5NDI1MDR8MA&ixlib=rb-4.1.0&q=85",
+        "category": "login_background",
+        "description": "Modern building facade with reflective glass panels"
+      },
+      {
+        "url": "https://images.pexels.com/photos/38197025/pexels-photo-38197025.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "user_avatar_1",
+        "description": "Professional headshot for CEO or Manager"
+      },
+      {
+        "url": "https://images.pexels.com/photos/15780889/pexels-photo-15780889.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+        "category": "user_avatar_2",
+        "description": "Professional headshot for Sales Rep or Admin"
+      }
+    ]
+  },
+  "instructions_to_main_agent": [
+    "Implement the UI using Shadcn and Tailwind CSS.",
+    "Ensure all text, labels, and placeholders are in Portuguese (PT-PT).",
+    "VAB (Valor Acrescentado Bruto) must be prominently displayed alongside Total Value in Dashboards, Proposals, and Orders.",
+    "Currency formatting must be in EUR (€) using IBM Plex Mono.",
+    "Include 'data-testid' attributes on all inputs, buttons, and critical UI elements for testing.",
+    "Follow the Control Room grid pattern for the Dashboard: dense, functional, cardless (1px borders, no shadows).",
+    "Use Cmd+K global search pattern for quick access to entities.",
+    "Avoid the 'Inter' font. Use Cabinet Grotesk for headings and IBM Plex Sans for body.",
+    "Use Phosphor icons. Command: yarn add @phosphor-icons/react",
+    "Ensure the Funnel visualization uses the specific colors outlined in colors.funnel_stages."
+  ]
+}
