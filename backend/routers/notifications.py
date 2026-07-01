@@ -3,7 +3,7 @@ import os
 from fastapi import APIRouter, Depends, HTTPException
 
 from deps import require_roles, logger
-from models import TestEmailRequest
+from models import TestEmailRequest, AlertsDigestRequest
 from helpers import send_email_async, compute_alerts, build_alerts_digest_html
 
 router = APIRouter()
@@ -24,15 +24,15 @@ async def send_test_email(req: TestEmailRequest, user: dict = Depends(require_ro
         email = await send_email_async(req.recipient_email, req.subject, html)
         return {"status": "success", "email_id": email.get("id"), "to": req.recipient_email}
     except Exception as e:
-        logger.error(f"Falha a enviar email: {e}")
-        raise HTTPException(500, f"Falha a enviar email: {str(e)}")
+        logger.error(f"Falha a enviar email de teste: {e}")
+        raise HTTPException(502, "Não foi possível enviar o email. Contacte o administrador.")
 
 
 @router.post("/notifications/send-alerts-digest")
-async def send_alerts_digest(payload: dict = None, user: dict = Depends(require_roles("admin", "ceo"))):
+async def send_alerts_digest(req: AlertsDigestRequest | None = None, user: dict = Depends(require_roles("admin", "ceo"))):
     if not os.environ.get("RESEND_API_KEY"):
         raise HTTPException(500, "RESEND_API_KEY não configurado")
-    to = (payload or {}).get("to") or user.get("email") or os.environ.get("ADMIN_EMAIL")
+    to = (req.to if req else None) or user.get("email") or os.environ.get("ADMIN_EMAIL")
     if not to:
         raise HTTPException(400, "Destinatário em falta")
     items = await compute_alerts()
@@ -44,5 +44,5 @@ async def send_alerts_digest(payload: dict = None, user: dict = Depends(require_
         email = await send_email_async(to, subject, html)
         return {"sent": True, "to": to, "count": len(items), "email_id": email.get("id")}
     except Exception as e:
-        logger.error(f"Resend erro: {e}")
-        raise HTTPException(500, f"Resend erro: {str(e)}")
+        logger.error(f"Falha a enviar digest de alertas: {e}")
+        raise HTTPException(502, "Não foi possível enviar o email. Contacte o administrador.")

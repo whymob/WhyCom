@@ -30,6 +30,20 @@ async def root():
     return {"service": "WhyMob CRM", "ok": True}
 
 
+@api.get("/health")
+async def health():
+    """Health check com ping ao Mongo."""
+    from deps import db
+    from datetime import datetime, timezone
+    result = {"status": "ok", "checked_at": datetime.now(timezone.utc).isoformat(), "mongo": "ok"}
+    try:
+        await db.command("ping")
+    except Exception as e:
+        result["status"] = "degraded"
+        result["mongo"] = f"error: {str(e)[:120]}"
+    return result
+
+
 # Register all sub-routers under /api
 for r in (
     auth_users_router,

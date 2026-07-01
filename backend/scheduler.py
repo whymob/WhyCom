@@ -2,6 +2,7 @@
 import os
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.jobstores.mongodb import MongoDBJobStore
 
 from deps import logger
 from helpers import send_email_async, compute_alerts, build_alerts_digest_html
@@ -33,12 +34,32 @@ async def _job_send_alerts_digest():
             logger.error(f"[scheduler] alerts_digest falhou para {to}: {e}")
 
 
+def _build_jobstores() -> dict:
+    """Se JOBSTORE=mongodb, usa MongoDB (safe para multi-worker); caso contrário, in-memory."""
+    if os.environ.get("JOBSTORE", "memory").lower() == "mongodb":
+        try:
+            store = MongoDBJobStore(
+                database=os.environ["DB_NAME"],
+                collection=os.environ.get("SCHEDULER_COLLECTION", "apscheduler_jobs"),
+                host=os.environ["MONGO_URL"],
+            )
+            logger.info("[scheduler] jobstore: MongoDB")
+            return {"default": store}
+        except Exception as e:
+            logger.error(f"[scheduler] falha a criar MongoDBJobStore, a usar memory: {e}")
+    logger.info("[scheduler] jobstore: memory")
+    return {}
+
+
 def start_scheduler() -> AsyncIOScheduler | None:
     global scheduler
     if os.environ.get("SCHEDULER_ENABLED", "true").lower() not in ("1", "true", "yes"):
         logger.info("[scheduler] desativado via SCHEDULER_ENABLED")
         return None
-    scheduler = AsyncIOScheduler(timezone=os.environ.get("SCHEDULER_TZ", "Europe/Lisbon"))
+    scheduler = AsyncIOScheduler(
+        timezone=os.environ.get("SCHEDULER_TZ", "Europe/Lisbon"),
+        jobstores=_build_jobstores(),
+    )
     hour = int(os.environ.get("ALERTS_DIGEST_CRON_HOUR", "9"))
     minute = int(os.environ.get("ALERTS_DIGEST_CRON_MINUTE", "0"))
     day_of_week = os.environ.get("ALERTS_DIGEST_CRON_DOW", "mon-fri")

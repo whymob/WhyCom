@@ -1,0 +1,37 @@
+{
+  "summary": "Backend-only testing for the 5 new WhyMob CRM improvements (iteration 5): /api/health with Mongo ping, AlertsDigestRequest Pydantic validation, redacted Resend errors (502 + generic message), fire-and-forget event hooks (proposal_won + order_fulfilled), and optional MongoDB jobstore for APScheduler. 13/13 new tests + 56/56 regression tests = 69/69 pass. Real Resend email_ids captured in backend logs for both hooks (delivered@resend.dev). Hook endpoints confirmed non-blocking (< 3s for PATCH proposal / POST payment).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_new_features_iter5.py",
+    "/app/backend/tests/test_regression_refactor.py",
+    "/app/backend/tests/test_notifications_resend.py",
+    "/app/test_reports/pytest/pytest_results_iter5.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "helpers._notify() reads NOTIFY_EVENT_RECIPIENTS at every call — fine, but env is only loaded at startup so a runtime env change requires a restart. Consider documenting.",
+    "routers/notifications.py: send_alerts_digest still raises HTTPException(500) for missing RESEND_API_KEY — arguably should be 503 (service unavailable) since it's an ops issue, not a client bug. Minor.",
+    "scheduler._build_jobstores(): if MongoDBJobStore construction fails, code silently falls back to memory jobstore — could mask real ops issues. Consider raising in strict mode.",
+    "helpers.recalc_order_status(): the notify_order_fulfilled hook uses asyncio.create_task inside a sync-ish flow — task reference is not stored, so if the event loop exits before the task completes the email may be lost (fine for a long-running server, but worth documenting). Same for pipeline.update_proposal.",
+    "server.py /api/health: mongo ping error message is truncated to 120 chars but full error is not logged — recommend adding logger.warning on ping failure.",
+    "AlertsDigestRequest: `to: Optional[EmailStr]` — nice; but the field is not documented in OpenAPI description. Add a description= to improve API docs."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_new_features_iter5.py (new — 13 tests for iteration 5 features)"
+  ],
+  "success_rate": {"backend": "100% (13/13 new + 56/56 regression)", "frontend": "n/a"},
+  "test_credentials": "admin@whymob.pt/admin123 (from /app/memory/test_credentials.md). Resend sandbox recipient: delivered@resend.dev.",
+  "seed_data_creation": "TestEventHooks creates a fresh client + opp + proposal per test via full pipeline (TEST_ prefix) and, for order_fulfilled, converts it into an order + plan + full invoice + full payment to trigger fulfilled transition. Fresh order per test to avoid mutating existing fulfilled seeded orders.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Three test suites now live in /app/backend/tests/: test_regression_refactor.py (56, general regression), test_notifications_resend.py (13, notifications RBAC + Resend), test_new_features_iter5.py (13, iteration 5 features). All 3 suites green in 8-10s total under pytest-xdist. Log lines to grep for verification: `[notify:proposal_won]`, `[notify:order_fulfilled]`, `[scheduler] jobstore:` in /var/log/supervisor/backend.err.log. Resend sandbox only accepts recipient=delivered@resend.dev, so NOTIFY_EVENT_RECIPIENTS must remain that in .env (already set). To test MongoDB jobstore, temporarily set JOBSTORE=mongodb in /app/backend/.env then `sudo supervisorctl restart backend` and re-check log for `[scheduler] jobstore: MongoDB`.",
+  "rca of the issue": "n/a — no bugs found. All 5 new features work as specified: (1) /api/health returns 200 with mongo:ok and no auth required; (2) AlertsDigestRequest Pydantic validation returns 422 on invalid email and 200 otherwise; (3) source code review confirms 502 + generic message on Resend failures (no leak of raw exception); (4) both hooks fire via asyncio.create_task and log real Resend email_ids while the HTTP response returns in < 3s; (5) scheduler jobstore selectable via JOBSTORE env — current run uses memory as expected."
+}

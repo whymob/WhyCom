@@ -2,6 +2,7 @@
 import asyncio
 import csv
 import io
+import os
 import resend
 from datetime import datetime, timezone
 from fastapi import HTTPException
@@ -79,6 +80,15 @@ async def recalc_order_status(oid: str):
 
     if new_status != order["status"]:
         await db.orders.update_one({"id": oid}, {"$set": {"status": new_status}})
+        # Event hook: encomenda transitou para fulfilled
+        if new_status == "fulfilled":
+            try:
+                c = await db.clients.find_one({"id": order["client_id"]}, {"_id": 0})
+                client_name = c["name"] if c else "—"
+                order_after = {**order, "status": new_status}
+                asyncio.create_task(notify_order_fulfilled(order_after, client_name))
+            except Exception as e:
+                logger.error(f"[hook] order_fulfilled falhou: {e}")
 
 
 # ------------- Alerts (pure function, callable by scheduler) -------------
@@ -186,3 +196,64 @@ def build_alerts_digest_html(items: list) -> str:
       </div>
     </div>
     """
+
+
+# ------------- Event hooks (fire-and-forget email) -------------
+async def _notify(subject: str, html: str, kind: str):
+    """Envia email não-bloqueante para os destinatários de eventos (best-effort).
+
+    Recipients: NOTIFY_EVENT_RECIPIENTS (csv). Falha em silêncio (só log)."""
+    recipients_raw = os.environ.get("NOTIFY_EVENT_RECIPIENTS", "") or os.environ.get("ADMIN_EMAIL", "")
+    recipients = [r.strip() for r in recipients_raw.split(",") if r.strip()]
+    if not recipients or not os.environ.get("RESEND_API_KEY"):
+        return
+    for to in recipients:
+        try:
+            email = await send_email_async(to, subject, html)
+            logger.info(f"[notify:{kind}] enviado para {to} (id={email.get('id')})")
+        except Exception as e:
+            logger.error(f"[notify:{kind}] falhou para {to}: {e}")
+
+
+def _wrapper_html(title: str, body_html: str, accent: str = "#002FA7") -> str:
+    return f"""
+    <div style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto">
+      <div style="background:{accent};color:#fff;padding:24px">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;opacity:0.7">WhyMob CRM</div>
+        <h1 style="margin:8px 0 0;font-weight:900;font-size:28px">{title}</h1>
+      </div>
+      <div style="padding:24px;border:1px solid #eee;border-top:none">
+        {body_html}
+      </div>
+    </div>
+    """
+
+
+async def notify_proposal_won(proposal: dict, client_name: str):
+    subject = f"[WhyMob] Proposta {proposal['number']} ganha — {client_name}"
+    body = f"""
+      <p style="color:#444;font-size:14px">Uma nova proposta acaba de ser marcada como <b>Ganha</b>.</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:13px">
+        <tr><td style="padding:8px 12px;background:#f6f6f6;width:40%">Número</td><td style="padding:8px 12px;font-family:monospace">{proposal['number']}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f6f6f6">Cliente</td><td style="padding:8px 12px">{client_name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f6f6f6">Valor s/ IVA</td><td style="padding:8px 12px;font-family:monospace">{proposal.get('total_net', 0):,.2f} €</td></tr>
+        <tr><td style="padding:8px 12px;background:#f6f6f6">VAB</td><td style="padding:8px 12px;font-family:monospace">{proposal.get('total_vab', 0):,.2f} €</td></tr>
+      </table>
+      <p style="color:#888;font-size:12px;margin-top:20px">Próximo passo: converter em encomenda no CRM.</p>
+    """
+    await _notify(subject, _wrapper_html("Proposta Ganha", body, accent="#00A859"), "proposal_won")
+
+
+async def notify_order_fulfilled(order: dict, client_name: str):
+    subject = f"[WhyMob] Encomenda {order['number']} Fulfilled — {client_name}"
+    body = f"""
+      <p style="color:#444;font-size:14px">A encomenda foi <b>reconciliada por completo</b> e transitou para <b>Fulfilled</b>.</p>
+      <table style="width:100%;border-collapse:collapse;margin-top:12px;font-size:13px">
+        <tr><td style="padding:8px 12px;background:#f6f6f6;width:40%">Número</td><td style="padding:8px 12px;font-family:monospace">{order['number']}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f6f6f6">Cliente</td><td style="padding:8px 12px">{client_name}</td></tr>
+        <tr><td style="padding:8px 12px;background:#f6f6f6">Valor s/ IVA</td><td style="padding:8px 12px;font-family:monospace">{order.get('total_net', 0):,.2f} €</td></tr>
+        <tr><td style="padding:8px 12px;background:#f6f6f6">VAB</td><td style="padding:8px 12px;font-family:monospace">{order.get('total_vab', 0):,.2f} €</td></tr>
+      </table>
+      <p style="color:#888;font-size:12px;margin-top:20px">Valor = Planeado = Faturado = Recebido. Ciclo comercial concluído.</p>
+    """
+    await _notify(subject, _wrapper_html("Encomenda Fulfilled", body, accent="#00A859"), "order_fulfilled")

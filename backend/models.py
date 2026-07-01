@@ -192,6 +192,10 @@ class TestEmailRequest(BaseModel):
     html_content: Optional[str] = None
 
 
+class AlertsDigestRequest(BaseModel):
+    to: Optional[EmailStr] = None
+
+
 def compute_proposal_totals(lines: List[ProposalLine]):
     net = sum(ln.net for ln in lines)
     vat = sum(ln.vat for ln in lines)

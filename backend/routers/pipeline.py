@@ -1,11 +1,12 @@
 """Commercial pipeline: Leads, Opportunities, Proposals, Orders + Funnel/KPIs."""
+import asyncio
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from deps import db, get_current_user, now_iso, new_id
+from deps import db, get_current_user, now_iso, new_id, logger
 from models import Lead, Opportunity, Proposal, ProposalLine, Order, compute_proposal_totals
-from helpers import audit_log
+from helpers import audit_log, notify_proposal_won
 
 router = APIRouter()
 
@@ -184,6 +185,14 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
                         {"status": before.get("status"), "total_net": before.get("total_net"), "total_vab": before.get("total_vab")},
                         {"status": doc.get("status"), "total_net": doc.get("total_net"), "total_vab": doc.get("total_vab")},
                         user, payload.get("lost_reason", ""))
+    # Event hook: proposta transitou para ganha
+    if before and before.get("status") != "ganha" and doc.get("status") == "ganha":
+        try:
+            c = await db.clients.find_one({"id": doc["client_id"]}, {"_id": 0})
+            client_name = c["name"] if c else "—"
+            asyncio.create_task(notify_proposal_won(doc, client_name))
+        except Exception as e:
+            logger.error(f"[hook] proposal_won falhou: {e}")
     return doc
 
 
