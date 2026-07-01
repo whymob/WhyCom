@@ -344,6 +344,12 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_roles("a
 @api.patch("/users/{uid}", response_model=UserOut)
 async def update_user(uid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
     payload.pop("id", None)
+    # Prevent admin from disabling themselves or downgrading own role
+    if uid == user["id"]:
+        if "active" in payload and payload["active"] is False:
+            raise HTTPException(400, "Não pode inativar o próprio utilizador")
+        if "role" in payload and payload["role"] != user["role"]:
+            raise HTTPException(400, "Não pode alterar o próprio cargo")
     if "password" in payload and payload["password"]:
         payload["password_hash"] = hash_password(payload.pop("password"))
     else:
