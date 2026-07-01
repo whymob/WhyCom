@@ -7,8 +7,10 @@ load_dotenv(ROOT_DIR / '.env')
 import os
 import uuid
 import logging
+import asyncio
 import bcrypt
 import jwt
+import resend
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional, Literal
 
@@ -16,6 +18,10 @@ from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+# Configure Resend SDK
+resend.api_key = os.environ.get("RESEND_API_KEY", "")
+SENDER_EMAIL = os.environ.get("SENDER_EMAIL") or os.environ.get("RESEND_FROM") or "onboarding@resend.dev"
 
 
 # ------------- setup -------------
@@ -1571,7 +1577,89 @@ async def my_allocations(user: dict = Depends(get_current_user)):
     return {"allocations": allocs}
 
 
-# ------------- Seed -------------
+# ------------- Notifications (Resend) -------------
+
+
+class TestEmailRequest(BaseModel):
+    recipient_email: EmailStr
+    subject: Optional[str] = "WhyMob CRM — Teste de email"
+    html_content: Optional[str] = None
+
+
+def _send_resend_email(recipient: str, subject: str, html: str) -> dict:
+    """Sync helper that calls Resend SDK. Called via asyncio.to_thread."""
+    params = {
+        "from": SENDER_EMAIL,
+        "to": [recipient],
+        "subject": subject,
+        "html": html,
+    }
+    return resend.Emails.send(params)
+
+
+@api.post("/notifications/test-email")
+async def send_test_email(req: TestEmailRequest, user: dict = Depends(require_roles("admin", "ceo"))):
+    if not os.environ.get("RESEND_API_KEY"):
+        raise HTTPException(500, "RESEND_API_KEY não configurado")
+    html = req.html_content or (
+        '<div style="font-family:system-ui,sans-serif;padding:24px">'
+        '<h2 style="color:#002FA7;margin:0 0 12px">WhyMob CRM</h2>'
+        '<p>Este é um email de teste enviado a partir da plataforma.</p>'
+        f'<p style="color:#888;font-size:12px">Enviado por {user.get("email")}</p>'
+        '</div>'
+    )
+    try:
+        email = await asyncio.to_thread(_send_resend_email, req.recipient_email, req.subject, html)
+        return {"status": "success", "email_id": email.get("id"), "to": req.recipient_email}
+    except Exception as e:
+        logger.error(f"Falha a enviar email: {e}")
+        raise HTTPException(500, f"Falha a enviar email: {str(e)}")
+
+
+@api.post("/notifications/send-alerts-digest")
+async def send_alerts_digest(payload: dict = None, user: dict = Depends(require_roles("admin", "ceo"))):
+    if not os.environ.get("RESEND_API_KEY"):
+        raise HTTPException(500, "RESEND_API_KEY não configurado")
+    to = (payload or {}).get("to") or user.get("email") or os.environ.get("ADMIN_EMAIL")
+    if not to:
+        raise HTTPException(400, "Destinatário em falta")
+    data = await alerts(user=user)
+    items = data["alerts"]
+    if not items:
+        return {"sent": False, "reason": "Sem alertas a enviar"}
+
+    level_colors = {"info": "#002FA7", "warning": "#B45309", "danger": "#B91C1C"}
+    rows_html = "".join(
+        f'<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;color:{level_colors.get(a["level"],"#111")};font-family:monospace;font-size:11px;text-transform:uppercase">{a["level"]}</td>'
+        f'<td style="padding:8px 12px;border-bottom:1px solid #eee">{a["message"]}</td></tr>'
+        for a in items
+    )
+    html = f"""
+    <div style="font-family:system-ui,sans-serif;max-width:640px;margin:0 auto">
+      <div style="background:#002FA7;color:#fff;padding:24px">
+        <div style="font-size:11px;letter-spacing:0.2em;text-transform:uppercase;opacity:0.7">WhyMob CRM</div>
+        <h1 style="margin:8px 0 0;font-weight:900;font-size:28px">Digest de Alertas</h1>
+      </div>
+      <div style="padding:24px;border:1px solid #eee;border-top:none">
+        <p style="color:#444;font-size:14px">{len(items)} alertas ativos em {now_iso()[:10]}.</p>
+        <table style="width:100%;border-collapse:collapse;margin-top:12px">
+          <thead><tr><th style="text-align:left;padding:8px 12px;background:#f6f6f6;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Nível</th><th style="text-align:left;padding:8px 12px;background:#f6f6f6;font-size:11px;text-transform:uppercase;letter-spacing:0.1em">Alerta</th></tr></thead>
+          <tbody>{rows_html}</tbody>
+        </table>
+        <p style="color:#888;font-size:12px;margin-top:24px">Aceda ao dashboard para detalhes.</p>
+      </div>
+    </div>
+    """
+    subject = f"[WhyMob] {len(items)} alertas ativos"
+    try:
+        email = await asyncio.to_thread(_send_resend_email, to, subject, html)
+        return {"sent": True, "to": to, "count": len(items), "email_id": email.get("id")}
+    except Exception as e:
+        logger.error(f"Resend erro: {e}")
+        raise HTTPException(500, f"Resend erro: {str(e)}")
+
+
+# ------------- Seed placeholder -------------
 async def seed_startup():
     await db.users.create_index("email", unique=True)
     await db.clients.create_index("id", unique=True)

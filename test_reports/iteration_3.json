@@ -1,0 +1,34 @@
+{
+  "summary": "Backend-only testing of WhyMob CRM Resend integration (SDK-based refactor). All 13 pytest cases passed: test-email happy path returns email_id from Resend, RBAC (no-auth 401/403, comercial 403), payload validation 422, digest returns sent:false when no alerts and sent:true with email_id when a 'ganha' proposal is force-seeded via Mongo. Regression sanity on login, /leads, /opportunities, /orders, /dashboard/alerts, /analytics/executive all 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_notifications_resend.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is 1766 lines — should be split into routers (auth, leads, opportunities, orders, notifications, analytics) for maintainability.",
+    "send_alerts_digest signature is `payload: dict = None` — replace with a Pydantic model (e.g. AlertsDigestRequest{to: Optional[EmailStr]}) for validation and OpenAPI docs.",
+    "Review request referenced `/api/dashboard/executive` but the actual route is `/api/analytics/executive` — worth aligning naming or documenting.",
+    "_send_resend_email surfaces raw exception message in HTTP 500 body (`f\"Resend erro: {str(e)}\"`) — consider redacting to avoid leaking Resend internals to clients.",
+    "SENDER_EMAIL fallback defaults to `onboarding@resend.dev` if envs missing — fine for sandbox, but should fail loudly in production."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_notifications_resend.py (new)"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "n/a"},
+  "test_credentials": "admin@whymob.pt/admin123, comercial@whymob.pt/comercial123 (from /app/memory/test_credentials.md). Resend recipient: delivered@resend.dev (sandbox).",
+  "seed_data_creation": "For the forced-alert digest test, a proposal doc with id prefix `TEST_prop_` and `_test_marker: resend_digest_pytest` is inserted into `proposals` collection and deleted in the same test's finally block.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Test file at /app/backend/tests/test_notifications_resend.py covers Resend + regression sanity. It force-inserts a proposal into Mongo (via MONGO_URL/DB_NAME) to trigger a real alert. If Mongo credentials change or the `proposals` schema evolves, update the forced doc. Use `delivered@resend.dev` for Resend sandbox — never a real address in CI.",
+  "rca of the issue": "n/a — no bugs found. One initial test failure (`/dashboard/executive` 404) was a test-side path mistake (actual route is `/analytics/executive`); fixed in test file."
+}
