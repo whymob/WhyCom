@@ -15,6 +15,8 @@ import OrderDetail from "@/pages/OrderDetail";
 import Reporting from "@/pages/Reporting";
 import Projects from "@/pages/Projects";
 import ProjectDetail from "@/pages/ProjectDetail";
+import Audit from "@/pages/Audit";
+import Timesheet from "@/pages/Timesheet";
 import Clients from "@/pages/Clients";
 import Manufacturers from "@/pages/Manufacturers";
 import Products from "@/pages/Products";
@@ -53,6 +55,8 @@ function App() {
               <Route path="reporting" element={<Reporting />} />
               <Route path="projetos" element={<Projects />} />
               <Route path="projetos/:id" element={<ProjectDetail />} />
+              <Route path="timesheet" element={<Timesheet />} />
+              <Route path="auditoria" element={<Audit />} />
               <Route path="clientes" element={<Clients />} />
               <Route path="fabricantes" element={<Manufacturers />} />
               <Route path="produtos" element={<Products />} />

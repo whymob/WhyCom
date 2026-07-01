@@ -11,6 +11,8 @@ import {
   Package,
   BarChart3,
   Wrench,
+  Clock,
+  ShieldCheck,
   Building2,
   Factory,
   Boxes,
@@ -27,12 +29,14 @@ const NAV = [
   { to: "/encomendas", label: "Encomendas", icon: Package, testid: "nav-orders" },
   { to: "/reporting", label: "Reporting", icon: BarChart3, testid: "nav-reporting" },
   { to: "/projetos", label: "Projetos", icon: Wrench, testid: "nav-projects" },
+  { to: "/timesheet", label: "Timesheet", icon: Clock, testid: "nav-timesheet" },
 ];
 const NAV_MD = [
   { to: "/clientes", label: "Clientes", icon: Building2, testid: "nav-clients" },
   { to: "/fabricantes", label: "Fabricantes", icon: Factory, testid: "nav-manufacturers" },
   { to: "/produtos", label: "Produtos", icon: Boxes, testid: "nav-products" },
   { to: "/utilizadores", label: "Utilizadores", icon: UsersIcon, testid: "nav-users" },
+  { to: "/auditoria", label: "Auditoria", icon: ShieldCheck, testid: "nav-audit" },
 ];
 
 export default function Layout() {

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from "react";
-import { api } from "@/lib/api";
+import { api, API } from "@/lib/api";
 import { eur, pct } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
@@ -45,6 +45,14 @@ export default function Reporting() {
   const [fi, setFi] = useState([]);
   const [fr, setFr] = useState(null);
 
+  const download = async (path, filename) => {
+    const token = localStorage.getItem("whymob_token");
+    const res = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
+  };
+
   useEffect(() => {
     api.get("/analytics/executive").then((r) => { setExec(r.data); setFi(r.data.forecast_invoicing); setFr(r.data.forecast_receiving); setVab(r.data.vab); });
     api.get("/analytics/by-commercial").then((r) => setComm(r.data.rows));
@@ -54,7 +62,13 @@ export default function Reporting() {
 
   return (
     <div>
-      <PageHeader kicker="Reporting" title="Dashboards Avançados" />
+      <PageHeader kicker="Reporting" title="Dashboards Avançados" actions={
+        <div className="flex gap-2 text-xs">
+          <button onClick={() => download("/exports/invoices.csv", "faturas.csv")} data-testid="export-invoices-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturas CSV</button>
+          <button onClick={() => download("/exports/reporting-commercial.csv", "reporting-comerciais.csv")} data-testid="export-commercial-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Comerciais CSV</button>
+          <button onClick={() => download("/exports/timesheet.csv", "timesheet.csv")} data-testid="export-timesheet-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Timesheet CSV</button>
+        </div>
+      } />
       <div className="p-8">
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="rounded-none bg-transparent border border-neutral-200 p-0 h-auto">

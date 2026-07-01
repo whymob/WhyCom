@@ -22,6 +22,11 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (P1 Backlog — 01/07/2026) ✅
+- ✅ **Auditoria** — collection `audit_log` + helper `_audit()` integrado em transições de estado (leads, oportunidades, propostas, anulação de faturas). Endpoint `/api/audit?entity=&entity_id=&limit=` + página `/auditoria` (Admin).
+- ✅ **Exportação CSV** (compatível Excel) — `/api/exports/invoices.csv`, `/api/exports/timesheet.csv`, `/api/exports/reporting-commercial.csv`. Botões de download no Reporting e no Timesheet.
+- ✅ **Timesheet self-service** — `/api/me/time-entries` e `/api/me/allocations` filtradas pelo utilizador autenticado. Página `/timesheet` com 3 KPIs (total horas, faturáveis, projetos) + registo rápido + download CSV.
+
 ## Implemented (Fase 4 — Módulo Técnico — 01/07/2026) ✅
 - ✅ Modelo Projetos ligados a Encomendas (`/api/projects` CRUD)
 - ✅ Alocação de developers com €/hora custo e horas previstas por developer

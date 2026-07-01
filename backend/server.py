@@ -471,10 +471,13 @@ async def update_lead(lid: str, payload: dict, user: dict = Depends(get_current_
     payload["updated_at"] = now_iso()
     if payload.get("status") == "descartada" and not payload.get("lost_reason"):
         raise HTTPException(400, "Motivo obrigatório ao descartar lead")
+    before = await db.leads.find_one({"id": lid}, {"_id": 0})
     await db.leads.update_one({"id": lid}, {"$set": payload})
     doc = await db.leads.find_one({"id": lid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Lead não encontrada")
+    if before and before.get("status") != doc.get("status"):
+        await _audit("status_change", "lead", lid, {"status": before.get("status")}, {"status": doc.get("status")}, user, payload.get("lost_reason", ""))
     return doc
 
 
@@ -555,10 +558,13 @@ async def update_opp(oid: str, payload: dict, user: dict = Depends(get_current_u
     payload["updated_at"] = now_iso()
     if payload.get("status") == "perdida" and not payload.get("lost_reason"):
         raise HTTPException(400, "Motivo de perda obrigatório")
+    before = await db.opportunities.find_one({"id": oid}, {"_id": 0})
     await db.opportunities.update_one({"id": oid}, {"$set": payload})
     doc = await db.opportunities.find_one({"id": oid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Oportunidade não encontrada")
+    if before and before.get("status") != doc.get("status"):
+        await _audit("status_change", "opportunity", oid, {"status": before.get("status"), "estimated_value": before.get("estimated_value")}, {"status": doc.get("status"), "estimated_value": doc.get("estimated_value")}, user, payload.get("lost_reason", ""))
     return doc
 
 
@@ -617,6 +623,7 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
     payload["updated_at"] = now_iso()
     if payload.get("status") == "perdida" and not payload.get("lost_reason"):
         raise HTTPException(400, "Motivo de perda obrigatório")
+    before = await db.proposals.find_one({"id": pid}, {"_id": 0})
     # recompute totals if lines present
     if "lines" in payload:
         lines_models = [ProposalLine(**l) for l in payload["lines"]]
@@ -629,6 +636,8 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
     doc = await db.proposals.find_one({"id": pid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Proposta não encontrada")
+    if before and (before.get("status") != doc.get("status") or before.get("total_net") != doc.get("total_net")):
+        await _audit("update", "proposal", pid, {"status": before.get("status"), "total_net": before.get("total_net"), "total_vab": before.get("total_vab")}, {"status": doc.get("status"), "total_net": doc.get("total_net"), "total_vab": doc.get("total_vab")}, user, payload.get("lost_reason", ""))
     return doc
 
 
@@ -1461,6 +1470,105 @@ async def project_summary(pid: str, user: dict = Depends(get_current_user)):
         },
         "by_developer": sorted(by_dev.values(), key=lambda r: -r["hours"]),
     }
+
+
+# ------------- Audit / Exports / Timesheet -------------
+from fastapi.responses import Response
+import csv
+import io
+
+
+async def _audit(action: str, entity: str, entity_id: str, before, after, user: dict, reason: str = ""):
+    doc = {
+        "id": new_id(),
+        "at": now_iso(),
+        "user_id": user.get("id", "system"),
+        "user_name": user.get("name", "system"),
+        "action": action,
+        "entity": entity,
+        "entity_id": entity_id,
+        "before": before,
+        "after": after,
+        "reason": reason,
+    }
+    await db.audit_log.insert_one(doc)
+
+
+@api.get("/audit")
+async def list_audit(entity: Optional[str] = None, entity_id: Optional[str] = None, limit: int = 100, user: dict = Depends(get_current_user)):
+    q = {}
+    if entity: q["entity"] = entity
+    if entity_id: q["entity_id"] = entity_id
+    docs = await db.audit_log.find(q, {"_id": 0}).sort("at", -1).to_list(min(limit, 500))
+    return {"rows": docs}
+
+
+def _csv_response(rows: list, fields: list, filename: str) -> Response:
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=fields, extrasaction="ignore")
+    w.writeheader()
+    for r in rows: w.writerow(r)
+    return Response(
+        content=buf.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+@api.get("/exports/invoices.csv")
+async def export_invoices(user: dict = Depends(get_current_user)):
+    invoices = await db.invoices.find({}, {"_id": 0}).sort("issued_at", -1).to_list(5000)
+    clients = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    orders = {o["id"]: o["number"] for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
+    rows = [{
+        "numero": i["number"], "data": i["issued_at"][:10],
+        "cliente": clients.get(i["client_id"], ""), "encomenda": orders.get(i["order_id"], ""),
+        "total_sem_iva": i["total_net"], "iva": i["total_vat"], "total_com_iva": i["total_gross"],
+        "vab": i["total_vab"], "recebido": i.get("received_amount", 0),
+        "estado": i["status"],
+    } for i in invoices]
+    return _csv_response(rows, ["numero", "data", "cliente", "encomenda", "total_sem_iva", "iva", "total_com_iva", "vab", "recebido", "estado"], "faturas.csv")
+
+
+@api.get("/exports/timesheet.csv")
+async def export_timesheet(project_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    q = {"project_id": project_id} if project_id else {}
+    entries = await db.time_entries.find(q, {"_id": 0}).sort("date", -1).to_list(10000)
+    projects = {p["id"]: p["name"] for p in await db.projects.find({}, {"_id": 0}).to_list(1000)}
+    rows = [{
+        "data": e["date"], "projeto": projects.get(e["project_id"], ""),
+        "developer": e["user_name"], "horas": e["hours"], "custo": e["cost"],
+        "faturavel": "sim" if e["billable"] else "nao",
+        "descricao": e.get("description", ""),
+    } for e in entries]
+    return _csv_response(rows, ["data", "projeto", "developer", "horas", "custo", "faturavel", "descricao"], "timesheet.csv")
+
+
+@api.get("/exports/reporting-commercial.csv")
+async def export_reporting_commercial(user: dict = Depends(get_current_user)):
+    data = await by_commercial(user)
+    return _csv_response(data["rows"], ["name", "role", "leads", "opps", "props", "won", "lost", "conversion_rate", "won_value", "won_vab", "orders_value", "orders_vab"], "reporting-comerciais.csv")
+
+
+# Timesheet self-service (developers ver o seu próprio + registar rapidamente)
+@api.get("/me/time-entries")
+async def my_time_entries(user: dict = Depends(get_current_user)):
+    entries = await db.time_entries.find({"user_id": user["id"]}, {"_id": 0}).sort("date", -1).to_list(2000)
+    projects = {p["id"]: p for p in await db.projects.find({}, {"_id": 0}).to_list(1000)}
+    total_hours = round(sum(e["hours"] for e in entries), 2)
+    total_billable = round(sum(e["hours"] for e in entries if e["billable"]), 2)
+    for e in entries: e["project_name"] = projects.get(e["project_id"], {}).get("name", "—")
+    return {"entries": entries, "total_hours": total_hours, "total_billable": total_billable}
+
+
+@api.get("/me/allocations")
+async def my_allocations(user: dict = Depends(get_current_user)):
+    allocs = await db.allocations.find({"user_id": user["id"]}, {"_id": 0}).to_list(500)
+    projects = {p["id"]: p for p in await db.projects.find({}, {"_id": 0}).to_list(1000)}
+    for a in allocs:
+        p = projects.get(a["project_id"], {})
+        a["project_name"] = p.get("name", "—")
+    return {"allocations": allocs}
 
 
 # ------------- Seed -------------
