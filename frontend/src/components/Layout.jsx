@@ -9,6 +9,7 @@ import {
   Target,
   FileText,
   Package,
+  BarChart3,
   Building2,
   Factory,
   Boxes,
@@ -23,6 +24,7 @@ const NAV = [
   { to: "/oportunidades", label: "Oportunidades", icon: Target, testid: "nav-opportunities" },
   { to: "/propostas", label: "Propostas", icon: FileText, testid: "nav-proposals" },
   { to: "/encomendas", label: "Encomendas", icon: Package, testid: "nav-orders" },
+  { to: "/reporting", label: "Reporting", icon: BarChart3, testid: "nav-reporting" },
 ];
 const NAV_MD = [
   { to: "/clientes", label: "Clientes", icon: Building2, testid: "nav-clients" },

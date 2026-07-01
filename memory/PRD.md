@@ -22,6 +22,17 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (Fase 3 — 01/07/2026) ✅
+- ✅ Endpoint `/api/analytics/by-commercial` (leads, opps, props, ganhas, taxa conversão, valor, VAB por comercial)
+- ✅ Endpoint `/api/analytics/by-client` (propostas, encomendas, valor, VAB por cliente + segmento)
+- ✅ Endpoint `/api/analytics/by-manufacturer` (opps + propostas por fabricante via produtos)
+- ✅ Endpoint `/api/analytics/forecast/invoicing` (previsão por mês com planeado + por faturar)
+- ✅ Endpoint `/api/analytics/forecast/receiving` (aging buckets: 0-30/31-60/61-90/>90/em atraso)
+- ✅ Endpoint `/api/analytics/vab` (VAB pipeline + won + planned + invoiced + margem mensal)
+- ✅ Endpoint `/api/analytics/executive` (agregação)
+- ✅ Página `/reporting` com 6 tabs (Executivo, Por Comercial, Por Cliente, Por Fabricante, Previsões, Análise VAB) usando Recharts
+- ✅ Gráficos: bar chart previsão de faturação, aging de recebimentos, line chart margem VAB mensal
+
 ## Implemented (Fase 2 — 01/07/2026) ✅
 - ✅ Plano de Faturação (tipo, data prevista, valor, VAB, estado por linha)
 - ✅ Faturas com linhas ligadas ao plano; suporta faturação parcial e agregação

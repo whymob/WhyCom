@@ -12,6 +12,7 @@ import Proposals from "@/pages/Proposals";
 import ProposalDetail from "@/pages/ProposalDetail";
 import Orders from "@/pages/Orders";
 import OrderDetail from "@/pages/OrderDetail";
+import Reporting from "@/pages/Reporting";
 import Clients from "@/pages/Clients";
 import Manufacturers from "@/pages/Manufacturers";
 import Products from "@/pages/Products";
@@ -47,6 +48,7 @@ function App() {
               <Route path="propostas/:id" element={<ProposalDetail />} />
               <Route path="encomendas" element={<Orders />} />
               <Route path="encomendas/:id" element={<OrderDetail />} />
+              <Route path="reporting" element={<Reporting />} />
               <Route path="clientes" element={<Clients />} />
               <Route path="fabricantes" element={<Manufacturers />} />
               <Route path="produtos" element={<Products />} />
