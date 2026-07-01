@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { eur, pct } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
-import { TrendingUp, Sparkles, Target, FileText, Package, Percent, AlertTriangle } from "lucide-react";
+import { TrendingUp, Sparkles, Target, FileText, Package, Percent, AlertTriangle, Factory } from "lucide-react";
 
 const LEVEL_STYLE = {
   info: "border-l-[#002FA7] bg-[#E0E7FF]/40",
@@ -26,11 +27,21 @@ function KPI({ label, value, sub, testid, icon: Icon }) {
 export default function Dashboard() {
   const [kpis, setKpis] = useState(null);
   const [alerts, setAlerts] = useState([]);
+  const [topManuf, setTopManuf] = useState([]);
 
   useEffect(() => {
     api.get("/dashboard/kpis").then((r) => setKpis(r.data));
     api.get("/dashboard/alerts").then((r) => setAlerts(r.data.alerts));
+    api.get("/analytics/by-manufacturer").then((r) => {
+      const rows = (r.data.rows || [])
+        .filter((row) => row.manufacturer_id && row.won_vab > 0)
+        .sort((a, b) => b.won_vab - a.won_vab)
+        .slice(0, 5);
+      setTopManuf(rows);
+    });
   }, []);
+
+  const maxVab = Math.max(1, ...topManuf.map((r) => r.won_vab));
 
   return (
     <div>
@@ -52,6 +63,39 @@ export default function Dashboard() {
             <KPI testid="kpi-won-value" label="Valor Ganho" value={eur(kpis?.won_value)} sub="Propostas ganhas · sem IVA" icon={TrendingUp} />
             <KPI testid="kpi-won-vab" label="VAB Ganho" value={eur(kpis?.won_vab)} sub="Margem bruta ganha" icon={TrendingUp} />
             <KPI testid="kpi-orders" label="Encomendas" value={kpis?.orders_count ?? "—"} sub={`${eur(kpis?.orders_value)} · VAB ${eur(kpis?.orders_vab)}`} icon={Package} />
+          </div>
+        </section>
+
+        <section>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3 flex items-center gap-2"><Factory size={12} /> Top 5 Fabricantes por VAB</div>
+          <div className="border border-neutral-200 bg-white" data-testid="top-manufacturers">
+            {topManuf.length === 0 && (
+              <div className="p-4 text-sm text-neutral-500" data-testid="top-manufacturers-empty">
+                Sem VAB por fabricante — associe fabricantes aos produtos e ganhe propostas para começar.
+              </div>
+            )}
+            {topManuf.map((m, i) => {
+              const w = Math.max(6, (m.won_vab / maxVab) * 100);
+              return (
+                <Link
+                  key={m.manufacturer_id}
+                  to={`/funil?manufacturer_id=${m.manufacturer_id}`}
+                  data-testid={`top-manuf-${i}`}
+                  className="grid grid-cols-12 gap-3 px-4 py-3 border-b border-neutral-100 items-center hover:bg-neutral-50 transition-colors"
+                >
+                  <div className="col-span-3 text-sm font-medium truncate">{m.name}</div>
+                  <div className="col-span-6">
+                    <div className="h-6 bg-neutral-100 relative overflow-hidden">
+                      <div className="h-full bg-[#002FA7] flex items-center px-2 text-white text-[11px] font-mono" style={{ width: `${w}%` }}>
+                        {eur(m.won_vab)}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="col-span-2 text-right font-mono text-xs text-neutral-600">{eur(m.won_value)}</div>
+                  <div className="col-span-1 text-right text-[10px] uppercase tracking-widest text-neutral-500">{m.won} ganhas</div>
+                </Link>
+              );
+            })}
           </div>
         </section>
 

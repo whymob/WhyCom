@@ -739,11 +739,35 @@ async def kpis(user: dict = Depends(get_current_user)):
 
 
 @api.get("/dashboard/funnel")
-async def funnel(user: dict = Depends(get_current_user)):
+async def funnel(manufacturer_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
     leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
     props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
     orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+
+    if manufacturer_id:
+        products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(5000)}
+        # Leads: filtered by manufacturer_id field OR via product_ids
+        def lead_matches(l):
+            if l.get("manufacturer_id") == manufacturer_id:
+                return True
+            for pid in l.get("product_ids", []) or []:
+                if products.get(pid, {}).get("manufacturer_id") == manufacturer_id:
+                    return True
+            return False
+        leads = [l for l in leads if lead_matches(l)]
+        # Opps: same logic
+        opps = [o for o in opps if lead_matches(o)]
+        # Proposals: any line with a product from this manufacturer
+        def prop_matches(p):
+            for ln in p.get("lines", []) or []:
+                pid = ln.get("product_id")
+                if pid and products.get(pid, {}).get("manufacturer_id") == manufacturer_id:
+                    return True
+            return False
+        matching_prop_ids = {p["id"] for p in props if prop_matches(p)}
+        props = [p for p in props if p["id"] in matching_prop_ids]
+        orders = [o for o in orders if o.get("proposal_id") in matching_prop_ids]
 
     stages = [
         {

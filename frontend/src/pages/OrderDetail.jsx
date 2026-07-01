@@ -29,28 +29,48 @@ export default function OrderDetail() {
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
   const [recon, setRecon] = useState(null);
+  const [proposalLines, setProposalLines] = useState([]);
+  const [products, setProducts] = useState([]);
+  const [manufs, setManufs] = useState([]);
   const [invOpen, setInvOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(null); // invoice_id
   const [payForm, setPayForm] = useState({ amount: 0, method: "transferencia", reference: "" });
   const [invForm, setInvForm] = useState({ lines: [] });
 
   const load = async () => {
-    const [oRes, plan, inv, pay, rec] = await Promise.all([
+    const [oRes, plan, inv, pay, rec, prd, mf] = await Promise.all([
       api.get("/orders").then((r) => r.data.find((o) => o.id === id)),
       api.get(`/orders/${id}/plan`),
       api.get(`/invoices?order_id=${id}`),
       api.get(`/payments?order_id=${id}`),
       api.get(`/orders/${id}/reconcile`),
+      api.get("/products"),
+      api.get("/manufacturers"),
     ]);
     setOrder(oRes);
     setPlanLines(plan.data.lines);
     setInvoices(inv.data);
     setPayments(pay.data);
     setRecon(rec.data);
+    setProducts(prd.data);
+    setManufs(mf.data);
+    if (oRes?.proposal_id) {
+      try {
+        const p = await api.get(`/proposals/${oRes.proposal_id}`);
+        setProposalLines(p.data.lines || []);
+      } catch { setProposalLines([]); }
+    }
   };
   useEffect(() => { load(); }, [id]);
 
   if (!order) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
+
+  const productName = (pid) => products.find((p) => p.id === pid)?.name || "—";
+  const productManuf = (pid) => {
+    const prod = products.find((p) => p.id === pid);
+    if (!prod?.manufacturer_id) return "—";
+    return manufs.find((m) => m.id === prod.manufacturer_id)?.name || "—";
+  };
 
   // Plan editing
   const addPlanLine = () =>
@@ -150,6 +170,36 @@ export default function OrderDetail() {
               <span>Δ Faturado: <span className={Math.abs(recon?.deltas.invoiced_vs_plan || 0) > 0.5 ? "text-[#FF2A00]" : "text-[#00A859]"}>{eur(recon?.deltas.invoiced_vs_plan)}</span></span>
               <span>Δ Recebido: <span className={Math.abs(recon?.deltas.received_vs_invoiced || 0) > 0.5 ? "text-[#FF2A00]" : "text-[#00A859]"}>{eur(recon?.deltas.received_vs_invoiced)}</span></span>
             </div>
+          </div>
+        </section>
+
+        {/* Composição Comercial (from proposal lines) */}
+        <section>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Composição Comercial</div>
+          <div className="border border-neutral-200">
+            <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
+              <div className="col-span-4">Produto/Serviço</div>
+              <div className="col-span-3">Fabricante</div>
+              <div className="col-span-1 text-right">Qtd</div>
+              <div className="col-span-2 text-right">Preço unit.</div>
+              <div className="col-span-2 text-right">Total</div>
+            </div>
+            {proposalLines.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="composition-empty">Sem linhas comerciais.</div>}
+            {proposalLines.map((l, i) => {
+              const net = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100);
+              return (
+                <div key={i} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center" data-testid={`order-line-${i}`}>
+                  <div className="col-span-4">
+                    <div className="font-medium text-xs">{l.description || productName(l.product_id)}</div>
+                    <div className="text-[10px] text-neutral-500">{productName(l.product_id)}</div>
+                  </div>
+                  <div className="col-span-3 text-xs text-neutral-700" data-testid={`order-line-manuf-${i}`}>{productManuf(l.product_id)}</div>
+                  <div className="col-span-1 text-right font-mono text-xs">{l.quantity}</div>
+                  <div className="col-span-2 text-right font-mono text-xs">{eur(l.unit_price)}</div>
+                  <div className="col-span-2 text-right font-mono text-xs">{eur(net)}</div>
+                </div>
+              );
+            })}
           </div>
         </section>
 

@@ -26,17 +26,23 @@ export default function ProposalDetail() {
   const [proposal, setProposal] = useState(null);
   const [products, setProducts] = useState([]);
   const [clients, setClients] = useState([]);
+  const [manufs, setManufs] = useState([]);
   const [lostReason, setLostReason] = useState("");
 
   const load = async () => {
-    const [p, prd, c] = await Promise.all([api.get(`/proposals/${id}`), api.get("/products"), api.get("/clients")]);
-    setProposal(p.data); setProducts(prd.data); setClients(c.data);
+    const [p, prd, c, m] = await Promise.all([api.get(`/proposals/${id}`), api.get("/products"), api.get("/clients"), api.get("/manufacturers")]);
+    setProposal(p.data); setProducts(prd.data); setClients(c.data); setManufs(m.data);
   };
   useEffect(() => { load(); }, [id]);
 
   if (!proposal) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
 
   const clientName = clients.find((c) => c.id === proposal.client_id)?.name || "—";
+  const manufName = (id) => manufs.find((m) => m.id === id)?.name || "—";
+  const lineManuf = (l) => {
+    const prod = products.find((p) => p.id === l.product_id);
+    return prod?.manufacturer_id ? manufName(prod.manufacturer_id) : "—";
+  };
 
   const addLine = () => {
     const lines = [...proposal.lines, { product_id: "", description: "", quantity: 1, unit: "unidade", unit_price: 0, discount_pct: 0, vat_pct: 23, unit_cost: 0 }];
@@ -156,6 +162,7 @@ export default function ProposalDetail() {
                       <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
                     </Select>
                     <Input placeholder="Descrição" value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} className="mt-1 rounded-none h-8 text-xs" />
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mt-1" data-testid={`prop-line-manuf-${i}`}>Fabricante: <span className="text-neutral-800 normal-case tracking-normal">{lineManuf(l)}</span></div>
                   </div>
                   <Input type="number" value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" data-testid={`line-qty-${i}`} />
                   <Input type="number" value={l.unit_price} onChange={(e) => updateLine(i, { unit_price: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`line-price-${i}`} />
