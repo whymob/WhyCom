@@ -1,0 +1,37 @@
+{
+  "summary": "Regression backend-only testing after server.py split (1797 → 70 lines) + APScheduler addition. 43/43 new tests pass in /app/backend/tests/test_regression_refactor.py + 13/13 previous notification tests re-run OK. Full endpoint coverage validated: auth, users CRUD w/ self-protection, master data (clients/manufacturers/products), pipeline (leads/opps/proposals/orders), dashboard (kpis, funnel ± manufacturer_id, alerts), analytics (7 endpoints), technical (projects + /me/*), finance flow end-to-end (plan → partial invoice → payment → 2nd invoice → payment → recalc_order_status='fulfilled' → cancel invoice → plan unwind), audit after PATCH, 3 CSV exports, notifications (Resend test-email + digest with RBAC), and scheduler (module imports _job_send_alerts_digest, manual invocation OK, env vars validated, startup log line present).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_regression_refactor.py",
+    "/app/backend/tests/test_notifications_resend.py",
+    "/app/test_reports/pytest/pytest_results_iter4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py split is clean (70 lines, thin bootstrap) — good. Consider adding a health endpoint under /api that pings Mongo instead of only returning static ok:true.",
+    "routers/notifications.py `send_alerts_digest` still takes `payload: dict = None` — a Pydantic AlertsDigestRequest{to: Optional[EmailStr]} would give validation + OpenAPI docs.",
+    "helpers.send_email_async surfaces raw Resend exception text in HTTP 500 body (f'Resend erro: {str(e)}') — redact to avoid leaking Resend internals.",
+    "scheduler.py: type union syntax `AsyncIOScheduler | None` requires Python 3.10+ (ok here — 3.11.15) but worth pinning python_requires in requirements.",
+    "deps.py: `require_roles` grants admin implicit access to every role — intentional but should be documented explicitly (it currently reads a bit surprising in the fn body).",
+    "seed.py + helpers.build_alerts_digest_html not read this iteration but review request states they are unchanged from the previous monolithic server.py — spot-checked call sites in scheduler.py and notifications.py wire them correctly.",
+    "APScheduler runs in-process — for multi-worker deploys (gunicorn -w >1) the digest would fire N times/day. Consider a MongoDB-backed jobstore or a single-worker sidecar."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_regression_refactor.py (new — 43 tests, full regression suite)"
+  ],
+  "success_rate": {"backend": "100% (43/43 new + 13/13 previous notifications)", "frontend": "n/a"},
+  "test_credentials": "admin@whymob.pt/admin123, comercial@whymob.pt/comercial123 (from /app/memory/test_credentials.md). Resend sandbox recipient: delivered@resend.dev.",
+  "seed_data_creation": "TestFinanceFlow builds a full order via the pipeline (client → opp → convert-to-proposal → patch lines + status=ganha → convert-to-order) using TEST_ prefixed names. All 3 pre-existing seeded orders were already in status=fulfilled from earlier runs, so a fresh order is created per finance-flow test to avoid mutating fulfilled orders. TestUsersManagement creates a user (email test_user_<uuid>@whymob.pt) then deactivates it; not currently cleaned up — negligible.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "New comprehensive suite lives at /app/backend/tests/test_regression_refactor.py. Runs in ~5s under pytest-xdist. Two suites now: test_notifications_resend.py (13) + test_regression_refactor.py (43). Both green. Scheduler start log grep is `'[scheduler] iniciado — alerts_digest às 09:00'` in /var/log/supervisor/backend.err.log. Manual scheduler dry-run: `cd /app/backend && python -c 'import asyncio; from scheduler import _job_send_alerts_digest; asyncio.run(_job_send_alerts_digest())'` — logs `[scheduler] alerts_digest: sem alertas ativos — nada a enviar` when no active alerts (expected).",
+  "rca of the issue": "n/a — no bugs found post-refactor. Initial test-side glitches were: (a) /audit returns `{rows: [...]}` not a bare list; (b) POST /projects requires `order_id`; (c) all 3 seeded orders were already status=fulfilled, so finance flow was rebuilt to construct its own fresh order via the full pipeline. All corrected in the test file — no app-side changes needed."
+}
