@@ -22,6 +22,14 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (Notifications — Resend — 02/2026) ✅
+- ✅ **Integração Resend refatorada** conforme playbook oficial: SDK `resend>=2.0.0`, chamada não-bloqueante via `asyncio.to_thread(resend.Emails.send, params)`.
+- ✅ `POST /api/notifications/test-email` (admin/ceo) — envia email de teste com HTML custom (validado com email_id retornado pela Resend).
+- ✅ `POST /api/notifications/send-alerts-digest` (admin/ceo) — digest HTML dos alertas ativos (propostas expiradas, faturas em atraso, etc.). Retorna `sent:false` quando não há alertas.
+- ✅ RBAC: 401 sem token, 403 para role comercial, 422 para payload inválido.
+- ✅ Testes backend em `/app/backend/tests/test_notifications_resend.py` (13/13 pass — iteration_3).
+
+
 ## Implemented (P1 Backlog — 01/07/2026) ✅
 - ✅ **Auditoria** — collection `audit_log` + helper `_audit()` integrado em transições de estado (leads, oportunidades, propostas, anulação de faturas). Endpoint `/api/audit?entity=&entity_id=&limit=` + página `/auditoria` (Admin).
 - ✅ **Exportação CSV** (compatível Excel) — `/api/exports/invoices.csv`, `/api/exports/timesheet.csv`, `/api/exports/reporting-commercial.csv`. Botões de download no Reporting e no Timesheet.
