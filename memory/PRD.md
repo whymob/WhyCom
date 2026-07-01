@@ -22,6 +22,14 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (Melhorias P2/P3 — 02/2026) ✅
+- ✅ **Event hooks (fire-and-forget)**: email automático quando proposta transita para `ganha` (via `notify_proposal_won`) e quando encomenda transita para `fulfilled` (via `notify_order_fulfilled` em `helpers.recalc_order_status`). Recipients via `NOTIFY_EVENT_RECIPIENTS`.
+- ✅ **Pydantic `AlertsDigestRequest`** em `/notifications/send-alerts-digest` (validação 422 se email inválido).
+- ✅ **Redact Resend errors**: 502 com mensagem genérica; detalhes técnicos apenas no log.
+- ✅ **`GET /api/health`**: ping ao Mongo, sem auth, devolve `{status, mongo, checked_at}`.
+- ✅ **MongoDB jobstore** opcional no APScheduler via `JOBSTORE=mongodb` (default: memory).
+- ✅ **Testes**: 13 novos + 56 regressão = 69/69 pass (iteration_5).
+
 ## Implemented (Refactor + Scheduler — 02/2026) ✅
 - ✅ **Split de `server.py`** (1797 → 70 linhas) em módulos por responsabilidade:
   - `deps.py`: mongo, JWT, security, constantes
