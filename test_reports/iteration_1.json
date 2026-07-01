@@ -1,0 +1,29 @@
+{
+  "summary": "First-finish smoke test on WhyMob CRM. Backend healthy (login, /auth/me, /dashboard/kpis, /dashboard/funnel all 200; discard-lead-without-reason correctly rejected 400). Frontend E2E covered login->dashboard->funnel->leads (create lead + discard validation)->opportunities->proposals->proposal-detail->orders->clients->manufacturers->products->users (admin only)->logout. All 12 checkpoints passed.",
+  "tested_scope": ["frontend", "backend", "auth", "integration"],
+  "passed": [
+    "POST /api/auth/login returns JWT for admin@whymob.pt",
+    "GET /api/auth/me returns admin user (role=admin)",
+    "GET /api/dashboard/kpis returns leads_open=2, won_value=9000, won_vab=3500, orders_count=1, conversion_rate=100",
+    "GET /api/dashboard/funnel returns 4 stages (leads/opportunities/proposals/orders) with counts+value+VAB",
+    "PATCH /api/leads/{id} status=descartada without lost_reason -> 400 'Motivo obrigatório ao descartar lead'",
+    "Login UI -> lands on Dashboard (route '/'), KPI testids visible (kpi-leads-open, kpi-conv-rate, kpi-won-value, kpi-won-vab, kpi-orders)",
+    "Funil UI shows funnel-stage-leads/opportunities/proposals/orders",
+    "Create Lead via new-lead-btn dialog (lead-description-input, lead-value-input, lead-save-btn) - lead appears in list",
+    "Discard lead flow: discard-lead-{id} opens dialog with lead-discard-confirm; confirm without reason handled",
+    "Opportunities page loads with new-opp-btn",
+    "Proposals list -> detail page loads with save-proposal-btn",
+    "Orders page loads with po-input-{id}",
+    "Master data pages: new-client-btn, new-manuf-btn, new-product-btn all present",
+    "Utilizadores: new-user-btn visible for admin",
+    "logout-btn redirects to /login"
+  ],
+  "failed": [],
+  "action_items": [
+    "Minor: after successful login the app redirects to '/' rather than '/dashboard'. Route works because Dashboard is default; no action strictly required, but if PRD expects '/dashboard', update Login redirect or route mapping.",
+    "Minor: when confirming lead discard without reason no visible error toast/alert was surfaced in the DOM (backend correctly returns 400). Consider showing user-facing error feedback in UI."
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "retest_needed": false,
+  "full_testing_deferred": true
+}

@@ -1,74 +1,872 @@
-from fastapi import FastAPI, APIRouter
 from dotenv import load_dotenv
-from starlette.middleware.cors import CORSMiddleware
-from motor.motor_asyncio import AsyncIOMotorClient
-import os
-import logging
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
-from typing import List
-import uuid
-from datetime import datetime, timezone
-
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
-# MongoDB connection
+import os
+import uuid
+import logging
+import bcrypt
+import jwt
+from datetime import datetime, timezone, timedelta
+from typing import List, Optional, Literal
+
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, Request, Query
+from starlette.middleware.cors import CORSMiddleware
+from motor.motor_asyncio import AsyncIOMotorClient
+from pydantic import BaseModel, Field, EmailStr, ConfigDict
+
+
+# ------------- setup -------------
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-# Create the main app without a prefix
-app = FastAPI()
+app = FastAPI(title="WhyMob CRM API")
+api = APIRouter(prefix="/api")
 
-# Create a router with the /api prefix
-api_router = APIRouter(prefix="/api")
+JWT_ALG = "HS256"
+JWT_SECRET = os.environ['JWT_SECRET']
+
+ROLES = ("admin", "ceo", "diretor_tecnico", "comercial", "developer")
+
+logger = logging.getLogger("whymob")
+logging.basicConfig(level=logging.INFO)
 
 
-# Define Models
-class StatusCheck(BaseModel):
-    model_config = ConfigDict(extra="ignore")  # Ignore MongoDB's _id field
-    
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    client_name: str
-    timestamp: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+# ------------- helpers -------------
+def now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
-class StatusCheckCreate(BaseModel):
-    client_name: str
 
-# Add your routes to the router instead of directly to app
-@api_router.get("/")
+def new_id() -> str:
+    return str(uuid.uuid4())
+
+
+def hash_password(pw: str) -> str:
+    return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
+
+
+def verify_password(pw: str, hashed: str) -> bool:
+    try:
+        return bcrypt.checkpw(pw.encode(), hashed.encode())
+    except Exception:
+        return False
+
+
+def create_access_token(user_id: str, email: str, role: str) -> str:
+    payload = {
+        "sub": user_id,
+        "email": email,
+        "role": role,
+        "exp": datetime.now(timezone.utc) + timedelta(days=7),
+        "type": "access",
+    }
+    return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
+
+
+async def get_current_user(request: Request) -> dict:
+    auth = request.headers.get("Authorization", "")
+    token = auth[7:] if auth.startswith("Bearer ") else request.cookies.get("access_token")
+    if not token:
+        raise HTTPException(status_code=401, detail="Não autenticado")
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALG])
+    except jwt.ExpiredSignatureError:
+        raise HTTPException(status_code=401, detail="Sessão expirada")
+    except jwt.InvalidTokenError:
+        raise HTTPException(status_code=401, detail="Token inválido")
+    user = await db.users.find_one({"id": payload["sub"]}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=401, detail="Utilizador não encontrado")
+    return user
+
+
+def require_roles(*roles):
+    async def dep(user: dict = Depends(get_current_user)) -> dict:
+        if user.get("role") not in roles and user.get("role") != "admin":
+            raise HTTPException(status_code=403, detail="Sem permissão")
+        return user
+    return dep
+
+
+# ------------- Models -------------
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    name: str
+    role: Literal["admin", "ceo", "diretor_tecnico", "comercial", "developer"] = "comercial"
+
+
+class UserOut(BaseModel):
+    id: str
+    email: EmailStr
+    name: str
+    role: str
+    active: bool = True
+    created_at: str
+
+
+class LoginIn(BaseModel):
+    email: EmailStr
+    password: str
+
+
+class Client(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    id: str = Field(default_factory=new_id)
+    name: str
+    nif: str
+    address: Optional[str] = ""
+    contact_email: Optional[str] = ""
+    contact_phone: Optional[str] = ""
+    contact_person: Optional[str] = ""
+    segment: Optional[str] = ""
+    active: bool = True
+    owner_id: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+
+
+class Manufacturer(BaseModel):
+    id: str = Field(default_factory=new_id)
+    name: str
+    partnership_type: Optional[str] = ""
+    active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+
+
+class Product(BaseModel):
+    id: str = Field(default_factory=new_id)
+    name: str
+    manufacturer_id: Optional[str] = None
+    category: Literal["setup", "recorrente", "projeto", "horas", "licenciamento", "suporte"] = "projeto"
+    unit: Literal["unidade", "mes", "hora", "dia", "projeto"] = "unidade"
+    base_price: float = 0.0
+    base_cost: float = 0.0
+    active: bool = True
+    created_at: str = Field(default_factory=now_iso)
+
+
+class Lead(BaseModel):
+    id: str = Field(default_factory=new_id)
+    client_id: Optional[str] = None
+    client_name_raw: Optional[str] = ""   # for prospect clients not yet in system
+    description: str
+    manufacturer_id: Optional[str] = None
+    product_ids: List[str] = []
+    estimated_value: float = 0.0
+    owner_id: str
+    status: Literal["nova", "em_qualificacao", "convertida", "descartada"] = "nova"
+    lost_reason: Optional[str] = ""
+    converted_opportunity_id: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class Opportunity(BaseModel):
+    id: str = Field(default_factory=new_id)
+    lead_id: Optional[str] = None
+    client_id: str
+    description: str
+    manufacturer_id: Optional[str] = None
+    product_ids: List[str] = []
+    estimated_value: float = 0.0
+    estimated_vab: float = 0.0
+    probability: int = 50  # 0..100
+    expected_close_date: Optional[str] = None
+    priority: Literal["baixa", "media", "alta"] = "media"
+    competitor: Optional[str] = ""
+    notes: Optional[str] = ""
+    owner_id: str
+    status: Literal["aberta", "em_analise", "convertida", "perdida"] = "aberta"
+    lost_reason: Optional[str] = ""
+    converted_proposal_id: Optional[str] = None
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+class ProposalLine(BaseModel):
+    product_id: Optional[str] = None
+    description: str
+    quantity: float = 1
+    unit: str = "unidade"
+    unit_price: float = 0.0
+    discount_pct: float = 0.0
+    vat_pct: float = 23.0
+    unit_cost: float = 0.0
+
+    @property
+    def net(self) -> float:
+        return round(self.quantity * self.unit_price * (1 - self.discount_pct / 100), 2)
+
+    @property
+    def vat(self) -> float:
+        return round(self.net * self.vat_pct / 100, 2)
+
+    @property
+    def gross(self) -> float:
+        return round(self.net + self.vat, 2)
+
+    @property
+    def vab(self) -> float:
+        return round(self.net - (self.unit_cost * self.quantity), 2)
+
+
+class Proposal(BaseModel):
+    id: str = Field(default_factory=new_id)
+    number: str = ""
+    version: int = 1
+    opportunity_id: str
+    client_id: str
+    lines: List[ProposalLine] = []
+    valid_until: Optional[str] = None
+    notes: Optional[str] = ""
+    owner_id: str
+    status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada"] = "em_elaboracao"
+    lost_reason: Optional[str] = ""
+    converted_order_id: Optional[str] = None
+    total_net: float = 0.0
+    total_vat: float = 0.0
+    total_gross: float = 0.0
+    total_vab: float = 0.0
+    created_at: str = Field(default_factory=now_iso)
+    updated_at: str = Field(default_factory=now_iso)
+
+
+def compute_proposal_totals(lines: List[ProposalLine]):
+    net = sum(l.net for l in lines)
+    vat = sum(l.vat for l in lines)
+    gross = sum(l.gross for l in lines)
+    vab = sum(l.vab for l in lines)
+    return round(net, 2), round(vat, 2), round(gross, 2), round(vab, 2)
+
+
+class Order(BaseModel):
+    id: str = Field(default_factory=new_id)
+    number: str = ""
+    po_number: Optional[str] = ""
+    proposal_id: str
+    opportunity_id: str
+    client_id: str
+    order_date: str = Field(default_factory=now_iso)
+    total_net: float = 0.0
+    total_vat: float = 0.0
+    total_gross: float = 0.0
+    total_vab: float = 0.0
+    commercial_terms: Optional[str] = ""
+    owner_id: str
+    status: Literal["aberta", "em_planeamento", "em_faturacao", "parcialmente_faturada", "faturada", "recebida", "fulfilled", "cancelada"] = "aberta"
+    cancel_reason: Optional[str] = ""
+    created_at: str = Field(default_factory=now_iso)
+
+
+# ------------- Auth endpoints -------------
+@api.post("/auth/register", response_model=UserOut)
+async def register(payload: UserCreate):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Email já registado")
+    user = {
+        "id": new_id(),
+        "email": email,
+        "name": payload.name,
+        "role": payload.role,
+        "password_hash": hash_password(payload.password),
+        "active": True,
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(user)
+    user.pop("password_hash", None)
+    user.pop("_id", None)
+    return user
+
+
+@api.post("/auth/login")
+async def login(payload: LoginIn):
+    email = payload.email.lower()
+    u = await db.users.find_one({"email": email})
+    if not u or not verify_password(payload.password, u["password_hash"]):
+        raise HTTPException(status_code=401, detail="Credenciais inválidas")
+    if not u.get("active", True):
+        raise HTTPException(status_code=403, detail="Utilizador inativo")
+    token = create_access_token(u["id"], u["email"], u["role"])
+    return {
+        "access_token": token,
+        "token_type": "bearer",
+        "user": {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
+    }
+
+
+@api.get("/auth/me", response_model=UserOut)
+async def me(user: dict = Depends(get_current_user)):
+    return user
+
+
+@api.post("/auth/logout")
+async def logout(user: dict = Depends(get_current_user)):
+    return {"ok": True}
+
+
+# ------------- Users -------------
+@api.get("/users", response_model=List[UserOut])
+async def list_users(user: dict = Depends(get_current_user)):
+    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
+    return docs
+
+
+@api.post("/users", response_model=UserOut)
+async def create_user(payload: UserCreate, user: dict = Depends(require_roles("admin"))):
+    email = payload.email.lower()
+    if await db.users.find_one({"email": email}):
+        raise HTTPException(status_code=400, detail="Email já registado")
+    doc = {
+        "id": new_id(),
+        "email": email,
+        "name": payload.name,
+        "role": payload.role,
+        "password_hash": hash_password(payload.password),
+        "active": True,
+        "created_at": now_iso(),
+    }
+    await db.users.insert_one(doc)
+    doc.pop("password_hash", None)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/users/{uid}", response_model=UserOut)
+async def update_user(uid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+    payload.pop("id", None)
+    if "password" in payload and payload["password"]:
+        payload["password_hash"] = hash_password(payload.pop("password"))
+    else:
+        payload.pop("password", None)
+    await db.users.update_one({"id": uid}, {"$set": payload})
+    doc = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+    if not doc:
+        raise HTTPException(404, "Utilizador não encontrado")
+    return doc
+
+
+# ------------- Master Data: Clients -------------
+@api.get("/clients", response_model=List[Client])
+async def list_clients(user: dict = Depends(get_current_user)):
+    docs = await db.clients.find({}, {"_id": 0}).to_list(1000)
+    return docs
+
+
+@api.post("/clients", response_model=Client)
+async def create_client(payload: Client, user: dict = Depends(get_current_user)):
+    doc = payload.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    doc["owner_id"] = user["id"]
+    await db.clients.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/clients/{cid}", response_model=Client)
+async def update_client(cid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    await db.clients.update_one({"id": cid}, {"$set": payload})
+    doc = await db.clients.find_one({"id": cid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Cliente não encontrado")
+    return doc
+
+
+@api.delete("/clients/{cid}")
+async def delete_client(cid: str, user: dict = Depends(require_roles("admin", "ceo"))):
+    await db.clients.delete_one({"id": cid})
+    return {"ok": True}
+
+
+# ------------- Manufacturers -------------
+@api.get("/manufacturers", response_model=List[Manufacturer])
+async def list_manufacturers(user: dict = Depends(get_current_user)):
+    return await db.manufacturers.find({}, {"_id": 0}).to_list(1000)
+
+
+@api.post("/manufacturers", response_model=Manufacturer)
+async def create_manufacturer(payload: Manufacturer, user: dict = Depends(get_current_user)):
+    doc = payload.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.manufacturers.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/manufacturers/{mid}", response_model=Manufacturer)
+async def update_manufacturer(mid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    await db.manufacturers.update_one({"id": mid}, {"$set": payload})
+    doc = await db.manufacturers.find_one({"id": mid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Fabricante não encontrado")
+    return doc
+
+
+@api.delete("/manufacturers/{mid}")
+async def delete_manufacturer(mid: str, user: dict = Depends(require_roles("admin", "ceo"))):
+    await db.manufacturers.delete_one({"id": mid})
+    return {"ok": True}
+
+
+# ------------- Products -------------
+@api.get("/products", response_model=List[Product])
+async def list_products(user: dict = Depends(get_current_user)):
+    return await db.products.find({}, {"_id": 0}).to_list(1000)
+
+
+@api.post("/products", response_model=Product)
+async def create_product(payload: Product, user: dict = Depends(get_current_user)):
+    doc = payload.model_dump()
+    doc["id"] = new_id()
+    doc["created_at"] = now_iso()
+    await db.products.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/products/{pid}", response_model=Product)
+async def update_product(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    await db.products.update_one({"id": pid}, {"$set": payload})
+    doc = await db.products.find_one({"id": pid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Produto não encontrado")
+    return doc
+
+
+@api.delete("/products/{pid}")
+async def delete_product(pid: str, user: dict = Depends(require_roles("admin", "ceo"))):
+    await db.products.delete_one({"id": pid})
+    return {"ok": True}
+
+
+# ------------- Leads -------------
+@api.get("/leads", response_model=List[Lead])
+async def list_leads(user: dict = Depends(get_current_user)):
+    return await db.leads.find({}, {"_id": 0}).to_list(1000)
+
+
+@api.post("/leads", response_model=Lead)
+async def create_lead(payload: Lead, user: dict = Depends(get_current_user)):
+    doc = payload.model_dump()
+    doc["id"] = new_id()
+    doc["owner_id"] = payload.owner_id or user["id"]
+    doc["created_at"] = now_iso()
+    doc["updated_at"] = now_iso()
+    await db.leads.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/leads/{lid}", response_model=Lead)
+async def update_lead(lid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    payload["updated_at"] = now_iso()
+    if payload.get("status") == "descartada" and not payload.get("lost_reason"):
+        raise HTTPException(400, "Motivo obrigatório ao descartar lead")
+    await db.leads.update_one({"id": lid}, {"$set": payload})
+    doc = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Lead não encontrada")
+    return doc
+
+
+@api.post("/leads/{lid}/convert", response_model=Opportunity)
+async def convert_lead(lid: str, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lid}, {"_id": 0})
+    if not lead:
+        raise HTTPException(404, "Lead não encontrada")
+    if lead["status"] in ("convertida", "descartada"):
+        raise HTTPException(400, "Lead não pode ser convertida")
+    client_id = lead.get("client_id")
+    if not client_id:
+        # create prospect client if missing
+        client_doc = {
+            "id": new_id(),
+            "name": lead.get("client_name_raw") or "Cliente sem nome",
+            "nif": "PENDENTE-" + new_id()[:8],
+            "address": "",
+            "contact_email": "",
+            "contact_phone": "",
+            "contact_person": "",
+            "segment": "Prospect",
+            "active": True,
+            "owner_id": user["id"],
+            "created_at": now_iso(),
+        }
+        await db.clients.insert_one(client_doc)
+        client_id = client_doc["id"]
+
+    opp = {
+        "id": new_id(),
+        "lead_id": lid,
+        "client_id": client_id,
+        "description": lead["description"],
+        "manufacturer_id": lead.get("manufacturer_id"),
+        "product_ids": lead.get("product_ids", []),
+        "estimated_value": lead.get("estimated_value", 0.0),
+        "estimated_vab": 0.0,
+        "probability": 50,
+        "expected_close_date": None,
+        "priority": "media",
+        "competitor": "",
+        "notes": "",
+        "owner_id": user["id"],
+        "status": "aberta",
+        "lost_reason": "",
+        "converted_proposal_id": None,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.opportunities.insert_one(opp)
+    await db.leads.update_one({"id": lid}, {"$set": {"status": "convertida", "converted_opportunity_id": opp["id"], "updated_at": now_iso()}})
+    opp.pop("_id", None)
+    return opp
+
+
+# ------------- Opportunities -------------
+@api.get("/opportunities", response_model=List[Opportunity])
+async def list_opps(user: dict = Depends(get_current_user)):
+    return await db.opportunities.find({}, {"_id": 0}).to_list(1000)
+
+
+@api.post("/opportunities", response_model=Opportunity)
+async def create_opp(payload: Opportunity, user: dict = Depends(get_current_user)):
+    doc = payload.model_dump()
+    doc["id"] = new_id()
+    doc["owner_id"] = payload.owner_id or user["id"]
+    doc["created_at"] = now_iso()
+    doc["updated_at"] = now_iso()
+    await db.opportunities.insert_one(doc)
+    doc.pop("_id", None)
+    return doc
+
+
+@api.patch("/opportunities/{oid}", response_model=Opportunity)
+async def update_opp(oid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    payload["updated_at"] = now_iso()
+    if payload.get("status") == "perdida" and not payload.get("lost_reason"):
+        raise HTTPException(400, "Motivo de perda obrigatório")
+    await db.opportunities.update_one({"id": oid}, {"$set": payload})
+    doc = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Oportunidade não encontrada")
+    return doc
+
+
+@api.post("/opportunities/{oid}/convert", response_model=Proposal)
+async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
+    opp = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not opp:
+        raise HTTPException(404, "Oportunidade não encontrada")
+    if opp["status"] not in ("aberta", "em_analise"):
+        raise HTTPException(400, "Oportunidade deve estar aberta ou em análise")
+
+    prop_number = f"PROP-{datetime.now().year}-{(await db.proposals.count_documents({})) + 1:04d}"
+    proposal = {
+        "id": new_id(),
+        "number": prop_number,
+        "version": 1,
+        "opportunity_id": oid,
+        "client_id": opp["client_id"],
+        "lines": [],
+        "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+        "notes": "",
+        "owner_id": user["id"],
+        "status": "em_elaboracao",
+        "lost_reason": "",
+        "converted_order_id": None,
+        "total_net": 0.0,
+        "total_vat": 0.0,
+        "total_gross": 0.0,
+        "total_vab": 0.0,
+        "created_at": now_iso(),
+        "updated_at": now_iso(),
+    }
+    await db.proposals.insert_one(proposal)
+    await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "updated_at": now_iso()}})
+    proposal.pop("_id", None)
+    return proposal
+
+
+# ------------- Proposals -------------
+@api.get("/proposals", response_model=List[Proposal])
+async def list_proposals(user: dict = Depends(get_current_user)):
+    return await db.proposals.find({}, {"_id": 0}).to_list(1000)
+
+
+@api.get("/proposals/{pid}", response_model=Proposal)
+async def get_proposal(pid: str, user: dict = Depends(get_current_user)):
+    doc = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Proposta não encontrada")
+    return doc
+
+
+@api.patch("/proposals/{pid}", response_model=Proposal)
+async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    payload["updated_at"] = now_iso()
+    if payload.get("status") == "perdida" and not payload.get("lost_reason"):
+        raise HTTPException(400, "Motivo de perda obrigatório")
+    # recompute totals if lines present
+    if "lines" in payload:
+        lines_models = [ProposalLine(**l) for l in payload["lines"]]
+        net, vat, gross, vab = compute_proposal_totals(lines_models)
+        payload["total_net"] = net
+        payload["total_vat"] = vat
+        payload["total_gross"] = gross
+        payload["total_vab"] = vab
+    await db.proposals.update_one({"id": pid}, {"$set": payload})
+    doc = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Proposta não encontrada")
+    return doc
+
+
+@api.post("/proposals/{pid}/convert", response_model=Order)
+async def convert_proposal(pid: str, user: dict = Depends(get_current_user)):
+    proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not proposal:
+        raise HTTPException(404, "Proposta não encontrada")
+    if proposal["status"] != "ganha":
+        raise HTTPException(400, "Proposta deve estar Ganha para gerar encomenda")
+    if proposal.get("converted_order_id"):
+        raise HTTPException(400, "Proposta já convertida")
+
+    order_number = f"ENC-{datetime.now().year}-{(await db.orders.count_documents({})) + 1:04d}"
+    order = {
+        "id": new_id(),
+        "number": order_number,
+        "po_number": "",
+        "proposal_id": pid,
+        "opportunity_id": proposal["opportunity_id"],
+        "client_id": proposal["client_id"],
+        "order_date": now_iso(),
+        "total_net": proposal["total_net"],
+        "total_vat": proposal["total_vat"],
+        "total_gross": proposal["total_gross"],
+        "total_vab": proposal["total_vab"],
+        "commercial_terms": "",
+        "owner_id": user["id"],
+        "status": "aberta",
+        "cancel_reason": "",
+        "created_at": now_iso(),
+    }
+    await db.orders.insert_one(order)
+    await db.proposals.update_one({"id": pid}, {"$set": {"converted_order_id": order["id"], "updated_at": now_iso()}})
+    order.pop("_id", None)
+    return order
+
+
+# ------------- Orders -------------
+@api.get("/orders", response_model=List[Order])
+async def list_orders(user: dict = Depends(get_current_user)):
+    return await db.orders.find({}, {"_id": 0}).to_list(1000)
+
+
+@api.patch("/orders/{oid}", response_model=Order)
+async def update_order(oid: str, payload: dict, user: dict = Depends(get_current_user)):
+    payload.pop("id", None)
+    if payload.get("status") == "cancelada" and not payload.get("cancel_reason"):
+        raise HTTPException(400, "Motivo de cancelamento obrigatório")
+    await db.orders.update_one({"id": oid}, {"$set": payload})
+    doc = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Encomenda não encontrada")
+    return doc
+
+
+# ------------- Dashboard / Funnel -------------
+@api.get("/dashboard/kpis")
+async def kpis(user: dict = Depends(get_current_user)):
+    leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
+    opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
+    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
+    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+
+    leads_open = [l for l in leads if l["status"] in ("nova", "em_qualificacao")]
+    opps_open = [o for o in opps if o["status"] in ("aberta", "em_analise")]
+    props_sent = [p for p in props if p["status"] in ("enviada", "em_negociacao")]
+    props_won = [p for p in props if p["status"] == "ganha"]
+    props_lost = [p for p in props if p["status"] == "perdida"]
+
+    total_props_closed = len(props_won) + len(props_lost)
+    conv_rate = round((len(props_won) / total_props_closed) * 100, 1) if total_props_closed else 0.0
+
+    won_value = sum(p.get("total_net", 0) for p in props_won)
+    won_vab = sum(p.get("total_vab", 0) for p in props_won)
+    weighted_pipeline = sum(o.get("estimated_value", 0) * (o.get("probability", 0) / 100) for o in opps_open)
+
+    return {
+        "leads_open": len(leads_open),
+        "leads_open_value": sum(l.get("estimated_value", 0) for l in leads_open),
+        "opps_open": len(opps_open),
+        "opps_weighted_value": round(weighted_pipeline, 2),
+        "props_sent": len(props_sent),
+        "props_won": len(props_won),
+        "props_lost": len(props_lost),
+        "conversion_rate": conv_rate,
+        "won_value": round(won_value, 2),
+        "won_vab": round(won_vab, 2),
+        "orders_count": len(orders),
+        "orders_value": round(sum(o.get("total_net", 0) for o in orders), 2),
+        "orders_vab": round(sum(o.get("total_vab", 0) for o in orders), 2),
+    }
+
+
+@api.get("/dashboard/funnel")
+async def funnel(user: dict = Depends(get_current_user)):
+    leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
+    opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
+    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
+    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+
+    stages = [
+        {
+            "key": "leads",
+            "label": "Leads",
+            "count": len(leads),
+            "value": sum(l.get("estimated_value", 0) for l in leads),
+            "vab": 0.0,
+        },
+        {
+            "key": "opportunities",
+            "label": "Oportunidades",
+            "count": len(opps),
+            "value": sum(o.get("estimated_value", 0) for o in opps),
+            "vab": sum(o.get("estimated_vab", 0) for o in opps),
+        },
+        {
+            "key": "proposals",
+            "label": "Propostas",
+            "count": len(props),
+            "value": sum(p.get("total_net", 0) for p in props),
+            "vab": sum(p.get("total_vab", 0) for p in props),
+        },
+        {
+            "key": "orders",
+            "label": "Encomendas",
+            "count": len(orders),
+            "value": sum(o.get("total_net", 0) for o in orders),
+            "vab": sum(o.get("total_vab", 0) for o in orders),
+        },
+    ]
+    for i, s in enumerate(stages):
+        if i == 0:
+            s["conversion_pct"] = 100.0
+        else:
+            prev = stages[i - 1]["count"]
+            s["conversion_pct"] = round((s["count"] / prev) * 100, 1) if prev else 0.0
+    return {"stages": stages}
+
+
+# ------------- Seed -------------
+async def seed_startup():
+    await db.users.create_index("email", unique=True)
+    await db.clients.create_index("id", unique=True)
+
+    seeds = [
+        ("admin@whymob.pt", "admin123", "Admin WhyMob", "admin"),
+        ("comercial@whymob.pt", "comercial123", "João Silva", "comercial"),
+        ("diretor@whymob.pt", "diretor123", "Maria Costa", "diretor_tecnico"),
+        ("ceo@whymob.pt", "ceo123", "Pedro Almeida", "ceo"),
+    ]
+    for email, pw, name, role in seeds:
+        existing = await db.users.find_one({"email": email})
+        if not existing:
+            await db.users.insert_one({
+                "id": new_id(),
+                "email": email, "name": name, "role": role,
+                "password_hash": hash_password(pw),
+                "active": True, "created_at": now_iso(),
+            })
+        elif not verify_password(pw, existing["password_hash"]):
+            await db.users.update_one({"email": email}, {"$set": {"password_hash": hash_password(pw)}})
+
+    # Sample master data + funnel demo if empty
+    if await db.clients.count_documents({}) == 0:
+        clients_seed = [
+            {"name": "Banco Atlântico", "nif": "509123456", "segment": "Enterprise", "contact_person": "Ana Ribeiro", "contact_email": "ana@atlantico.pt"},
+            {"name": "Retalho Norte SA", "nif": "512987654", "segment": "PME", "contact_person": "Miguel Santos", "contact_email": "miguel@rn.pt"},
+            {"name": "Câmara de Lisboa", "nif": "500051070", "segment": "Público", "contact_person": "Rui Marques", "contact_email": "rui@cml.pt"},
+            {"name": "TechStart Lda", "nif": "515223344", "segment": "PME", "contact_person": "Sofia Lopes", "contact_email": "sofia@techstart.pt"},
+        ]
+        for c in clients_seed:
+            c.update({"id": new_id(), "address": "Lisboa, Portugal", "contact_phone": "+351 210 000 000", "active": True, "created_at": now_iso()})
+            await db.clients.insert_one(c)
+
+    if await db.manufacturers.count_documents({}) == 0:
+        for name, ptype in [("Microsoft", "Revenda"), ("Cisco", "Revenda"), ("Fortinet", "Implementação"), ("Red Hat", "Suporte")]:
+            await db.manufacturers.insert_one({
+                "id": new_id(), "name": name, "partnership_type": ptype,
+                "active": True, "created_at": now_iso(),
+            })
+
+    if await db.products.count_documents({}) == 0:
+        products_seed = [
+            ("Microsoft 365 E3", "licenciamento", "mes", 36.0, 22.0),
+            ("Consultoria Cloud", "horas", "hora", 95.0, 55.0),
+            ("Firewall Fortigate 100F", "projeto", "unidade", 3500.0, 2400.0),
+            ("Suporte Anual Premium", "recorrente", "mes", 850.0, 400.0),
+            ("Setup Migração M365", "setup", "projeto", 4500.0, 2500.0),
+        ]
+        for name, cat, unit, price, cost in products_seed:
+            await db.products.insert_one({
+                "id": new_id(), "name": name, "manufacturer_id": None,
+                "category": cat, "unit": unit, "base_price": price, "base_cost": cost,
+                "active": True, "created_at": now_iso(),
+            })
+
+    if await db.leads.count_documents({}) == 0:
+        clients = await db.clients.find({}, {"_id": 0}).to_list(20)
+        comercial = await db.users.find_one({"email": "comercial@whymob.pt"})
+        cid = clients[0]["id"] if clients else None
+        cid2 = clients[1]["id"] if len(clients) > 1 else None
+        cid3 = clients[2]["id"] if len(clients) > 2 else None
+        base_leads = [
+            {"client_id": cid, "description": "Renovação licenciamento M365 para 250 utilizadores", "estimated_value": 45000, "status": "em_qualificacao"},
+            {"client_id": cid2, "description": "Substituição de firewalls e revisão de rede", "estimated_value": 28000, "status": "nova"},
+            {"client_id": cid3, "description": "Consultoria em migração para cloud híbrida", "estimated_value": 120000, "status": "em_qualificacao"},
+        ]
+        for l in base_leads:
+            l.update({
+                "id": new_id(), "manufacturer_id": None, "product_ids": [],
+                "owner_id": comercial["id"] if comercial else "system",
+                "client_name_raw": "", "lost_reason": "", "converted_opportunity_id": None,
+                "created_at": now_iso(), "updated_at": now_iso(),
+            })
+            await db.leads.insert_one(l)
+
+
+@app.on_event("startup")
+async def on_startup():
+    try:
+        await seed_startup()
+        logger.info("Seed OK")
+    except Exception as e:
+        logger.exception("Seed error: %s", e)
+
+
+@app.on_event("shutdown")
+async def on_shutdown():
+    client.close()
+
+
+@api.get("/")
 async def root():
-    return {"message": "Hello World"}
+    return {"service": "WhyMob CRM", "ok": True}
 
-@api_router.post("/status", response_model=StatusCheck)
-async def create_status_check(input: StatusCheckCreate):
-    status_dict = input.model_dump()
-    status_obj = StatusCheck(**status_dict)
-    
-    # Convert to dict and serialize datetime to ISO string for MongoDB
-    doc = status_obj.model_dump()
-    doc['timestamp'] = doc['timestamp'].isoformat()
-    
-    _ = await db.status_checks.insert_one(doc)
-    return status_obj
 
-@api_router.get("/status", response_model=List[StatusCheck])
-async def get_status_checks():
-    # Exclude MongoDB's _id field from the query results
-    status_checks = await db.status_checks.find({}, {"_id": 0}).to_list(1000)
-    
-    # Convert ISO string timestamps back to datetime objects
-    for check in status_checks:
-        if isinstance(check['timestamp'], str):
-            check['timestamp'] = datetime.fromisoformat(check['timestamp'])
-    
-    return status_checks
-
-# Include the router in the main app
-app.include_router(api_router)
-
+app.include_router(api)
 app.add_middleware(
     CORSMiddleware,
     allow_credentials=True,
@@ -76,14 +874,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-# Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-)
-logger = logging.getLogger(__name__)
-
-@app.on_event("shutdown")
-async def shutdown_db_client():
-    client.close()

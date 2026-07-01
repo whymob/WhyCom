@@ -1,54 +1,59 @@
-import { useEffect } from "react";
 import "@/App.css";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
-import axios from "axios";
-import { HOME } from "@/constants/testIds";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { Toaster } from "@/components/ui/sonner";
+import { AuthProvider, useAuth } from "@/context/AuthContext";
+import Layout from "@/components/Layout";
+import Login from "@/pages/Login";
+import Dashboard from "@/pages/Dashboard";
+import Funnel from "@/pages/Funnel";
+import Leads from "@/pages/Leads";
+import Opportunities from "@/pages/Opportunities";
+import Proposals from "@/pages/Proposals";
+import ProposalDetail from "@/pages/ProposalDetail";
+import Orders from "@/pages/Orders";
+import Clients from "@/pages/Clients";
+import Manufacturers from "@/pages/Manufacturers";
+import Products from "@/pages/Products";
+import Users from "@/pages/Users";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-const API = `${BACKEND_URL}/api`;
-
-const Home = () => {
-  const helloWorldApi = async () => {
-    try {
-      const response = await axios.get(`${API}/`);
-      console.log(response.data.message);
-    } catch (e) {
-      console.error(e, `errored out requesting / api`);
-    }
-  };
-
-  useEffect(() => {
-    helloWorldApi();
-  }, []);
-
-  return (
-    <div>
-      <header className="App-header">
-        <a
-          data-testid={HOME.emergentLink}
-          className="App-link"
-          href="https://emergent.sh"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <img src="https://avatars.githubusercontent.com/in/1201222?s=120&u=2686cf91179bbafbc7a71bfbc43004cf9ae1acea&v=4" />
-        </a>
-        <p className="mt-5">Building something incredible ~!</p>
-      </header>
-    </div>
-  );
-};
+function Protected({ children }) {
+  const { user } = useAuth();
+  if (user === null) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
+  if (!user) return <Navigate to="/login" replace />;
+  return children;
+}
 
 function App() {
   return (
     <div className="App">
-      <BrowserRouter>
-        <Routes>
-          <Route path="/" element={<Home />}>
-            <Route index element={<Home />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
+      <AuthProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route
+              path="/"
+              element={
+                <Protected>
+                  <Layout />
+                </Protected>
+              }
+            >
+              <Route index element={<Dashboard />} />
+              <Route path="funil" element={<Funnel />} />
+              <Route path="leads" element={<Leads />} />
+              <Route path="oportunidades" element={<Opportunities />} />
+              <Route path="propostas" element={<Proposals />} />
+              <Route path="propostas/:id" element={<ProposalDetail />} />
+              <Route path="encomendas" element={<Orders />} />
+              <Route path="clientes" element={<Clients />} />
+              <Route path="fabricantes" element={<Manufacturers />} />
+              <Route path="produtos" element={<Products />} />
+              <Route path="utilizadores" element={<Users />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+        <Toaster position="top-right" richColors />
+      </AuthProvider>
     </div>
   );
 }
