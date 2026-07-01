@@ -22,6 +22,17 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (Fase 4 — Módulo Técnico — 01/07/2026) ✅
+- ✅ Modelo Projetos ligados a Encomendas (`/api/projects` CRUD)
+- ✅ Alocação de developers com €/hora custo e horas previstas por developer
+- ✅ Registo de horas reais (time entries) com data, descrição e flag "faturável"
+- ✅ Cálculo automático de **custo técnico real** (Σ horas × €/hora custo)
+- ✅ Cálculo automático de **VAB real** (Valor Encomenda − custo técnico real) + Δ vs VAB planeado
+- ✅ Integração com plano de faturação: linhas tipo `consumo_horas` são cross-referenciadas com horas faturáveis
+- ✅ Sumário por developer (horas, custo, horas faturáveis)
+- ✅ Endpoint `/api/projects/{id}/summary` — sumário completo (horas prev/real/faturáveis + custos + VAB real + by_developer)
+- ✅ Página `/projetos` (lista) e `/projetos/:id` (workspace com 4 KPI cards + tabela alocações + registo horas)
+
 ## Implemented (Fase 3 — 01/07/2026) ✅
 - ✅ Endpoint `/api/analytics/by-commercial` (leads, opps, props, ganhas, taxa conversão, valor, VAB por comercial)
 - ✅ Endpoint `/api/analytics/by-client` (propostas, encomendas, valor, VAB por cliente + segmento)
