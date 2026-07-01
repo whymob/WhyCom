@@ -26,12 +26,14 @@ export default function Products() {
   };
   useEffect(() => { load(); }, []);
 
-  const openCreate = () => { setEditing(null); setForm({ name: "", category: "projeto", unit: "unidade", base_price: 0, base_cost: 0, active: true }); setOpen(true); };
-  const openEdit = (p) => { setEditing(p); setForm(p); setOpen(true); };
+  const openCreate = () => { setEditing(null); setForm({ name: "", category: "projeto", unit: "unidade", base_price: 0, base_cost: 0, active: true, manufacturer_id: "" }); setOpen(true); };
+  const openEdit = (p) => { setEditing(p); setForm({ ...p, manufacturer_id: p.manufacturer_id || "" }); setOpen(true); };
+
+  const manufName = (id) => manuf.find((m) => m.id === id)?.name || "—";
 
   const submit = async () => {
     try {
-      const payload = { ...form, base_price: Number(form.base_price) || 0, base_cost: Number(form.base_cost) || 0 };
+      const payload = { ...form, base_price: Number(form.base_price) || 0, base_cost: Number(form.base_cost) || 0, manufacturer_id: form.manufacturer_id || null };
       if (editing) await api.patch(`/products/${editing.id}`, payload);
       else await api.post("/products", payload);
       toast.success("Guardado");
@@ -46,15 +48,16 @@ export default function Products() {
       <div className="p-8">
         <div className="border border-neutral-200">
           <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
-            <div className="col-span-4">Nome</div><div className="col-span-2">Categoria</div><div className="col-span-1">Un.</div><div className="col-span-2 text-right">Preço base</div><div className="col-span-2 text-right">Custo base</div><div className="col-span-1 text-right">Ações</div>
+            <div className="col-span-3">Nome</div><div className="col-span-2">Fabricante</div><div className="col-span-2">Categoria</div><div className="col-span-1">Un.</div><div className="col-span-2 text-right">Preço base</div><div className="col-span-1 text-right">Custo</div><div className="col-span-1 text-right">Ações</div>
           </div>
           {items.map((p) => (
             <div key={p.id} className="grid grid-cols-12 items-center px-4 py-3 border-b border-neutral-100 text-sm">
-              <div className="col-span-4 font-medium">{p.name}</div>
+              <div className="col-span-3 font-medium">{p.name}</div>
+              <div className="col-span-2 text-xs text-neutral-700" data-testid={`product-manufacturer-${p.id}`}>{manufName(p.manufacturer_id)}</div>
               <div className="col-span-2 text-xs">{p.category}</div>
               <div className="col-span-1 text-xs">{p.unit}</div>
               <div className="col-span-2 text-right font-mono">{eur(p.base_price)}</div>
-              <div className="col-span-2 text-right font-mono text-neutral-600">{eur(p.base_cost)}</div>
+              <div className="col-span-1 text-right font-mono text-neutral-600">{eur(p.base_cost)}</div>
               <div className="col-span-1 text-right"><Button size="sm" variant="ghost" onClick={() => openEdit(p)} className="rounded-none text-xs">Editar</Button></div>
             </div>
           ))}
@@ -81,6 +84,16 @@ export default function Products() {
             </div>
             <div><Label>Preço base</Label><Input type="number" value={form.base_price ?? 0} onChange={(e) => setForm({ ...form, base_price: e.target.value })} className="rounded-none font-mono" /></div>
             <div><Label>Custo base</Label><Input type="number" value={form.base_cost ?? 0} onChange={(e) => setForm({ ...form, base_cost: e.target.value })} className="rounded-none font-mono" /></div>
+            <div className="col-span-2">
+              <Label>Fabricante</Label>
+              <Select value={form.manufacturer_id || "__none__"} onValueChange={(v) => setForm({ ...form, manufacturer_id: v === "__none__" ? "" : v })}>
+                <SelectTrigger className="rounded-none" data-testid="product-manufacturer-select"><SelectValue placeholder="Sem fabricante" /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__none__">— Sem fabricante —</SelectItem>
+                  {manuf.map((m) => <SelectItem key={m.id} value={m.id}>{m.name}</SelectItem>)}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} className="rounded-none">Cancelar</Button>
