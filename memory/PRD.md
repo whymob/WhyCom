@@ -22,6 +22,17 @@ App de Gestão Comercial WhyMob — aplicação web multiutilizador em Portuguê
 - **Frontend**: React 19 + React Router 7 + Tailwind + Shadcn UI + Sonner (toasts) + Lucide icons
 - **Auth**: JWT Bearer token em `localStorage.whymob_token`, interceptor axios
 
+## Implemented (Fase 2 — 01/07/2026) ✅
+- ✅ Plano de Faturação (tipo, data prevista, valor, VAB, estado por linha)
+- ✅ Faturas com linhas ligadas ao plano; suporta faturação parcial e agregação
+- ✅ Recebimentos (parciais, métodos: transferência/cartão/mbway/cheque/numerário/outro)
+- ✅ Anulação de fatura com motivo obrigatório (Admin/CEO); reverte invoiced_amount
+- ✅ Endpoint `/api/orders/{id}/reconcile` com valores + VAB + deltas
+- ✅ **Cálculo automático do estado Fulfilled** (Encomenda = Plano = Faturado = Recebido em valor e VAB, tolerância 0.01€)
+- ✅ Transições automáticas: aberta → em_planeamento → parcialmente_faturada → faturada → recebida → fulfilled
+- ✅ Dashboard de reconciliação por encomenda (OrderDetail)
+- ✅ Widget de alertas na Dashboard (encomenda sem plano, desvio plano, plano em atraso, fatura em atraso, proposta ganha sem encomenda)
+
 ## Implemented (Fase 1 — 01/07/2026)
 - ✅ Auth JWT + admin seed + 3 test users (comercial/diretor/ceo)
 - ✅ CRUD Clientes, Fabricantes, Produtos, Utilizadores (Admin only)
