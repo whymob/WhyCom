@@ -3,7 +3,7 @@ from dotenv import load_dotenv
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).parent
-load_dotenv(ROOT_DIR / '.env')
+load_dotenv(ROOT_DIR / ".env")
 
 import os
 import uuid
@@ -16,27 +16,27 @@ from motor.motor_asyncio import AsyncIOMotorClient
 from fastapi import HTTPException, Depends, Request
 
 
-# ------------- Mongo -------------
-mongo_url = os.environ['MONGO_URL']
-mongo_client = AsyncIOMotorClient(mongo_url)
-db = mongo_client[os.environ['DB_NAME']]
+mongo_url = os.environ["MONGO_URL"]
+# Keep local/staging startup responsive even when Mongo is temporarily unavailable.
+mongo_client = AsyncIOMotorClient(
+    mongo_url,
+    serverSelectionTimeoutMS=2000,
+    connectTimeoutMS=2000,
+)
+db = mongo_client[os.environ["DB_NAME"]]
 
-# ------------- Logger -------------
 logger = logging.getLogger("whymob")
 logging.basicConfig(level=logging.INFO)
 
-# ------------- Constants -------------
 JWT_ALG = "HS256"
-JWT_SECRET = os.environ['JWT_SECRET']
+JWT_SECRET = os.environ["JWT_SECRET"]
 ROLES = ("admin", "ceo", "diretor_tecnico", "comercial", "developer")
 TOLERANCE = 0.01  # 1 cêntimo
 
-# Resend
 resend.api_key = os.environ.get("RESEND_API_KEY", "")
 SENDER_EMAIL = os.environ.get("SENDER_EMAIL") or os.environ.get("RESEND_FROM") or "onboarding@resend.dev"
 
 
-# ------------- Base helpers -------------
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -67,7 +67,6 @@ def create_access_token(user_id: str, email: str, role: str) -> str:
     return jwt.encode(payload, JWT_SECRET, algorithm=JWT_ALG)
 
 
-# ------------- Security deps -------------
 async def get_current_user(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     token = auth[7:] if auth.startswith("Bearer ") else request.cookies.get("access_token")
@@ -90,4 +89,5 @@ def require_roles(*roles):
         if user.get("role") not in roles and user.get("role") != "admin":
             raise HTTPException(status_code=403, detail="Sem permissão")
         return user
+
     return dep

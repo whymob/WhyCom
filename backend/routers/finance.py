@@ -58,6 +58,7 @@ async def reconcile(oid: str, user: dict = Depends(get_current_user)):
     plan_vab = round(sum(p["vab"] for p in plan), 2)
     inv_val = round(sum(i["total_net"] for i in invoices), 2)
     inv_vab = round(sum(i["total_vab"] for i in invoices), 2)
+    inv_gross = round(sum(i["total_gross"] for i in invoices), 2)
     received = round(sum(p["amount"] for p in payments), 2)
     return {
         "order": {"value": order["total_net"], "vab": order["total_vab"], "status": order["status"]},
@@ -67,7 +68,7 @@ async def reconcile(oid: str, user: dict = Depends(get_current_user)):
         "deltas": {
             "plan_vs_order": round(plan_val - order["total_net"], 2),
             "invoiced_vs_plan": round(inv_val - plan_val, 2),
-            "received_vs_invoiced": round(received - inv_val, 2),
+            "received_vs_invoiced": round(received - inv_gross, 2),
             "vab_plan_vs_order": round(plan_vab - order["total_vab"], 2),
             "vab_invoiced_vs_order": round(inv_vab - order["total_vab"], 2),
         },
@@ -186,7 +187,7 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
     amount = float(payload["amount"])
     if amount <= 0:
         raise HTTPException(400, "Valor deve ser > 0")
-    open_balance = inv["total_net"] - inv.get("received_amount", 0)
+    open_balance = inv["total_gross"] - inv.get("received_amount", 0)
     if amount > open_balance + TOLERANCE:
         raise HTTPException(400, f"Valor excede saldo em aberto ({open_balance:.2f}€)")
 
@@ -207,7 +208,7 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
     }
     await db.payments.insert_one(pay)
     new_received = inv.get("received_amount", 0) + amount
-    inv_status = "recebida" if abs(new_received - inv["total_net"]) <= TOLERANCE else "parcialmente_recebida"
+    inv_status = "recebida" if abs(new_received - inv["total_gross"]) <= TOLERANCE else "parcialmente_recebida"
     await db.invoices.update_one({"id": invoice_id}, {"$set": {"received_amount": round(new_received, 2), "status": inv_status}})
     await recalc_order_status(inv["order_id"])
     pay.pop("_id", None)

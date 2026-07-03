@@ -33,11 +33,73 @@ export default function OrderDetail() {
   const [products, setProducts] = useState([]);
   const [manufs, setManufs] = useState([]);
   const [invOpen, setInvOpen] = useState(false);
-  const [payOpen, setPayOpen] = useState(null); // invoice_id
+  const [payOpen, setPayOpen] = useState(null);
   const [payForm, setPayForm] = useState({ amount: 0, method: "transferencia", reference: "" });
   const [invForm, setInvForm] = useState({ lines: [] });
 
-  const load = async () => {
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const [oRes, plan, inv, pay, rec, prd, mf] = await Promise.all([
+        api.get("/orders").then((r) => r.data.find((o) => o.id === id)),
+        api.get(`/orders/${id}/plan`),
+        api.get(`/invoices?order_id=${id}`),
+        api.get(`/payments?order_id=${id}`),
+        api.get(`/orders/${id}/reconcile`),
+        api.get("/products"),
+        api.get("/manufacturers"),
+      ]);
+      if (!active) return;
+      setOrder(oRes);
+      setPlanLines(plan.data.lines);
+      setInvoices(inv.data);
+      setPayments(pay.data);
+      setRecon(rec.data);
+      setProducts(prd.data);
+      setManufs(mf.data);
+      if (oRes?.proposal_id) {
+        try {
+          const proposal = await api.get(`/proposals/${oRes.proposal_id}`);
+          if (!active) return;
+          setProposalLines(proposal.data.lines || []);
+        } catch {
+          if (!active) return;
+          setProposalLines([]);
+        }
+      }
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [id]);
+
+  if (!order) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
+
+  const productName = (productId) => products.find((product) => product.id === productId)?.name || "—";
+  const productManuf = (productId) => {
+    const prod = products.find((product) => product.id === productId);
+    if (!prod?.manufacturer_id) return "—";
+    return manufs.find((manuf) => manuf.id === prod.manufacturer_id)?.name || "—";
+  };
+
+  const addPlanLine = () => setPlanLines([
+    ...planLines,
+    { id: `new-${Date.now()}`, type: "mensalidade", description: "", expected_date: "", value: 0, vab: 0, status: "planeada", invoiced_amount: 0 },
+  ]);
+  const updatePlanLine = (index, patch) => setPlanLines(planLines.map((line, idx) => (idx === index ? { ...line, ...patch } : line)));
+  const removePlanLine = (index) => {
+    const line = planLines[index];
+    if ((line.invoiced_amount || 0) > 0) {
+      toast.error("Linha já faturada, não pode ser removida");
+      return;
+    }
+    setPlanLines(planLines.filter((_, idx) => idx !== index));
+  };
+
+  const reload = async () => {
     const [oRes, plan, inv, pay, rec, prd, mf] = await Promise.all([
       api.get("/orders").then((r) => r.data.find((o) => o.id === id)),
       api.get(`/orders/${id}/plan`),
@@ -56,67 +118,68 @@ export default function OrderDetail() {
     setManufs(mf.data);
     if (oRes?.proposal_id) {
       try {
-        const p = await api.get(`/proposals/${oRes.proposal_id}`);
-        setProposalLines(p.data.lines || []);
-      } catch { setProposalLines([]); }
+        const proposal = await api.get(`/proposals/${oRes.proposal_id}`);
+        setProposalLines(proposal.data.lines || []);
+      } catch {
+        setProposalLines([]);
+      }
     }
   };
-  useEffect(() => { load(); }, [id]);
 
-  if (!order) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
-
-  const productName = (pid) => products.find((p) => p.id === pid)?.name || "—";
-  const productManuf = (pid) => {
-    const prod = products.find((p) => p.id === pid);
-    if (!prod?.manufacturer_id) return "—";
-    return manufs.find((m) => m.id === prod.manufacturer_id)?.name || "—";
-  };
-
-  // Plan editing
-  const addPlanLine = () =>
-    setPlanLines([...planLines, { id: `new-${Date.now()}`, type: "mensalidade", description: "", expected_date: "", value: 0, vab: 0, status: "planeada", invoiced_amount: 0 }]);
-  const updatePlanLine = (idx, patch) => setPlanLines(planLines.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
-  const removePlanLine = (idx) => {
-    const l = planLines[idx];
-    if ((l.invoiced_amount || 0) > 0) { toast.error("Linha já faturada, não pode ser removida"); return; }
-    setPlanLines(planLines.filter((_, i) => i !== idx));
-  };
   const savePlan = async () => {
     try {
-      const clean = planLines.map((l) => ({
-        id: l.id?.startsWith("new-") ? undefined : l.id,
-        type: l.type, description: l.description,
-        expected_date: l.expected_date || null,
-        value: Number(l.value) || 0, vab: Number(l.vab) || 0,
+      const clean = planLines.map((line) => ({
+        id: line.id?.startsWith("new-") ? undefined : line.id,
+        type: line.type,
+        description: line.description,
+        expected_date: line.expected_date || null,
+        value: Number(line.value) || 0,
+        vab: Number(line.vab) || 0,
       }));
       const { data } = await api.put(`/orders/${id}/plan`, { lines: clean });
       setPlanLines(data.lines);
       toast.success("Plano guardado");
-      load();
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
-  const planTotal = planLines.filter((l) => l.status !== "cancelada").reduce((s, l) => s + (Number(l.value) || 0), 0);
-  const planVab = planLines.filter((l) => l.status !== "cancelada").reduce((s, l) => s + (Number(l.vab) || 0), 0);
+  const planTotal = planLines.filter((line) => line.status !== "cancelada").reduce((sum, line) => sum + (Number(line.value) || 0), 0);
+  const planVab = planLines.filter((line) => line.status !== "cancelada").reduce((sum, line) => sum + (Number(line.vab) || 0), 0);
   const planDelta = planTotal - order.total_net;
 
-  // Invoice creation
   const openInvoice = () => {
     const seed = planLines
-      .filter((l) => l.status !== "cancelada" && (l.value - (l.invoiced_amount || 0)) > 0.001)
-      .map((l) => ({ plan_line_id: l.id, amount: 0, vab: 0, description: l.description, remaining: l.value - (l.invoiced_amount || 0), _selected: false }));
+      .filter((line) => line.status !== "cancelada" && (line.value - (line.invoiced_amount || 0)) > 0.001)
+      .map((line) => ({
+        plan_line_id: line.id,
+        amount: 0,
+        vab: 0,
+        description: line.description,
+        remaining: line.value - (line.invoiced_amount || 0),
+        _selected: false,
+      }));
     setInvForm({ lines: seed, vat_pct: 23 });
     setInvOpen(true);
   };
+
   const submitInvoice = async () => {
     try {
-      const lines = invForm.lines.filter((l) => l._selected && l.amount > 0).map((l) => ({ plan_line_id: l.plan_line_id, amount: Number(l.amount), vab: Number(l.vab) || 0, description: l.description }));
-      if (!lines.length) { toast.error("Selecione pelo menos 1 linha"); return; }
+      const lines = invForm.lines
+        .filter((line) => line._selected && line.amount > 0)
+        .map((line) => ({ plan_line_id: line.plan_line_id, amount: Number(line.amount), vab: Number(line.vab) || 0, description: line.description }));
+      if (!lines.length) {
+        toast.error("Selecione pelo menos 1 linha");
+        return;
+      }
       await api.post("/invoices", { order_id: id, lines, vat_pct: invForm.vat_pct });
       toast.success("Fatura emitida");
       setInvOpen(false);
-      load();
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   const submitPayment = async () => {
@@ -124,15 +187,22 @@ export default function OrderDetail() {
       await api.post("/payments", { invoice_id: payOpen, amount: Number(payForm.amount), method: payForm.method, reference: payForm.reference });
       toast.success("Recebimento registado");
       setPayOpen(null);
-      load();
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
-  const cancelInvoice = async (iid) => {
+  const cancelInvoice = async (invoiceId) => {
     const reason = window.prompt("Motivo de anulação:");
     if (!reason) return;
-    try { await api.post(`/invoices/${iid}/cancel`, { reason }); toast.success("Fatura anulada"); load(); }
-    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    try {
+      await api.post(`/invoices/${invoiceId}/cancel`, { reason });
+      toast.success("Fatura anulada");
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   return (
@@ -143,7 +213,6 @@ export default function OrderDetail() {
         actions={<Link to="/encomendas"><Button variant="ghost" className="rounded-none"><ChevronLeft size={14} className="mr-1" /> Voltar</Button></Link>}
       />
       <div className="p-8 space-y-8">
-        {/* Reconciliation grid */}
         <section>
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Reconciliação</div>
           <div className="grid grid-cols-4 gap-0 border border-neutral-200">
@@ -152,11 +221,11 @@ export default function OrderDetail() {
               { label: "Planeado", value: recon?.plan.value, vab: recon?.plan.vab, testid: "recon-plan" },
               { label: "Faturado", value: recon?.invoiced.value, vab: recon?.invoiced.vab, testid: "recon-invoiced" },
               { label: "Recebido", value: recon?.received.value, vab: null, testid: "recon-received" },
-            ].map((c, i) => (
-              <div key={c.label} className={`p-5 ${i < 3 ? "border-r border-neutral-200" : ""}`} data-testid={c.testid}>
-                <div className="text-[10px] uppercase tracking-widest text-neutral-500">{c.label}</div>
-                <div className="mt-2 font-mono text-xl">{eur(c.value)}</div>
-                {c.vab !== null && <div className="text-xs text-neutral-500 mt-1">VAB <span className="font-mono">{eur(c.vab)}</span></div>}
+            ].map((card, index) => (
+              <div key={card.label} className={`p-5 ${index < 3 ? "border-r border-neutral-200" : ""}`} data-testid={card.testid}>
+                <div className="text-[10px] uppercase tracking-widest text-neutral-500">{card.label}</div>
+                <div className="mt-2 font-mono text-xl">{eur(card.value)}</div>
+                {card.vab !== null && <div className="text-xs text-neutral-500 mt-1">VAB <span className="font-mono">{eur(card.vab)}</span></div>}
               </div>
             ))}
           </div>
@@ -173,7 +242,6 @@ export default function OrderDetail() {
           </div>
         </section>
 
-        {/* Composição Comercial (from proposal lines) */}
         <section>
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Composição Comercial</div>
           <div className="border border-neutral-200">
@@ -185,17 +253,17 @@ export default function OrderDetail() {
               <div className="col-span-2 text-right">Total</div>
             </div>
             {proposalLines.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="composition-empty">Sem linhas comerciais.</div>}
-            {proposalLines.map((l, i) => {
-              const net = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100);
+            {proposalLines.map((line, index) => {
+              const net = (Number(line.quantity) || 0) * (Number(line.unit_price) || 0) * (1 - (Number(line.discount_pct) || 0) / 100);
               return (
-                <div key={i} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center" data-testid={`order-line-${i}`}>
+                <div key={index} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center" data-testid={`order-line-${index}`}>
                   <div className="col-span-4">
-                    <div className="font-medium text-xs">{l.description || productName(l.product_id)}</div>
-                    <div className="text-[10px] text-neutral-500">{productName(l.product_id)}</div>
+                    <div className="font-medium text-xs">{line.description || productName(line.product_id)}</div>
+                    <div className="text-[10px] text-neutral-500">{productName(line.product_id)}</div>
                   </div>
-                  <div className="col-span-3 text-xs text-neutral-700" data-testid={`order-line-manuf-${i}`}>{productManuf(l.product_id)}</div>
-                  <div className="col-span-1 text-right font-mono text-xs">{l.quantity}</div>
-                  <div className="col-span-2 text-right font-mono text-xs">{eur(l.unit_price)}</div>
+                  <div className="col-span-3 text-xs text-neutral-700" data-testid={`order-line-manuf-${index}`}>{productManuf(line.product_id)}</div>
+                  <div className="col-span-1 text-right font-mono text-xs">{line.quantity}</div>
+                  <div className="col-span-2 text-right font-mono text-xs">{eur(line.unit_price)}</div>
                   <div className="col-span-2 text-right font-mono text-xs">{eur(net)}</div>
                 </div>
               );
@@ -203,7 +271,6 @@ export default function OrderDetail() {
           </div>
         </section>
 
-        {/* Plan */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <div>
@@ -233,53 +300,53 @@ export default function OrderDetail() {
               <div className="col-span-1"></div>
             </div>
             {planLines.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="plan-empty">Sem plano. Adicione linhas para começar.</div>}
-            {planLines.map((l, i) => (
-              <div key={l.id || i} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`plan-line-${i}`}>
-                <Select value={l.type} onValueChange={(v) => updatePlanLine(i, { type: v })}>
+            {planLines.map((line, index) => (
+              <div key={line.id || index} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`plan-line-${index}`}>
+                <Select value={line.type} onValueChange={(value) => updatePlanLine(index, { type: value })}>
                   <SelectTrigger className="col-span-2 rounded-none h-8 text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>{PLAN_TYPES.map((t) => <SelectItem key={t} value={t}>{t}</SelectItem>)}</SelectContent>
+                  <SelectContent>{PLAN_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
                 </Select>
-                <Input value={l.description || ""} onChange={(e) => updatePlanLine(i, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
-                <Input type="date" value={(l.expected_date || "").slice(0, 10)} onChange={(e) => updatePlanLine(i, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
-                <Input type="number" value={l.value} onChange={(e) => updatePlanLine(i, { value: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${i}`} />
-                <Input type="number" value={l.vab} onChange={(e) => updatePlanLine(i, { vab: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
-                <div className="col-span-1 text-right font-mono text-xs">{eur(l.invoiced_amount || 0)}</div>
-                <div className="col-span-1"><Badge className={`${PLAN_STATUS_STYLE[l.status] || ""} rounded-none font-normal text-[10px]`}>{l.status}</Badge></div>
+                <Input value={line.description || ""} onChange={(e) => updatePlanLine(index, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
+                <Input type="date" value={(line.expected_date || "").slice(0, 10)} onChange={(e) => updatePlanLine(index, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
+                <Input type="number" value={line.value} onChange={(e) => updatePlanLine(index, { value: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${index}`} />
+                <Input type="number" value={line.vab} onChange={(e) => updatePlanLine(index, { vab: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
+                <div className="col-span-1 text-right font-mono text-xs">{eur(line.invoiced_amount || 0)}</div>
+                <div className="col-span-1"><Badge className={`${PLAN_STATUS_STYLE[line.status] || ""} rounded-none font-normal text-[10px]`}>{line.status}</Badge></div>
                 <div className="col-span-1 text-right">
-                  <Button size="sm" variant="ghost" onClick={() => removePlanLine(i)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button>
+                  <Button size="sm" variant="ghost" onClick={() => removePlanLine(index)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button>
                 </div>
               </div>
             ))}
           </div>
         </section>
 
-        {/* Invoices */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturas</div>
-            <Button size="sm" onClick={openInvoice} data-testid="new-invoice-btn" disabled={planLines.filter((l) => (l.value - (l.invoiced_amount || 0)) > 0.001 && l.status !== "cancelada").length === 0} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={14} className="mr-1" /> Emitir fatura</Button>
+            <Button size="sm" onClick={openInvoice} data-testid="new-invoice-btn" disabled={planLines.filter((line) => (line.value - (line.invoiced_amount || 0)) > 0.001 && line.status !== "cancelada").length === 0} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={14} className="mr-1" /> Emitir fatura</Button>
           </div>
           <div className="border border-neutral-200">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
               <div className="col-span-2">Número</div><div className="col-span-2">Data</div>
-              <div className="col-span-2 text-right">Total s/IVA</div><div className="col-span-1 text-right">VAB</div>
+              <div className="col-span-2 text-right">Total s/IVA</div><div className="col-span-1 text-right">VAB</div><div className="col-span-1 text-right">Total c/IVA</div>
               <div className="col-span-2 text-right">Recebido</div><div className="col-span-2">Estado</div><div className="col-span-1 text-right">Ações</div>
             </div>
             {invoices.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="invoices-empty">Sem faturas emitidas.</div>}
-            {invoices.map((inv) => (
-              <div key={inv.id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center" data-testid={`invoice-row-${inv.id}`}>
-                <div className="col-span-2 font-mono">{inv.number}</div>
-                <div className="col-span-2 text-xs font-mono text-neutral-600">{dateShort(inv.issued_at)}</div>
-                <div className="col-span-2 text-right font-mono">{eur(inv.total_net)}</div>
-                <div className="col-span-1 text-right font-mono">{eur(inv.total_vab)}</div>
-                <div className="col-span-2 text-right font-mono">{eur(inv.received_amount)}</div>
-                <div className="col-span-2"><Badge className="rounded-none font-normal">{inv.status}</Badge></div>
+            {invoices.map((invoice) => (
+              <div key={invoice.id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center" data-testid={`invoice-row-${invoice.id}`}>
+                <div className="col-span-2 font-mono">{invoice.number}</div>
+                <div className="col-span-2 text-xs font-mono text-neutral-600">{dateShort(invoice.issued_at)}</div>
+                <div className="col-span-2 text-right font-mono">{eur(invoice.total_net)}</div>
+                <div className="col-span-1 text-right font-mono">{eur(invoice.total_vab)}</div>
+                <div className="col-span-1 text-right font-mono">{eur(invoice.total_gross)}</div>
+                <div className="col-span-2 text-right font-mono">{eur(invoice.received_amount)}</div>
+                <div className="col-span-2"><Badge className="rounded-none font-normal">{invoice.status}</Badge></div>
                 <div className="col-span-1 text-right flex justify-end gap-1">
-                  {inv.status !== "anulada" && inv.status !== "recebida" && (
-                    <Button size="sm" onClick={() => { setPayOpen(inv.id); setPayForm({ amount: inv.total_net - inv.received_amount, method: "transferencia", reference: "" }); }} data-testid={`pay-invoice-${inv.id}`} className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs h-7">Receber</Button>
+                  {invoice.status !== "anulada" && invoice.status !== "recebida" && (
+                    <Button size="sm" onClick={() => { setPayOpen(invoice.id); setPayForm({ amount: invoice.total_gross - invoice.received_amount, method: "transferencia", reference: "" }); }} data-testid={`pay-invoice-${invoice.id}`} className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs h-7">Receber</Button>
                   )}
-                  {inv.status !== "anulada" && (
-                    <Button size="sm" variant="ghost" onClick={() => cancelInvoice(inv.id)} data-testid={`cancel-invoice-${inv.id}`} className="rounded-none text-[#FF2A00] text-xs h-7">×</Button>
+                  {invoice.status !== "anulada" && (
+                    <Button size="sm" variant="ghost" onClick={() => cancelInvoice(invoice.id)} data-testid={`cancel-invoice-${invoice.id}`} className="rounded-none text-[#FF2A00] text-xs h-7">×</Button>
                   )}
                 </div>
               </div>
@@ -287,7 +354,6 @@ export default function OrderDetail() {
           </div>
         </section>
 
-        {/* Payments */}
         <section>
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Recebimentos</div>
           <div className="border border-neutral-200">
@@ -296,15 +362,15 @@ export default function OrderDetail() {
               <div className="col-span-2 text-right">Valor</div><div className="col-span-2">Método</div><div className="col-span-2">Referência</div>
             </div>
             {payments.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="payments-empty">Sem recebimentos.</div>}
-            {payments.map((p) => {
-              const inv = invoices.find((i) => i.id === p.invoice_id);
+            {payments.map((payment) => {
+              const invoice = invoices.find((item) => item.id === payment.invoice_id);
               return (
-                <div key={p.id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center">
-                  <div className="col-span-3 font-mono text-xs">{dateShort(p.paid_at)}</div>
-                  <div className="col-span-3 font-mono text-xs">{inv?.number || p.invoice_id.slice(0, 8)}</div>
-                  <div className="col-span-2 text-right font-mono">{eur(p.amount)}</div>
-                  <div className="col-span-2 text-xs">{p.method}</div>
-                  <div className="col-span-2 text-xs font-mono text-neutral-500">{p.reference || "—"}</div>
+                <div key={payment.id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 text-sm items-center">
+                  <div className="col-span-3 font-mono text-xs">{dateShort(payment.paid_at)}</div>
+                  <div className="col-span-3 font-mono text-xs">{invoice?.number || payment.invoice_id.slice(0, 8)}</div>
+                  <div className="col-span-2 text-right font-mono">{eur(payment.amount)}</div>
+                  <div className="col-span-2 text-xs">{payment.method}</div>
+                  <div className="col-span-2 text-xs font-mono text-neutral-500">{payment.reference || "—"}</div>
                 </div>
               );
             })}
@@ -312,7 +378,6 @@ export default function OrderDetail() {
         </section>
       </div>
 
-      {/* Invoice dialog */}
       <Dialog open={invOpen} onOpenChange={setInvOpen}>
         <DialogContent className="max-w-2xl rounded-none">
           <DialogHeader><DialogTitle className="font-display">Emitir fatura</DialogTitle></DialogHeader>
@@ -326,13 +391,13 @@ export default function OrderDetail() {
                 <div className="col-span-2 text-right">A faturar</div>
                 <div className="col-span-2 text-right">VAB</div>
               </div>
-              {invForm.lines?.map((l, i) => (
-                <div key={l.plan_line_id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2">
-                  <input type="checkbox" checked={l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, _selected: e.target.checked, amount: e.target.checked ? x.remaining : 0 } : x) })} className="col-span-1" data-testid={`inv-line-check-${i}`} />
-                  <div className="col-span-5 text-xs truncate">{l.description || "(sem descrição)"}</div>
-                  <div className="col-span-2 text-right font-mono text-xs">{eur(l.remaining)}</div>
-                  <Input type="number" value={l.amount} disabled={!l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, amount: e.target.value } : x) })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`inv-line-amount-${i}`} />
-                  <Input type="number" value={l.vab} disabled={!l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, vab: e.target.value } : x) })} className="col-span-2 rounded-none h-8 text-right font-mono" />
+              {invForm.lines?.map((line, index) => (
+                <div key={line.plan_line_id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2">
+                  <input type="checkbox" checked={line._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((item, idx) => idx === index ? { ...item, _selected: e.target.checked, amount: e.target.checked ? item.remaining : 0 } : item) })} className="col-span-1" data-testid={`inv-line-check-${index}`} />
+                  <div className="col-span-5 text-xs truncate">{line.description || "(sem descrição)"}</div>
+                  <div className="col-span-2 text-right font-mono text-xs">{eur(line.remaining)}</div>
+                  <Input type="number" value={line.amount} disabled={!line._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((item, idx) => idx === index ? { ...item, amount: e.target.value } : item) })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`inv-line-amount-${index}`} />
+                  <Input type="number" value={line.vab} disabled={!line._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((item, idx) => idx === index ? { ...item, vab: e.target.value } : item) })} className="col-span-2 rounded-none h-8 text-right font-mono" />
                 </div>
               ))}
             </div>
@@ -348,16 +413,15 @@ export default function OrderDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Payment dialog */}
-      <Dialog open={!!payOpen} onOpenChange={(o) => !o && setPayOpen(null)}>
+      <Dialog open={!!payOpen} onOpenChange={(open) => !open && setPayOpen(null)}>
         <DialogContent className="max-w-md rounded-none">
           <DialogHeader><DialogTitle className="font-display">Registar recebimento</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div><Label>Valor recebido</Label><Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="rounded-none font-mono" data-testid="pay-amount-input" /></div>
             <div><Label>Método</Label>
-              <Select value={payForm.method} onValueChange={(v) => setPayForm({ ...payForm, method: v })}>
+              <Select value={payForm.method} onValueChange={(value) => setPayForm({ ...payForm, method: value })}>
                 <SelectTrigger className="rounded-none" data-testid="pay-method-select"><SelectValue /></SelectTrigger>
-                <SelectContent>{PAY_METHODS.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}</SelectContent>
+                <SelectContent>{PAY_METHODS.map((method) => <SelectItem key={method} value={method}>{method}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div><Label>Referência</Label><Input value={payForm.reference} onChange={(e) => setPayForm({ ...payForm, reference: e.target.value })} className="rounded-none font-mono" /></div>

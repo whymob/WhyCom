@@ -32,40 +32,98 @@ export default function ProjectDetail() {
   const [entryOpen, setEntryOpen] = useState(false);
   const [entryForm, setEntryForm] = useState({ allocation_id: "", hours: 0, date: new Date().toISOString().slice(0, 10), billable: true, description: "" });
 
-  const load = async () => {
-    const [s, a, e, u] = await Promise.all([
-      api.get(`/projects/${id}/summary`),
-      api.get(`/projects/${id}/allocations`),
-      api.get(`/projects/${id}/time-entries`),
-      api.get(`/users`),
-    ]);
-    setSummary(s.data); setAllocs(a.data); setEntries(e.data); setUsers(u.data);
-  };
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const [summaryRes, allocRes, entryRes, userRes] = await Promise.all([
+        api.get(`/projects/${id}/summary`),
+        api.get(`/projects/${id}/allocations`),
+        api.get(`/projects/${id}/time-entries`),
+        api.get("/users"),
+      ]);
+      if (!active) return;
+      setSummary(summaryRes.data);
+      setAllocs(allocRes.data);
+      setEntries(entryRes.data);
+      setUsers(userRes.data);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
   if (!summary) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
 
   const submitAlloc = async () => {
     try {
-      if (!allocForm.user_id) { toast.error("Selecione utilizador"); return; }
+      if (!allocForm.user_id) {
+        toast.error("Selecione utilizador");
+        return;
+      }
       await api.post(`/projects/${id}/allocations`, allocForm);
-      toast.success("Developer alocado"); setAllocOpen(false);
+      toast.success("Developer alocado");
+      setAllocOpen(false);
       setAllocForm({ user_id: "", hourly_cost: 0, hours_forecast: 0 });
-      load();
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+      const [summaryRes, allocRes, entryRes, userRes] = await Promise.all([
+        api.get(`/projects/${id}/summary`),
+        api.get(`/projects/${id}/allocations`),
+        api.get(`/projects/${id}/time-entries`),
+        api.get("/users"),
+      ]);
+      setSummary(summaryRes.data);
+      setAllocs(allocRes.data);
+      setEntries(entryRes.data);
+      setUsers(userRes.data);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
+
   const removeAlloc = async (aid) => {
-    try { await api.delete(`/projects/${id}/allocations/${aid}`); toast.success("Alocação removida"); load(); }
-    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    try {
+      await api.delete(`/projects/${id}/allocations/${aid}`);
+      toast.success("Alocação removida");
+      const [summaryRes, allocRes, entryRes, userRes] = await Promise.all([
+        api.get(`/projects/${id}/summary`),
+        api.get(`/projects/${id}/allocations`),
+        api.get(`/projects/${id}/time-entries`),
+        api.get("/users"),
+      ]);
+      setSummary(summaryRes.data);
+      setAllocs(allocRes.data);
+      setEntries(entryRes.data);
+      setUsers(userRes.data);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
+
   const submitEntry = async () => {
     try {
-      if (!entryForm.allocation_id) { toast.error("Selecione alocação"); return; }
+      if (!entryForm.allocation_id) {
+        toast.error("Selecione alocação");
+        return;
+      }
       await api.post(`/projects/${id}/time-entries`, entryForm);
-      toast.success("Horas registadas"); setEntryOpen(false);
-      setEntryForm({ ...entryForm, hours: 0, description: "" });
-      load();
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+      toast.success("Horas registadas");
+      setEntryOpen(false);
+      setEntryForm((current) => ({ ...current, hours: 0, description: "" }));
+      const [summaryRes, allocRes, entryRes, userRes] = await Promise.all([
+        api.get(`/projects/${id}/summary`),
+        api.get(`/projects/${id}/allocations`),
+        api.get(`/projects/${id}/time-entries`),
+        api.get("/users"),
+      ]);
+      setSummary(summaryRes.data);
+      setAllocs(allocRes.data);
+      setEntries(entryRes.data);
+      setUsers(userRes.data);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   const vabDeltaTone = summary.vab.delta >= 0 ? "text-[#00A859]" : "text-[#FF2A00]";
@@ -79,7 +137,6 @@ export default function ProjectDetail() {
         actions={<Link to="/projetos"><Button variant="ghost" className="rounded-none"><ChevronLeft size={14} className="mr-1" /> Voltar</Button></Link>}
       />
       <div className="p-8 space-y-8">
-        {/* Summary */}
         <section>
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Sumário técnico</div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -90,7 +147,6 @@ export default function ProjectDetail() {
           </div>
         </section>
 
-        {/* Allocations */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Alocações de Developers</div>
@@ -102,23 +158,22 @@ export default function ProjectDetail() {
               <div className="col-span-2 text-right">Horas prev.</div><div className="col-span-2 text-right">Horas real</div><div className="col-span-1 text-right">Custo real</div><div className="col-span-1"></div>
             </div>
             {allocs.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="allocs-empty">Sem alocações.</div>}
-            {allocs.map((a) => {
-              const dev = summary.by_developer.find((d) => d.user_id === a.user_id);
+            {allocs.map((alloc) => {
+              const dev = summary.by_developer.find((item) => item.user_id === alloc.user_id);
               return (
-                <div key={a.id} className="grid grid-cols-12 items-center px-4 py-2.5 border-b border-neutral-100 text-sm" data-testid={`alloc-row-${a.id}`}>
-                  <div className="col-span-4 font-medium">{a.user_name}</div>
-                  <div className="col-span-2 text-right font-mono">{eur(a.hourly_cost)}</div>
-                  <div className="col-span-2 text-right font-mono">{a.hours_forecast}h</div>
+                <div key={alloc.id} className="grid grid-cols-12 items-center px-4 py-2.5 border-b border-neutral-100 text-sm" data-testid={`alloc-row-${alloc.id}`}>
+                  <div className="col-span-4 font-medium">{alloc.user_name}</div>
+                  <div className="col-span-2 text-right font-mono">{eur(alloc.hourly_cost)}</div>
+                  <div className="col-span-2 text-right font-mono">{alloc.hours_forecast}h</div>
                   <div className="col-span-2 text-right font-mono">{dev?.hours || 0}h</div>
                   <div className="col-span-1 text-right font-mono text-xs">{eur(dev?.cost || 0)}</div>
-                  <div className="col-span-1 text-right"><Button size="sm" variant="ghost" onClick={() => removeAlloc(a.id)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button></div>
+                  <div className="col-span-1 text-right"><Button size="sm" variant="ghost" onClick={() => removeAlloc(alloc.id)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button></div>
                 </div>
               );
             })}
           </div>
         </section>
 
-        {/* Time entries */}
         <section>
           <div className="flex items-center justify-between mb-3">
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Registo de Horas</div>
@@ -131,30 +186,29 @@ export default function ProjectDetail() {
               <div className="col-span-1 text-right">Custo</div><div className="col-span-1 text-center">Faturável</div>
             </div>
             {entries.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="entries-empty">Sem registos de horas.</div>}
-            {entries.map((e) => (
-              <div key={e.id} className="grid grid-cols-12 items-center px-4 py-2 border-b border-neutral-100 text-sm">
-                <div className="col-span-2 font-mono text-xs">{dateShort(e.date)}</div>
-                <div className="col-span-3 text-xs">{e.user_name}</div>
-                <div className="col-span-4 text-xs text-neutral-600 truncate">{e.description || "—"}</div>
-                <div className="col-span-1 text-right font-mono">{e.hours}h</div>
-                <div className="col-span-1 text-right font-mono text-xs">{eur(e.cost)}</div>
-                <div className="col-span-1 text-center text-xs">{e.billable ? "✓" : "—"}</div>
+            {entries.map((entry) => (
+              <div key={entry.id} className="grid grid-cols-12 items-center px-4 py-2 border-b border-neutral-100 text-sm">
+                <div className="col-span-2 font-mono text-xs">{dateShort(entry.date)}</div>
+                <div className="col-span-3 text-xs">{entry.user_name}</div>
+                <div className="col-span-4 text-xs text-neutral-600 truncate">{entry.description || "—"}</div>
+                <div className="col-span-1 text-right font-mono">{entry.hours}h</div>
+                <div className="col-span-1 text-right font-mono text-xs">{eur(entry.cost)}</div>
+                <div className="col-span-1 text-center text-xs">{entry.billable ? "✓" : "—"}</div>
               </div>
             ))}
           </div>
         </section>
       </div>
 
-      {/* Alloc dialog */}
       <Dialog open={allocOpen} onOpenChange={setAllocOpen}>
         <DialogContent className="max-w-md rounded-none">
           <DialogHeader><DialogTitle className="font-display">Alocar developer</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
               <Label>Utilizador</Label>
-              <Select value={allocForm.user_id} onValueChange={(v) => setAllocForm({ ...allocForm, user_id: v })}>
+              <Select value={allocForm.user_id} onValueChange={(value) => setAllocForm({ ...allocForm, user_id: value })}>
                 <SelectTrigger className="rounded-none" data-testid="alloc-user-select"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                <SelectContent>{users.map((u) => <SelectItem key={u.id} value={u.id}>{u.name} · {u.role}</SelectItem>)}</SelectContent>
+                <SelectContent>{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.name} · {user.role}</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
@@ -169,16 +223,15 @@ export default function ProjectDetail() {
         </DialogContent>
       </Dialog>
 
-      {/* Entry dialog */}
       <Dialog open={entryOpen} onOpenChange={setEntryOpen}>
         <DialogContent className="max-w-md rounded-none">
           <DialogHeader><DialogTitle className="font-display">Registar horas</DialogTitle></DialogHeader>
           <div className="space-y-3">
             <div>
               <Label>Alocação</Label>
-              <Select value={entryForm.allocation_id} onValueChange={(v) => setEntryForm({ ...entryForm, allocation_id: v })}>
+              <Select value={entryForm.allocation_id} onValueChange={(value) => setEntryForm({ ...entryForm, allocation_id: value })}>
                 <SelectTrigger className="rounded-none" data-testid="entry-alloc-select"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                <SelectContent>{allocs.map((a) => <SelectItem key={a.id} value={a.id}>{a.user_name} · {eur(a.hourly_cost)}/h</SelectItem>)}</SelectContent>
+                <SelectContent>{allocs.map((alloc) => <SelectItem key={alloc.id} value={alloc.id}>{alloc.user_name} · {eur(alloc.hourly_cost)}/h</SelectItem>)}</SelectContent>
               </Select>
             </div>
             <div className="grid grid-cols-2 gap-3">
