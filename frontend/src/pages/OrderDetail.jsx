@@ -74,7 +74,7 @@ export default function OrderDetail() {
 
   // Plan editing
   const addPlanLine = () =>
-    setPlanLines([...planLines, { id: `new-${Date.now()}`, type: "mensalidade", description: "", expected_date: "", value: 0, vab: 0, status: "planeada", invoiced_amount: 0 }]);
+    setPlanLines([...planLines, { id: `new-${Date.now()}`, type: "mensalidade", description: "", expected_date: "", value: 0, status: "planeada", invoiced_amount: 0 }]);
   const updatePlanLine = (idx, patch) => setPlanLines(planLines.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
   const removePlanLine = (idx) => {
     const l = planLines[idx];
@@ -87,7 +87,7 @@ export default function OrderDetail() {
         id: l.id?.startsWith("new-") ? undefined : l.id,
         type: l.type, description: l.description,
         expected_date: l.expected_date || null,
-        value: Number(l.value) || 0, vab: Number(l.vab) || 0,
+        value: Number(l.value) || 0,
       }));
       const { data } = await api.put(`/orders/${id}/plan`, { lines: clean });
       setPlanLines(data.lines);
@@ -97,20 +97,19 @@ export default function OrderDetail() {
   };
 
   const planTotal = planLines.filter((l) => l.status !== "cancelada").reduce((s, l) => s + (Number(l.value) || 0), 0);
-  const planVab = planLines.filter((l) => l.status !== "cancelada").reduce((s, l) => s + (Number(l.vab) || 0), 0);
   const planDelta = planTotal - order.total_net;
 
   // Invoice creation
   const openInvoice = () => {
     const seed = planLines
       .filter((l) => l.status !== "cancelada" && (l.value - (l.invoiced_amount || 0)) > 0.001)
-      .map((l) => ({ plan_line_id: l.id, amount: 0, vab: 0, description: l.description, remaining: l.value - (l.invoiced_amount || 0), _selected: false }));
+      .map((l) => ({ plan_line_id: l.id, amount: 0, description: l.description, remaining: l.value - (l.invoiced_amount || 0), _selected: false }));
     setInvForm({ lines: seed, vat_pct: 23 });
     setInvOpen(true);
   };
   const submitInvoice = async () => {
     try {
-      const lines = invForm.lines.filter((l) => l._selected && l.amount > 0).map((l) => ({ plan_line_id: l.plan_line_id, amount: Number(l.amount), vab: Number(l.vab) || 0, description: l.description }));
+      const lines = invForm.lines.filter((l) => l._selected && l.amount > 0).map((l) => ({ plan_line_id: l.plan_line_id, amount: Number(l.amount), description: l.description }));
       if (!lines.length) { toast.error("Selecione pelo menos 1 linha"); return; }
       await api.post("/invoices", { order_id: id, lines, vat_pct: invForm.vat_pct });
       toast.success("Fatura emitida");
@@ -148,15 +147,16 @@ export default function OrderDetail() {
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Reconciliação</div>
           <div className="grid grid-cols-4 gap-0 border border-neutral-200">
             {[
-              { label: "Encomenda", value: recon?.order.value, vab: recon?.order.vab, testid: "recon-order" },
-              { label: "Planeado", value: recon?.plan.value, vab: recon?.plan.vab, testid: "recon-plan" },
-              { label: "Faturado", value: recon?.invoiced.value, vab: recon?.invoiced.vab, testid: "recon-invoiced" },
-              { label: "Recebido", value: recon?.received.value, vab: null, testid: "recon-received" },
+              { label: "Encomenda", value: recon?.order.value, vab: recon?.order.vab, sub: null, testid: "recon-order" },
+              { label: "Planeado", value: recon?.plan.value, vab: null, sub: null, testid: "recon-plan" },
+              { label: "Faturado (s/IVA)", value: recon?.invoiced.value, vab: null, sub: recon?.invoiced.gross ? `c/IVA ${eur(recon.invoiced.gross)}` : null, testid: "recon-invoiced" },
+              { label: "Recebido (c/IVA)", value: recon?.received.value, vab: null, sub: null, testid: "recon-received" },
             ].map((c, i) => (
               <div key={c.label} className={`p-5 ${i < 3 ? "border-r border-neutral-200" : ""}`} data-testid={c.testid}>
                 <div className="text-[10px] uppercase tracking-widest text-neutral-500">{c.label}</div>
                 <div className="mt-2 font-mono text-xl">{eur(c.value)}</div>
-                {c.vab !== null && <div className="text-xs text-neutral-500 mt-1">VAB <span className="font-mono">{eur(c.vab)}</span></div>}
+                {c.vab !== null && c.vab !== undefined && <div className="text-xs text-neutral-500 mt-1">VAB <span className="font-mono">{eur(c.vab)}</span></div>}
+                {c.sub && <div className="text-[10px] text-neutral-400 mt-1 font-mono">{c.sub}</div>}
               </div>
             ))}
           </div>
@@ -209,7 +209,7 @@ export default function OrderDetail() {
             <div>
               <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Plano de Faturação</div>
               <div className="text-xs text-neutral-500 mt-1 font-mono">
-                Total plano <span className="text-neutral-900">{eur(planTotal)}</span> · VAB <span className="text-neutral-900">{eur(planVab)}</span>
+                Total plano <span className="text-neutral-900">{eur(planTotal)}</span>
                 {" · "}
                 <span className={Math.abs(planDelta) > 0.5 ? "text-[#FF2A00]" : "text-[#00A859]"}>
                   Δ Encomenda {eur(planDelta)}
@@ -226,8 +226,7 @@ export default function OrderDetail() {
               <div className="col-span-2">Tipo</div>
               <div className="col-span-3">Descrição</div>
               <div className="col-span-2">Data prevista</div>
-              <div className="col-span-1 text-right">Valor</div>
-              <div className="col-span-1 text-right">VAB</div>
+              <div className="col-span-2 text-right">Valor</div>
               <div className="col-span-1 text-right">Faturado</div>
               <div className="col-span-1">Estado</div>
               <div className="col-span-1"></div>
@@ -241,8 +240,7 @@ export default function OrderDetail() {
                 </Select>
                 <Input value={l.description || ""} onChange={(e) => updatePlanLine(i, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
                 <Input type="date" value={(l.expected_date || "").slice(0, 10)} onChange={(e) => updatePlanLine(i, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
-                <Input type="number" value={l.value} onChange={(e) => updatePlanLine(i, { value: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${i}`} />
-                <Input type="number" value={l.vab} onChange={(e) => updatePlanLine(i, { vab: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
+                <Input type="number" value={l.value} onChange={(e) => updatePlanLine(i, { value: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${i}`} />
                 <div className="col-span-1 text-right font-mono text-xs">{eur(l.invoiced_amount || 0)}</div>
                 <div className="col-span-1"><Badge className={`${PLAN_STATUS_STYLE[l.status] || ""} rounded-none font-normal text-[10px]`}>{l.status}</Badge></div>
                 <div className="col-span-1 text-right">
@@ -262,8 +260,8 @@ export default function OrderDetail() {
           <div className="border border-neutral-200">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
               <div className="col-span-2">Número</div><div className="col-span-2">Data</div>
-              <div className="col-span-2 text-right">Total s/IVA</div><div className="col-span-1 text-right">VAB</div>
-              <div className="col-span-2 text-right">Recebido</div><div className="col-span-2">Estado</div><div className="col-span-1 text-right">Ações</div>
+              <div className="col-span-2 text-right">Total s/IVA</div><div className="col-span-2 text-right">Total c/IVA</div>
+              <div className="col-span-1 text-right">Recebido</div><div className="col-span-2">Estado</div><div className="col-span-1 text-right">Ações</div>
             </div>
             {invoices.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="invoices-empty">Sem faturas emitidas.</div>}
             {invoices.map((inv) => (
@@ -271,12 +269,12 @@ export default function OrderDetail() {
                 <div className="col-span-2 font-mono">{inv.number}</div>
                 <div className="col-span-2 text-xs font-mono text-neutral-600">{dateShort(inv.issued_at)}</div>
                 <div className="col-span-2 text-right font-mono">{eur(inv.total_net)}</div>
-                <div className="col-span-1 text-right font-mono">{eur(inv.total_vab)}</div>
-                <div className="col-span-2 text-right font-mono">{eur(inv.received_amount)}</div>
+                <div className="col-span-2 text-right font-mono">{eur(inv.total_gross)}</div>
+                <div className="col-span-1 text-right font-mono">{eur(inv.received_amount)}</div>
                 <div className="col-span-2"><Badge className="rounded-none font-normal">{inv.status}</Badge></div>
                 <div className="col-span-1 text-right flex justify-end gap-1">
                   {inv.status !== "anulada" && inv.status !== "recebida" && (
-                    <Button size="sm" onClick={() => { setPayOpen(inv.id); setPayForm({ amount: inv.total_net - inv.received_amount, method: "transferencia", reference: "" }); }} data-testid={`pay-invoice-${inv.id}`} className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs h-7">Receber</Button>
+                    <Button size="sm" onClick={() => { setPayOpen(inv.id); setPayForm({ amount: (inv.total_gross || inv.total_net) - inv.received_amount, method: "transferencia", reference: "", _invGross: inv.total_gross }); }} data-testid={`pay-invoice-${inv.id}`} className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs h-7">Receber</Button>
                   )}
                   {inv.status !== "anulada" && (
                     <Button size="sm" variant="ghost" onClick={() => cancelInvoice(inv.id)} data-testid={`cancel-invoice-${inv.id}`} className="rounded-none text-[#FF2A00] text-xs h-7">×</Button>
@@ -321,18 +319,16 @@ export default function OrderDetail() {
             <div className="border border-neutral-200">
               <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
                 <div className="col-span-1"></div>
-                <div className="col-span-5">Descrição</div>
+                <div className="col-span-6">Descrição</div>
                 <div className="col-span-2 text-right">Restante</div>
-                <div className="col-span-2 text-right">A faturar</div>
-                <div className="col-span-2 text-right">VAB</div>
+                <div className="col-span-3 text-right">A faturar</div>
               </div>
               {invForm.lines?.map((l, i) => (
                 <div key={l.plan_line_id} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2">
                   <input type="checkbox" checked={l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, _selected: e.target.checked, amount: e.target.checked ? x.remaining : 0 } : x) })} className="col-span-1" data-testid={`inv-line-check-${i}`} />
-                  <div className="col-span-5 text-xs truncate">{l.description || "(sem descrição)"}</div>
+                  <div className="col-span-6 text-xs truncate">{l.description || "(sem descrição)"}</div>
                   <div className="col-span-2 text-right font-mono text-xs">{eur(l.remaining)}</div>
-                  <Input type="number" value={l.amount} disabled={!l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, amount: e.target.value } : x) })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`inv-line-amount-${i}`} />
-                  <Input type="number" value={l.vab} disabled={!l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, vab: e.target.value } : x) })} className="col-span-2 rounded-none h-8 text-right font-mono" />
+                  <Input type="number" value={l.amount} disabled={!l._selected} onChange={(e) => setInvForm({ ...invForm, lines: invForm.lines.map((x, j) => j === i ? { ...x, amount: e.target.value } : x) })} className="col-span-3 rounded-none h-8 text-right font-mono" data-testid={`inv-line-amount-${i}`} />
                 </div>
               ))}
             </div>
@@ -353,7 +349,8 @@ export default function OrderDetail() {
         <DialogContent className="max-w-md rounded-none">
           <DialogHeader><DialogTitle className="font-display">Registar recebimento</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Valor recebido</Label><Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="rounded-none font-mono" data-testid="pay-amount-input" /></div>
+            <div className="text-xs text-neutral-500">O valor a receber inclui IVA (valor bruto).</div>
+            <div><Label>Valor recebido (c/IVA)</Label><Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="rounded-none font-mono" data-testid="pay-amount-input" /></div>
             <div><Label>Método</Label>
               <Select value={payForm.method} onValueChange={(v) => setPayForm({ ...payForm, method: v })}>
                 <SelectTrigger className="rounded-none" data-testid="pay-method-select"><SelectValue /></SelectTrigger>

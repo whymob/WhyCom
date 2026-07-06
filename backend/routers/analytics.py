@@ -131,14 +131,13 @@ async def _forecast_invoicing():
         if not exp:
             continue
         k = month_key(exp)
-        b = buckets.setdefault(k, {"month": k, "planned_value": 0.0, "planned_vab": 0.0, "remaining_value": 0.0, "count": 0})
+        b = buckets.setdefault(k, {"month": k, "planned_value": 0.0, "remaining_value": 0.0, "count": 0})
         b["planned_value"] += pl["value"]
-        b["planned_vab"] += pl["vab"]
         b["remaining_value"] += (pl["value"] - pl.get("invoiced_amount", 0))
         b["count"] += 1
     rows = sorted(buckets.values(), key=lambda r: r["month"])
     for r in rows:
-        for k in ("planned_value", "planned_vab", "remaining_value"):
+        for k in ("planned_value", "remaining_value"):
             r[k] = round(r[k], 2)
     return rows
 
@@ -186,10 +185,10 @@ async def forecast_receiving(user: dict = Depends(get_current_user)):
 
 
 async def _vab_analysis():
+    """VAB só faz sentido até à fase da Encomenda. Não inclui plano/fatura."""
     opps = await db.opportunities.find({"status": {"$in": ["aberta", "em_analise"]}}, {"_id": 0}).to_list(5000)
     props_won = await db.proposals.find({"status": "ganha"}, {"_id": 0}).to_list(5000)
-    plan_lines = await db.plan_lines.find({"status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(5000)
-    invoices = await db.invoices.find({"status": {"$ne": "anulada"}}, {"_id": 0}).to_list(5000)
+    orders = await db.orders.find({"status": {"$nin": ["cancelada"]}}, {"_id": 0}).to_list(5000)
     by_m = {}
     for p in props_won:
         k = month_key(p.get("updated_at") or p.get("created_at", ""))
@@ -204,8 +203,7 @@ async def _vab_analysis():
     return {
         "pipeline_vab": round(sum(o.get("estimated_vab", 0) for o in opps), 2),
         "won_vab": round(sum(p.get("total_vab", 0) for p in props_won), 2),
-        "planned_vab": round(sum(pl["vab"] for pl in plan_lines), 2),
-        "invoiced_vab": round(sum(i["total_vab"] for i in invoices), 2),
+        "orders_vab": round(sum(o.get("total_vab", 0) for o in orders), 2),
         "monthly": monthly,
     }
 

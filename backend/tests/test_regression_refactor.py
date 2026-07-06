@@ -198,23 +198,23 @@ class TestFinanceFlow:
         order_total = float(order["total_net"])
         assert order_total > 0
 
-        # 1) Replace plan
+        # 1) Replace plan (net values only — VAB parou na fase encomenda)
         plan_payload = {"lines": [{
             "type": "projeto", "description": "TEST plan line",
             "expected_date": "2026-02-15",
             "value": order_total,
-            "vab": float(order.get("total_vab") or 0),
         }]}
         r = http.put(f"{API}/orders/{oid}/plan", headers=A, json=plan_payload, timeout=20)
         assert r.status_code == 200, r.text
         plan_line = r.json()["lines"][-1]
         pl_id = plan_line["id"]
 
-        # 2) Partial invoice (half)
+        # 2) Partial invoice (half do net)
         half = round(order_total / 2, 2)
         r2 = http.post(f"{API}/invoices", headers=A, json={
             "order_id": oid,
-            "lines": [{"plan_line_id": pl_id, "amount": half, "vab": 0.0}],
+            "lines": [{"plan_line_id": pl_id, "amount": half}],
+            "vat_pct": 23,
         }, timeout=20)
         assert r2.status_code == 200, r2.text
         inv1 = r2.json()
@@ -224,25 +224,25 @@ class TestFinanceFlow:
         o_after = next(x for x in http.get(f"{API}/orders", headers=A, timeout=15).json() if x["id"] == oid)
         assert o_after["status"] in ("parcialmente_faturada", "em_faturacao"), o_after["status"]
 
-        # 3) Pay invoice 1
+        # 3) Pay invoice 1 fully — em BRUTO (com IVA)
         r3 = http.post(f"{API}/payments", headers=A, json={
-            "invoice_id": inv1["id"], "amount": half, "method": "transferencia",
+            "invoice_id": inv1["id"], "amount": inv1["total_gross"], "method": "transferencia",
         }, timeout=15)
         assert r3.status_code == 200, r3.text
 
-        # 4) Emit invoice 2 for remainder + full VAB
+        # 4) Emit invoice 2 for remainder
         remaining = round(order_total - half, 2)
         r4 = http.post(f"{API}/invoices", headers=A, json={
             "order_id": oid,
-            "lines": [{"plan_line_id": pl_id, "amount": remaining,
-                       "vab": float(order.get("total_vab") or 0)}],
+            "lines": [{"plan_line_id": pl_id, "amount": remaining}],
+            "vat_pct": 23,
         }, timeout=20)
         assert r4.status_code == 200, r4.text
         inv2 = r4.json()
 
-        # 5) Pay invoice 2 fully
+        # 5) Pay invoice 2 fully em BRUTO
         r5 = http.post(f"{API}/payments", headers=A, json={
-            "invoice_id": inv2["id"], "amount": remaining, "method": "transferencia",
+            "invoice_id": inv2["id"], "amount": inv2["total_gross"], "method": "transferencia",
         }, timeout=15)
         assert r5.status_code == 200, r5.text
 

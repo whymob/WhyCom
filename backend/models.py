@@ -175,13 +175,11 @@ class PlanLineIn(BaseModel):
     description: str = ""
     expected_date: Optional[str] = None
     value: float = 0.0
-    vab: float = 0.0
 
 
 class InvoiceLineIn(BaseModel):
     plan_line_id: str
     amount: float
-    vab: float = 0.0
     description: str = ""
 
 

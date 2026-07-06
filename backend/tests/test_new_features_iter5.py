@@ -189,12 +189,11 @@ class TestEventHooks:
         assert order.get("id"), order
         oid = order["id"]
         total = float(order["total_net"])
-        vab = float(order.get("total_vab") or 0)
 
-        # Add plan line for full amount
+        # Add plan line for full amount (VAB parou na fase encomenda)
         r = http.put(f"{API}/orders/{oid}/plan", headers=A, json={
             "lines": [{"type": "projeto", "description": "TEST full",
-                       "expected_date": "2026-02-15", "value": total, "vab": vab}],
+                       "expected_date": "2026-02-15", "value": total}],
         }, timeout=15)
         assert r.status_code == 200, r.text
         pl_id = r.json()["lines"][-1]["id"]
@@ -202,15 +201,17 @@ class TestEventHooks:
         # Full invoice
         r2 = http.post(f"{API}/invoices", headers=A, json={
             "order_id": oid,
-            "lines": [{"plan_line_id": pl_id, "amount": total, "vab": vab}],
+            "lines": [{"plan_line_id": pl_id, "amount": total}],
+            "vat_pct": 23,
         }, timeout=20)
         assert r2.status_code == 200, r2.text
-        inv_id = r2.json()["id"]
+        inv = r2.json()
+        inv_id = inv["id"]
 
-        # Full payment — should trigger fulfilled → hook. Must be non-blocking.
+        # Full payment em BRUTO (com IVA) — should trigger fulfilled → hook. Must be non-blocking.
         t0 = time.time()
         r3 = http.post(f"{API}/payments", headers=A, json={
-            "invoice_id": inv_id, "amount": total, "method": "transferencia",
+            "invoice_id": inv_id, "amount": inv["total_gross"], "method": "transferencia",
         }, timeout=15)
         elapsed = time.time() - t0
         assert r3.status_code == 200, r3.text
@@ -245,7 +246,7 @@ class TestSchedulerJobstore:
         idx = log.rfind("[scheduler] jobstore:")
         assert idx >= 0
         snippet = log[idx:idx + 80]
-        expected = os.environ.get("JOBSTORE", "memory").lower()
+        _expected = os.environ.get("JOBSTORE", "memory").lower()  # noqa: F841
         # We can't easily read backend .env from test env, so accept either
         assert ("memory" in snippet.lower() or "mongodb" in snippet.lower()), \
             f"unexpected jobstore log: {snippet}"

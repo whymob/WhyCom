@@ -35,7 +35,6 @@ async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current
             "description": ln.get("description", ""),
             "expected_date": ln.get("expected_date"),
             "value": float(ln.get("value") or 0),
-            "vab": float(ln.get("vab") or 0),
             "invoiced_amount": 0.0,
             "status": "planeada",
             "created_at": now_iso(),
@@ -55,21 +54,18 @@ async def reconcile(oid: str, user: dict = Depends(get_current_user)):
     invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
     payments = await db.payments.find({"order_id": oid}, {"_id": 0}).to_list(1000)
     plan_val = round(sum(p["value"] for p in plan), 2)
-    plan_vab = round(sum(p["vab"] for p in plan), 2)
-    inv_val = round(sum(i["total_net"] for i in invoices), 2)
-    inv_vab = round(sum(i["total_vab"] for i in invoices), 2)
-    received = round(sum(p["amount"] for p in payments), 2)
+    inv_net = round(sum(i["total_net"] for i in invoices), 2)
+    inv_gross = round(sum(i.get("total_gross", i["total_net"]) for i in invoices), 2)
+    received = round(sum(p["amount"] for p in payments), 2)  # gross
     return {
         "order": {"value": order["total_net"], "vab": order["total_vab"], "status": order["status"]},
-        "plan": {"value": plan_val, "vab": plan_vab, "count": len(plan)},
-        "invoiced": {"value": inv_val, "vab": inv_vab, "count": len(invoices)},
+        "plan": {"value": plan_val, "count": len(plan)},
+        "invoiced": {"value": inv_net, "gross": inv_gross, "count": len(invoices)},
         "received": {"value": received, "count": len(payments)},
         "deltas": {
             "plan_vs_order": round(plan_val - order["total_net"], 2),
-            "invoiced_vs_plan": round(inv_val - plan_val, 2),
-            "received_vs_invoiced": round(received - inv_val, 2),
-            "vab_plan_vs_order": round(plan_vab - order["total_vab"], 2),
-            "vab_invoiced_vs_order": round(inv_vab - order["total_vab"], 2),
+            "invoiced_vs_plan": round(inv_net - plan_val, 2),
+            "received_vs_invoiced": round(received - inv_gross, 2),
         },
     }
 
@@ -91,7 +87,6 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
 
     plan_lines_map = {ln["id"]: ln for ln in await db.plan_lines.find({"order_id": order_id}, {"_id": 0}).to_list(1000)}
     total_net = 0.0
-    total_vab = 0.0
     inv_lines = []
     for ln in lines_in:
         pl = plan_lines_map.get(ln["plan_line_id"])
@@ -106,23 +101,21 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
         inv_lines.append({
             "plan_line_id": pl["id"],
             "amount": round(amt, 2),
-            "vab": round(float(ln.get("vab") or 0), 2),
             "description": ln.get("description") or pl["description"],
         })
         total_net += amt
-        total_vab += float(ln.get("vab") or 0)
 
+    vat_pct = float(payload.get("vat_pct") or 23)
     invoice = {
         "id": new_id(),
         "number": payload.get("number") or f"FT-{datetime.now().year}-{(await db.invoices.count_documents({})) + 1:04d}",
         "order_id": order_id,
         "client_id": order["client_id"],
         "issued_at": payload.get("issued_at") or now_iso(),
-        "vat_pct": float(payload.get("vat_pct") or 23),
+        "vat_pct": vat_pct,
         "lines": inv_lines,
         "total_net": round(total_net, 2),
-        "total_vab": round(total_vab, 2),
-        "total_vat": round(total_net * (float(payload.get("vat_pct") or 23) / 100), 2),
+        "total_vat": round(total_net * (vat_pct / 100), 2),
         "received_amount": 0.0,
         "status": "emitida",
         "cancel_reason": "",
@@ -186,9 +179,11 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
     amount = float(payload["amount"])
     if amount <= 0:
         raise HTTPException(400, "Valor deve ser > 0")
-    open_balance = inv["total_net"] - inv.get("received_amount", 0)
+    # Recebimento em valor BRUTO (com IVA) — valida contra total_gross
+    inv_gross = inv.get("total_gross", inv["total_net"])
+    open_balance = inv_gross - inv.get("received_amount", 0)
     if amount > open_balance + TOLERANCE:
-        raise HTTPException(400, f"Valor excede saldo em aberto ({open_balance:.2f}€)")
+        raise HTTPException(400, f"Valor excede saldo em aberto ({open_balance:.2f}€ c/ IVA)")
 
     method = payload.get("method", "transferencia")
     if method not in ("transferencia", "cartao", "mbway", "cheque", "numerario", "outro"):
@@ -207,7 +202,7 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
     }
     await db.payments.insert_one(pay)
     new_received = inv.get("received_amount", 0) + amount
-    inv_status = "recebida" if abs(new_received - inv["total_net"]) <= TOLERANCE else "parcialmente_recebida"
+    inv_status = "recebida" if abs(new_received - inv_gross) <= TOLERANCE else "parcialmente_recebida"
     await db.invoices.update_one({"id": invoice_id}, {"$set": {"received_amount": round(new_received, 2), "status": inv_status}})
     await recalc_order_status(inv["order_id"])
     pay.pop("_id", None)

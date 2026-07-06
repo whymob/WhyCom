@@ -30,10 +30,10 @@ async def export_invoices(user: dict = Depends(get_current_user)):
         "numero": i["number"], "data": i["issued_at"][:10],
         "cliente": clients.get(i["client_id"], ""), "encomenda": orders.get(i["order_id"], ""),
         "total_sem_iva": i["total_net"], "iva": i["total_vat"], "total_com_iva": i["total_gross"],
-        "vab": i["total_vab"], "recebido": i.get("received_amount", 0),
+        "recebido": i.get("received_amount", 0),
         "estado": i["status"],
     } for i in invoices]
-    return csv_response(rows, ["numero", "data", "cliente", "encomenda", "total_sem_iva", "iva", "total_com_iva", "vab", "recebido", "estado"], "faturas.csv")
+    return csv_response(rows, ["numero", "data", "cliente", "encomenda", "total_sem_iva", "iva", "total_com_iva", "recebido", "estado"], "faturas.csv")
 
 
 @router.get("/exports/timesheet.csv")

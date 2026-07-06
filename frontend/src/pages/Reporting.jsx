@@ -178,7 +178,7 @@ export default function Reporting() {
                     <Tooltip formatter={(v) => eur(v)} />
                     <Legend />
                     <Line type="monotone" dataKey="planned_value" stroke={COLORS.blue} name="Planeado" strokeWidth={2} />
-                    <Line type="monotone" dataKey="planned_vab" stroke={COLORS.green} name="VAB" strokeWidth={2} />
+                    <Line type="monotone" dataKey="remaining_value" stroke={COLORS.green} name="Por faturar" strokeWidth={2} />
                   </LineChart>
                 </ResponsiveContainer>
               </div>
@@ -212,11 +212,10 @@ export default function Reporting() {
           <TabsContent value="vab" className="mt-6">
             {vab && (
               <div className="space-y-6">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                   <KPI testid="vab-pipeline" label="VAB Pipeline" value={eur(vab.pipeline_vab)} sub="Oportunidades abertas" />
                   <KPI testid="vab-won" label="VAB Ganho" value={eur(vab.won_vab)} sub="Propostas ganhas" />
-                  <KPI testid="vab-planned" label="VAB Planeado" value={eur(vab.planned_vab)} sub="Linhas de plano" />
-                  <KPI testid="vab-invoiced" label="VAB Faturado" value={eur(vab.invoiced_vab)} sub="Faturas emitidas" />
+                  <KPI testid="vab-orders" label="VAB Encomendas" value={eur(vab.orders_vab)} sub="Encomendas ativas" />
                 </div>
                 <div className="border border-neutral-200 p-4">
                   <div className="text-[10px] uppercase tracking-widest text-neutral-500 mb-3">Margem VAB Mensal</div>

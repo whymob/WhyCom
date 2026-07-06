@@ -37,7 +37,13 @@ async def get_order_or_404(oid: str) -> dict:
 
 
 async def recalc_order_status(oid: str):
-    """Recalcula estado da encomenda com base em plano/faturas/recebimentos."""
+    """Recalcula estado da encomenda com base em plano/faturas/recebimentos.
+
+    Regras:
+    - Plano, Faturação e Encomenda são comparados em valor **NET** (sem IVA).
+    - Recebimento é comparado em valor **BRUTO** (com IVA) contra o total_gross das faturas.
+    - VAB é apenas relevante até à fase da Encomenda — não entra na equação Fulfilled.
+    """
     order = await get_order_or_404(oid)
     if order["status"] == "cancelada":
         return
@@ -45,36 +51,33 @@ async def recalc_order_status(oid: str):
     invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
     payments = await db.payments.find({"order_id": oid}, {"_id": 0}).to_list(1000)
 
-    plan_value = sum(p["value"] for p in plan)
-    plan_vab = sum(p["vab"] for p in plan)
-    invoiced_value = sum(i["total_net"] for i in invoices)
-    invoiced_vab = sum(i["total_vab"] for i in invoices)
-    received = sum(pay["amount"] for pay in payments)
+    plan_value = sum(p["value"] for p in plan)  # net
+    invoiced_net = sum(i["total_net"] for i in invoices)
+    invoiced_gross = sum(i.get("total_gross", i["total_net"]) for i in invoices)
+    received = sum(pay["amount"] for pay in payments)  # gross
 
     order_value = order["total_net"]
-    order_vab = order["total_vab"]
 
     def eq(a, b):
         return abs(a - b) <= TOLERANCE
 
     new_status = order["status"]
-    if invoiced_value <= TOLERANCE:
+    if invoiced_net <= TOLERANCE:
         new_status = "em_planeamento" if plan else "aberta"
-    elif invoiced_value + TOLERANCE < order_value:
+    elif invoiced_net + TOLERANCE < order_value:
         new_status = "parcialmente_faturada"
     else:
         new_status = "faturada"
 
-    if new_status == "faturada" and received + TOLERANCE >= invoiced_value:
+    # Fatura totalmente recebida quando o recebido (bruto) iguala o bruto faturado
+    if new_status == "faturada" and received + TOLERANCE >= invoiced_gross:
         new_status = "recebida"
 
     if (
         new_status == "recebida"
         and eq(order_value, plan_value)
-        and eq(order_value, invoiced_value)
-        and eq(order_value, received)
-        and eq(order_vab, plan_vab)
-        and eq(order_vab, invoiced_vab)
+        and eq(order_value, invoiced_net)
+        and eq(received, invoiced_gross)
     ):
         new_status = "fulfilled"
 
