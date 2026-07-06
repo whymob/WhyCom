@@ -1,6 +1,6 @@
 """Audit log + CSV Exports."""
 from typing import Optional
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 
 from deps import db, get_current_user
 from helpers import csv_response
@@ -57,4 +57,58 @@ async def export_reporting_commercial(user: dict = Depends(get_current_user)):
         data["rows"],
         ["name", "role", "leads", "opps", "props", "won", "lost", "conversion_rate", "won_value", "won_vab", "orders_value", "orders_vab"],
         "reporting-comerciais.csv",
+    )
+
+
+@router.get("/exports/billing-orders.csv")
+async def export_billing_orders(month: str, user: dict = Depends(get_current_user)):
+    """Ordem de faturação: lista faturas emitidas no mês indicado (formato YYYY-MM).
+
+    Uma linha por linha de fatura (mais granular que a export global).
+    """
+    if not month or len(month) != 7 or month[4] != "-":
+        raise HTTPException(400, "Parâmetro 'month' deve ter o formato YYYY-MM")
+    invoices = await db.invoices.find(
+        {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}},
+        {"_id": 0},
+    ).sort("issued_at", 1).to_list(5000)
+    clients = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    orders = {o["id"]: o for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
+    plan_lines = {pl["id"]: pl for pl in await db.plan_lines.find({}, {"_id": 0}).to_list(5000)}
+
+    rows = []
+    for inv in invoices:
+        order = orders.get(inv["order_id"], {})
+        for il in inv.get("lines", []):
+            pl = plan_lines.get(il.get("plan_line_id"), {})
+            rows.append({
+                "fatura": inv["number"],
+                "data_emissao": inv["issued_at"][:10],
+                "cliente": clients.get(inv["client_id"], ""),
+                "encomenda": order.get("number", ""),
+                "linha_descricao": il.get("description") or pl.get("description") or "",
+                "linha_tipo": pl.get("type", ""),
+                "valor_sem_iva": il.get("amount", 0),
+                "iva_pct": inv.get("vat_pct", 0),
+                "iva": round(il.get("amount", 0) * inv.get("vat_pct", 0) / 100, 2),
+                "valor_com_iva": round(il.get("amount", 0) * (1 + inv.get("vat_pct", 0) / 100), 2),
+                "estado_fatura": inv["status"],
+                "recebido": inv.get("received_amount", 0),
+            })
+        if not inv.get("lines"):
+            rows.append({
+                "fatura": inv["number"],
+                "data_emissao": inv["issued_at"][:10],
+                "cliente": clients.get(inv["client_id"], ""),
+                "encomenda": order.get("number", ""),
+                "linha_descricao": "", "linha_tipo": "",
+                "valor_sem_iva": inv["total_net"], "iva_pct": inv.get("vat_pct", 0),
+                "iva": inv["total_vat"], "valor_com_iva": inv["total_gross"],
+                "estado_fatura": inv["status"], "recebido": inv.get("received_amount", 0),
+            })
+    return csv_response(
+        rows,
+        ["fatura", "data_emissao", "cliente", "encomenda", "linha_descricao", "linha_tipo",
+         "valor_sem_iva", "iva_pct", "iva", "valor_com_iva", "estado_fatura", "recebido"],
+        f"ordem-faturacao-{month}.csv",
     )

@@ -3,6 +3,11 @@ import { api, API } from "@/lib/api";
 import { eur, pct } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { toast } from "sonner";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Legend } from "recharts";
 
 const COLORS = { blue: "#002FA7", green: "#00A859", yellow: "#FFC800", red: "#FF2A00" };
@@ -53,6 +58,17 @@ export default function Reporting() {
     const a = document.createElement("a"); a.href = url; a.download = filename; a.click();
   };
 
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingMonth, setBillingMonth] = useState(() => {
+    const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  });
+  const submitBillingExport = async () => {
+    if (!/^\d{4}-\d{2}$/.test(billingMonth)) { toast.error("Mês inválido. Use o formato AAAA-MM."); return; }
+    await download(`/exports/billing-orders.csv?month=${billingMonth}`, `ordem-faturacao-${billingMonth}.csv`);
+    setBillingOpen(false);
+    toast.success(`Download iniciado (${billingMonth})`);
+  };
+
   useEffect(() => {
     api.get("/analytics/executive").then((r) => { setExec(r.data); setFi(r.data.forecast_invoicing); setFr(r.data.forecast_receiving); setVab(r.data.vab); });
     api.get("/analytics/by-commercial").then((r) => setComm(r.data.rows));
@@ -63,7 +79,8 @@ export default function Reporting() {
   return (
     <div>
       <PageHeader kicker="Reporting" title="Dashboards Avançados" actions={
-        <div className="flex gap-2 text-xs">
+        <div className="flex gap-2 text-xs flex-wrap">
+          <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] text-[#002FA7] px-3 py-1.5 hover:bg-[#002FA7] hover:text-white transition-colors">↓ Ordem faturação (por mês)</button>
           <button onClick={() => download("/exports/invoices.csv", "faturas.csv")} data-testid="export-invoices-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturas CSV</button>
           <button onClick={() => download("/exports/reporting-commercial.csv", "reporting-comerciais.csv")} data-testid="export-commercial-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Comerciais CSV</button>
           <button onClick={() => download("/exports/timesheet.csv", "timesheet.csv")} data-testid="export-timesheet-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Timesheet CSV</button>
@@ -238,6 +255,29 @@ export default function Reporting() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
+        <DialogContent className="max-w-md rounded-none" data-testid="billing-orders-dialog">
+          <DialogHeader><DialogTitle className="font-display">Ordem de Faturação</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-xs text-neutral-500">Escolha o mês para exportar as faturas emitidas. O ficheiro CSV contém uma linha por linha de fatura (fatura, cliente, encomenda, valores, IVA, estado).</div>
+            <div>
+              <Label>Mês (AAAA-MM)</Label>
+              <Input
+                type="month"
+                value={billingMonth}
+                onChange={(e) => setBillingMonth(e.target.value)}
+                className="rounded-none font-mono"
+                data-testid="billing-orders-month-input"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setBillingOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button onClick={submitBillingExport} data-testid="billing-orders-submit-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Descarregar CSV</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
