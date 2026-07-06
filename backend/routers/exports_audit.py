@@ -1,10 +1,11 @@
-"""Audit log + CSV Exports."""
+"""Audit log + CSV/PDF Exports."""
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from deps import db, get_current_user
 from helpers import csv_response
-from routers.analytics import by_commercial
+from pdf_helpers import build_invoice_pdf, build_billing_orders_pdf, build_dashboard_pdf
+from routers.analytics import by_commercial, by_client, by_manufacturer, _kpis_summary, _forecast_receiving, _forecast_invoicing, _vab_analysis
 
 router = APIRouter()
 
@@ -112,3 +113,47 @@ async def export_billing_orders(month: str, user: dict = Depends(get_current_use
          "valor_sem_iva", "iva_pct", "iva", "valor_com_iva", "estado_fatura", "recebido"],
         f"ordem-faturacao-{month}.csv",
     )
+
+
+# =========================================================
+# PDF exports
+# =========================================================
+@router.get("/invoices/{iid}/pdf")
+async def export_invoice_pdf(iid: str, user: dict = Depends(get_current_user)):
+    inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not inv:
+        raise HTTPException(404, "Fatura não encontrada")
+    client = await db.clients.find_one({"id": inv["client_id"]}, {"_id": 0}) or {}
+    order = await db.orders.find_one({"id": inv["order_id"]}, {"_id": 0}) or {}
+    plan_lines_map = {pl["id"]: pl for pl in await db.plan_lines.find({"order_id": inv["order_id"]}, {"_id": 0}).to_list(1000)}
+    payments = await db.payments.find({"invoice_id": iid}, {"_id": 0}).sort("paid_at", 1).to_list(500)
+    return build_invoice_pdf(inv, client, order, plan_lines_map, payments)
+
+
+@router.get("/exports/billing-orders.pdf")
+async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current_user)):
+    if not month or len(month) != 7 or month[4] != "-":
+        raise HTTPException(400, "Parâmetro 'month' deve ter o formato YYYY-MM")
+    invoices = await db.invoices.find(
+        {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}},
+        {"_id": 0},
+    ).sort("issued_at", 1).to_list(5000)
+    clients_map = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    orders_map = {o["id"]: o for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
+    plan_lines_map = {pl["id"]: pl for pl in await db.plan_lines.find({}, {"_id": 0}).to_list(5000)}
+    return build_billing_orders_pdf(month, invoices, clients_map, orders_map, plan_lines_map)
+
+
+@router.get("/exports/dashboard.pdf")
+async def export_dashboard_pdf(user: dict = Depends(get_current_user)):
+    kpis = await _kpis_summary()
+    fi = await _forecast_invoicing()
+    fr = await _forecast_receiving()
+    vab = await _vab_analysis()
+    bc = (await by_commercial(user))["rows"]
+    bcli = (await by_client(user))["rows"]
+    bm = (await by_manufacturer(user))["rows"]
+    # Filtrar "(sem fabricante)" para o snapshot
+    bm = [r for r in bm if r.get("manufacturer_id")]
+    return build_dashboard_pdf(kpis, fr, fi, vab, bc, bcli, bm)
+

@@ -64,10 +64,13 @@ export default function Reporting() {
   });
   const submitBillingExport = async () => {
     if (!/^\d{4}-\d{2}$/.test(billingMonth)) { toast.error("Mês inválido. Use o formato AAAA-MM."); return; }
-    await download(`/exports/billing-orders.csv?month=${billingMonth}`, `ordem-faturacao-${billingMonth}.csv`);
+    const fmt = billingFormat === "pdf" ? "pdf" : "csv";
+    await download(`/exports/billing-orders.${fmt}?month=${billingMonth}`, `ordem-faturacao-${billingMonth}.${fmt}`);
     setBillingOpen(false);
-    toast.success(`Download iniciado (${billingMonth})`);
+    toast.success(`Download iniciado (${billingMonth}, ${fmt.toUpperCase()})`);
   };
+
+  const [billingFormat, setBillingFormat] = useState("csv");
 
   useEffect(() => {
     api.get("/analytics/executive").then((r) => { setExec(r.data); setFi(r.data.forecast_invoicing); setFr(r.data.forecast_receiving); setVab(r.data.vab); });
@@ -80,6 +83,7 @@ export default function Reporting() {
     <div>
       <PageHeader kicker="Reporting" title="Dashboards Avançados" actions={
         <div className="flex gap-2 text-xs flex-wrap">
+          <button onClick={() => download("/exports/dashboard.pdf", `dashboard-${new Date().toISOString().slice(0,10)}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] text-[#002FA7] px-3 py-1.5 hover:bg-[#002FA7] hover:text-white transition-colors">↓ Dashboard PDF</button>
           <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] text-[#002FA7] px-3 py-1.5 hover:bg-[#002FA7] hover:text-white transition-colors">↓ Ordem faturação (por mês)</button>
           <button onClick={() => download("/exports/invoices.csv", "faturas.csv")} data-testid="export-invoices-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturas CSV</button>
           <button onClick={() => download("/exports/reporting-commercial.csv", "reporting-comerciais.csv")} data-testid="export-commercial-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Comerciais CSV</button>
@@ -260,7 +264,7 @@ export default function Reporting() {
         <DialogContent className="max-w-md rounded-none" data-testid="billing-orders-dialog">
           <DialogHeader><DialogTitle className="font-display">Ordem de Faturação</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div className="text-xs text-neutral-500">Escolha o mês para exportar as faturas emitidas. O ficheiro CSV contém uma linha por linha de fatura (fatura, cliente, encomenda, valores, IVA, estado).</div>
+            <div className="text-xs text-neutral-500">Escolha o mês e o formato para exportar as faturas emitidas.</div>
             <div>
               <Label>Mês (AAAA-MM)</Label>
               <Input
@@ -271,10 +275,27 @@ export default function Reporting() {
                 data-testid="billing-orders-month-input"
               />
             </div>
+            <div>
+              <Label>Formato</Label>
+              <div className="flex gap-2 mt-1">
+                <button
+                  type="button"
+                  onClick={() => setBillingFormat("csv")}
+                  data-testid="billing-format-csv"
+                  className={`flex-1 px-3 py-2 border text-xs font-medium transition-colors ${billingFormat === "csv" ? "border-[#002FA7] bg-[#002FA7] text-white" : "border-neutral-300 hover:bg-neutral-50"}`}
+                >CSV (importar)</button>
+                <button
+                  type="button"
+                  onClick={() => setBillingFormat("pdf")}
+                  data-testid="billing-format-pdf"
+                  className={`flex-1 px-3 py-2 border text-xs font-medium transition-colors ${billingFormat === "pdf" ? "border-[#002FA7] bg-[#002FA7] text-white" : "border-neutral-300 hover:bg-neutral-50"}`}
+                >PDF (contabilista)</button>
+              </div>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setBillingOpen(false)} className="rounded-none">Cancelar</Button>
-            <Button onClick={submitBillingExport} data-testid="billing-orders-submit-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Descarregar CSV</Button>
+            <Button onClick={submitBillingExport} data-testid="billing-orders-submit-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Descarregar {billingFormat.toUpperCase()}</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

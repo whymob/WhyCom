@@ -273,6 +273,19 @@ export default function OrderDetail() {
                 <div className="col-span-1 text-right font-mono">{eur(inv.received_amount)}</div>
                 <div className="col-span-2"><Badge className="rounded-none font-normal">{inv.status}</Badge></div>
                 <div className="col-span-1 text-right flex justify-end gap-1">
+                  <a
+                    href={`${import.meta.env ? "" : ""}${window.location.origin}`}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      const token = localStorage.getItem("whymob_token");
+                      fetch(`${window.__API_BASE__ || ""}/api/invoices/${inv.id}/pdf`, { headers: { Authorization: `Bearer ${token}` } })
+                        .then((r) => r.blob())
+                        .then((b) => { const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `fatura-${inv.number}.pdf`; a.click(); });
+                    }}
+                    data-testid={`pdf-invoice-${inv.id}`}
+                    className="rounded-none text-[#002FA7] text-xs h-7 flex items-center hover:underline"
+                    title="Descarregar PDF"
+                  >PDF</a>
                   {inv.status !== "anulada" && inv.status !== "recebida" && (
                     <Button size="sm" onClick={() => { setPayOpen(inv.id); setPayForm({ amount: (inv.total_gross || inv.total_net) - inv.received_amount, method: "transferencia", reference: "", _invGross: inv.total_gross }); }} data-testid={`pay-invoice-${inv.id}`} className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs h-7">Receber</Button>
                   )}
