@@ -1,6 +1,7 @@
 import React from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { LOGOUT } from "@/constants/testIds";
 import { ROLE_LABEL } from "@/lib/fmt";
 import {
   LayoutDashboard,
@@ -65,15 +66,15 @@ export default function Layout() {
 
         <nav className="flex-1 py-3 overflow-y-auto">
           <div className="px-4 pb-1 pt-2 text-[10px] uppercase tracking-widest text-neutral-400">Ciclo Comercial</div>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={linkCls} data-testid={n.testid}>
-              <n.icon size={16} strokeWidth={1.5} /> {n.label}
+          {NAV.map((item) => (
+            <NavLink key={item.to} to={item.to} end={item.end} className={linkCls} data-testid={item.testid}>
+              <item.icon size={16} strokeWidth={1.5} /> {item.label}
             </NavLink>
           ))}
           <div className="px-4 pb-1 pt-4 text-[10px] uppercase tracking-widest text-neutral-400">Master Data</div>
-          {NAV_MD.map((n) => (
-            <NavLink key={n.to} to={n.to} className={linkCls} data-testid={n.testid}>
-              <n.icon size={16} strokeWidth={1.5} /> {n.label}
+          {NAV_MD.map((item) => (
+            <NavLink key={item.to} to={item.to} className={linkCls} data-testid={item.testid}>
+              <item.icon size={16} strokeWidth={1.5} /> {item.label}
             </NavLink>
           ))}
         </nav>
@@ -83,7 +84,7 @@ export default function Layout() {
           <div className="text-sm font-medium truncate" data-testid="current-user-name">{user?.name}</div>
           <div className="text-xs text-neutral-500 truncate">{user?.email}</div>
           <button
-            data-testid="logout-btn"
+            data-testid={LOGOUT.button}
             onClick={() => { logout(); nav("/login"); }}
             className="mt-3 flex items-center gap-2 text-xs text-neutral-700 hover:text-[#FF2A00]"
           >

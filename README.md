@@ -15,7 +15,7 @@ O projeto foi exportado de uma plataforma de desenvolvimento com AI e ja inclui 
 - notificacoes por email;
 - testes backend e dados seed.
 
-Este README foi criado para consolidar o projeto como base de trabalho de equipa.
+Este README foi consolidado para refletir o estado atual real do repositorio.
 
 ## Estrutura
 
@@ -65,7 +65,7 @@ docs/            Documentacao consolidada do projeto
 - faturas;
 - recebimentos;
 - auditoria;
-- exportacoes CSV;
+- exportacoes CSV e PDF;
 - dashboards e analytics;
 - projetos tecnicos;
 - alocacoes e time entries;
@@ -74,9 +74,10 @@ docs/            Documentacao consolidada do projeto
 ## Requisitos locais
 
 - Node.js 20+ recomendado
-- Yarn 1.x recomendado
+- npm 11+ recomendado
 - Python 3.11+ recomendado
 - MongoDB acessivel localmente ou remotamente
+- Docker Desktop opcional para subir frontend/backend em containers
 
 ## Setup rapido
 
@@ -94,7 +95,7 @@ Instalar dependencias:
 cd backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 Arrancar a API:
@@ -121,13 +122,13 @@ Instalar dependencias:
 
 ```powershell
 cd frontend
-yarn install
+npm.cmd install
 ```
 
 Arrancar a aplicacao:
 
 ```powershell
-yarn start
+npm.cmd start
 ```
 
 Aplicacao:
@@ -194,33 +195,60 @@ Notas:
 
 - o `pytest.ini` ja define `-n 2 --dist loadscope`;
 - os testes existentes assumem backend acessivel e, em varios casos, um ambiente seed funcional;
-- alguns testes historicos referem um URL de preview se `REACT_APP_BACKEND_URL` nao estiver definido.
+- ainda falta uma rodada final de execucao completa de testes com uma base de dados acessivel de forma repetivel.
 
 ### Frontend
 
 No diretorio `frontend/`:
 
 ```powershell
-yarn test
+npm.cmd run build
 ```
+
+O build do frontend ja foi validado com sucesso no ambiente local.
+
+## Docker
+
+Documentacao de containers:
+
+- [Setup Docker Local](docs/DOCKER_LOCAL.md)
+
+### Referencia rapida
+
+| Cenario | Comando | Backend `.env` | Base de dados |
+| --- | --- | --- | --- |
+| Desenvolvimento / teste | `docker compose up --build` | `backend/.env` | Atlas via `MONGO_URL` |
+| Producao / simulacao local | `docker compose -f docker-compose.yml -f docker-compose.production.yml up --build` | `backend/.env.production` | container `mongo` |
+
+## Ambientes e deploy
+
+- [Ambientes e Variaveis](docs/AMBIENTES_E_VARIAVEIS.md)
+- [Deploy e Operacao](docs/DEPLOY_E_OPERACAO.md)
 
 ## Estado atual
 
-O projeto esta numa fase boa para consolidacao tecnica:
+O projeto esta numa fase boa de consolidacao tecnica:
 
-- ha bastante funcionalidade implementada;
-- a modelacao de negocio esta acima da media para um projeto exportado;
-- ainda faltam endurecimento de engenharia, melhor documentacao e limpeza de detalhes herdados da exportacao.
+- documentacao principal criada;
+- setup local e Docker basicos definidos;
+- frontend compila com sucesso;
+- backend arranca e expoe `health`;
+- ainda faltam validacao funcional completa com base acessivel e endurecimento de engenharia.
 
 Analise completa e roadmap:
 
 - [Analise do Projeto e Plano](docs/ANALISE_PROJETO_E_PLANO.md)
+- [Setup Local](docs/SETUP_LOCAL.md)
 - [Setup Docker Local](docs/DOCKER_LOCAL.md)
+- [Ambientes e Variaveis](docs/AMBIENTES_E_VARIAVEIS.md)
+- [Deploy e Operacao](docs/DEPLOY_E_OPERACAO.md)
+- [Smoke Check Read-Only](docs/SMOKE_READONLY.md)
+- [Smoke E2E Minimo](docs/SMOKE_E2E_MINIMO.md)
 
 ## Proximas prioridades recomendadas
 
-1. corrigir problemas de encoding PT-PT;
-2. validar o setup local fim a fim;
-3. criar `.env` reais para cada ambiente;
-4. reforcar testes frontend e E2E;
-5. preparar pipeline de CI/CD.
+1. fechar a validacao funcional com base de dados acessivel;
+2. correr testes backend completos no ambiente atual;
+3. introduzir testes frontend e smoke tests E2E;
+4. reativar CI apenas quando o fluxo de deploy estiver estabilizado;
+5. continuar o endurecimento para staging/producao.

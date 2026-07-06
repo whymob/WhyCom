@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { useNavigate, Navigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { LOGIN } from "@/constants/testIds";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -63,7 +64,7 @@ export default function Login() {
               type="email"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              data-testid="login-email-input"
+              data-testid={LOGIN.emailInput}
               required
               className="rounded-none"
             />
@@ -75,7 +76,7 @@ export default function Login() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              data-testid="login-password-input"
+              data-testid={LOGIN.passwordInput}
               required
               className="rounded-none"
             />
@@ -90,7 +91,7 @@ export default function Login() {
           <Button
             type="submit"
             disabled={loading}
-            data-testid="login-submit-btn"
+            data-testid={LOGIN.submitButton}
             className="w-full rounded-none bg-[#002FA7] hover:bg-[#002277] text-white h-11"
           >
             {loading ? "A entrar…" : "Entrar"}

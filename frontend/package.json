@@ -47,6 +47,7 @@
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "react-hook-form": "7.56.2",
+    "react-is": "^19.2.7",
     "react-resizable-panels": "3.0.1",
     "react-router-dom": "7.15.0",
     "react-scripts": "5.0.1",
@@ -61,7 +62,10 @@
   "scripts": {
     "start": "craco start",
     "build": "craco build",
-    "test": "craco test"
+    "test": "craco test",
+    "test:e2e": "playwright test",
+    "test:e2e:headed": "playwright test --headed",
+    "test:e2e:ui": "playwright test --ui"
   },
   "browserslist": {
     "production": [
@@ -78,11 +82,12 @@
   "devDependencies": {
     "@babel/plugin-proposal-private-property-in-object": "7.21.11",
     "@craco/craco": "7.1.0",
-    "@eslint/js": "9.23.0",
+    "@eslint/js": "^8.57.1",
+    "@playwright/test": "^1.61.1",
     "@types/lodash": "4.17.24",
     "autoprefixer": "10.4.20",
     "dotenv": "16.4.5",
-    "eslint": "9.23.0",
+    "eslint": "^8.57.1",
     "eslint-plugin-import": "2.31.0",
     "eslint-plugin-jsx-a11y": "6.10.2",
     "eslint-plugin-react": "7.37.4",
