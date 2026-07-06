@@ -17,9 +17,12 @@ async def seed_startup():
         if not existing:
             await db.users.insert_one({
                 "id": new_id(),
-                "email": email, "name": name, "role": role,
+                "email": email,
+                "name": name,
+                "role": role,
                 "password_hash": hash_password(pw),
-                "active": True, "created_at": now_iso(),
+                "active": True,
+                "created_at": now_iso(),
             })
         elif not verify_password(pw, existing["password_hash"]):
             await db.users.update_one({"email": email}, {"$set": {"password_hash": hash_password(pw)}})
@@ -31,15 +34,29 @@ async def seed_startup():
             {"name": "Câmara de Lisboa", "nif": "500051070", "segment": "Público", "contact_person": "Rui Marques", "contact_email": "rui@cml.pt"},
             {"name": "TechStart Lda", "nif": "515223344", "segment": "PME", "contact_person": "Sofia Lopes", "contact_email": "sofia@techstart.pt"},
         ]
-        for c in clients_seed:
-            c.update({"id": new_id(), "address": "Lisboa, Portugal", "contact_phone": "+351 210 000 000", "active": True, "created_at": now_iso()})
-            await db.clients.insert_one(c)
+        for client in clients_seed:
+            client.update({
+                "id": new_id(),
+                "address": "Lisboa, Portugal",
+                "contact_phone": "+351 210 000 000",
+                "active": True,
+                "created_at": now_iso(),
+            })
+            await db.clients.insert_one(client)
 
     if await db.manufacturers.count_documents({}) == 0:
-        for name, ptype in [("Microsoft", "Revenda"), ("Cisco", "Revenda"), ("Fortinet", "Implementação"), ("Red Hat", "Suporte")]:
+        for name, partnership_type in [
+            ("Microsoft", "Revenda"),
+            ("Cisco", "Revenda"),
+            ("Fortinet", "Implementação"),
+            ("Red Hat", "Suporte"),
+        ]:
             await db.manufacturers.insert_one({
-                "id": new_id(), "name": name, "partnership_type": ptype,
-                "active": True, "created_at": now_iso(),
+                "id": new_id(),
+                "name": name,
+                "partnership_type": partnership_type,
+                "active": True,
+                "created_at": now_iso(),
             })
 
     if await db.products.count_documents({}) == 0:
@@ -50,11 +67,17 @@ async def seed_startup():
             ("Suporte Anual Premium", "recorrente", "mes", 850.0, 400.0),
             ("Setup Migração M365", "setup", "projeto", 4500.0, 2500.0),
         ]
-        for name, cat, unit, price, cost in products_seed:
+        for name, category, unit, price, cost in products_seed:
             await db.products.insert_one({
-                "id": new_id(), "name": name, "manufacturer_id": None,
-                "category": cat, "unit": unit, "base_price": price, "base_cost": cost,
-                "active": True, "created_at": now_iso(),
+                "id": new_id(),
+                "name": name,
+                "manufacturer_id": None,
+                "category": category,
+                "unit": unit,
+                "base_price": price,
+                "base_cost": cost,
+                "active": True,
+                "created_at": now_iso(),
             })
 
     if await db.leads.count_documents({}) == 0:
@@ -68,11 +91,16 @@ async def seed_startup():
             {"client_id": cid2, "description": "Substituição de firewalls e revisão de rede", "estimated_value": 28000, "status": "nova"},
             {"client_id": cid3, "description": "Consultoria em migração para cloud híbrida", "estimated_value": 120000, "status": "em_qualificacao"},
         ]
-        for ln in base_leads:
-            ln.update({
-                "id": new_id(), "manufacturer_id": None, "product_ids": [],
+        for lead in base_leads:
+            lead.update({
+                "id": new_id(),
+                "manufacturer_id": None,
+                "product_ids": [],
                 "owner_id": comercial["id"] if comercial else "system",
-                "client_name_raw": "", "lost_reason": "", "converted_opportunity_id": None,
-                "created_at": now_iso(), "updated_at": now_iso(),
+                "client_name_raw": "",
+                "lost_reason": "",
+                "converted_opportunity_id": None,
+                "created_at": now_iso(),
+                "updated_at": now_iso(),
             })
-            await db.leads.insert_one(ln)
+            await db.leads.insert_one(lead)

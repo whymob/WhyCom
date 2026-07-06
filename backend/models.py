@@ -5,7 +5,6 @@ from pydantic import BaseModel, Field, EmailStr, ConfigDict
 from deps import new_id, now_iso
 
 
-# ------------- Users -------------
 class UserCreate(BaseModel):
     email: EmailStr
     password: str
@@ -27,7 +26,6 @@ class LoginIn(BaseModel):
     password: str
 
 
-# ------------- Master Data -------------
 class Client(BaseModel):
     model_config = ConfigDict(extra="ignore")
     id: str = Field(default_factory=new_id)
@@ -63,7 +61,6 @@ class Product(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
-# ------------- Pipeline -------------
 class Lead(BaseModel):
     id: str = Field(default_factory=new_id)
     client_id: Optional[str] = None
@@ -169,7 +166,6 @@ class Order(BaseModel):
     created_at: str = Field(default_factory=now_iso)
 
 
-# ------------- Finance -------------
 class PlanLineIn(BaseModel):
     type: Literal["setup", "mensalidade", "trimestralidade", "anuidade", "avos", "consumo_horas", "projeto", "outros"] = "projeto"
     description: str = ""
@@ -183,7 +179,6 @@ class InvoiceLineIn(BaseModel):
     description: str = ""
 
 
-# ------------- Notifications -------------
 class TestEmailRequest(BaseModel):
     recipient_email: EmailStr
     subject: Optional[str] = "WhyMob CRM — Teste de email"

@@ -1,70 +1,59 @@
-# Getting Started with Create React App
+# Frontend WhyMob CRM
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+Aplicação React do WhyMob CRM, responsável pela experiência de utilizador do ciclo comercial, financeiro e técnico.
 
-## Available Scripts
+## Stack
 
-In the project directory, you can run:
+- React 19
+- React Router 7
+- Tailwind CSS
+- Shadcn UI / Radix UI
+- Axios
+- Recharts
+- CRACO
 
-### `npm start`
+## Arranque local
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+Criar `.env`:
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+```powershell
+Copy-Item .env.example .env
+```
 
-### `npm test`
+Instalar dependências:
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+```powershell
+npm.cmd install
+```
 
-### `npm run build`
+Executar em desenvolvimento:
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+```powershell
+npm.cmd start
+```
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+Gerar build:
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+```powershell
+npm.cmd run build
+```
 
-### `npm run eject`
+## Variáveis de ambiente
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+- `REACT_APP_BACKEND_URL`
+- `ENABLE_HEALTH_CHECK` opcional
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+## Estrutura principal
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+```text
+src/pages/         Ecrãs principais
+src/components/    Layout e componentes reutilizáveis
+src/components/ui/ Primitivas UI
+src/context/       Contextos de aplicação
+src/lib/           API, formatação e utilitários
+```
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+## Notas
 
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- O frontend assume que a API está disponível em `REACT_APP_BACKEND_URL`.
+- A plataforma original de exportação incluía dependências e artefactos extra; este frontend já foi limpo para instalação local mais previsível.

@@ -12,11 +12,11 @@ import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import { Plus, Trash2, ChevronLeft } from "lucide-react";
 
-function computeLine(l) {
-  const net = (Number(l.quantity) || 0) * (Number(l.unit_price) || 0) * (1 - (Number(l.discount_pct) || 0) / 100);
-  const vat = net * (Number(l.vat_pct) || 0) / 100;
+function computeLine(line) {
+  const net = (Number(line.quantity) || 0) * (Number(line.unit_price) || 0) * (1 - (Number(line.discount_pct) || 0) / 100);
+  const vat = net * (Number(line.vat_pct) || 0) / 100;
   const gross = net + vat;
-  const vab = net - (Number(l.unit_cost) || 0) * (Number(l.quantity) || 0);
+  const vab = net - (Number(line.unit_cost) || 0) * (Number(line.quantity) || 0);
   return { net, vat, gross, vab };
 }
 
@@ -29,18 +29,35 @@ export default function ProposalDetail() {
   const [manufs, setManufs] = useState([]);
   const [lostReason, setLostReason] = useState("");
 
-  const load = async () => {
-    const [p, prd, c, m] = await Promise.all([api.get(`/proposals/${id}`), api.get("/products"), api.get("/clients"), api.get("/manufacturers")]);
-    setProposal(p.data); setProducts(prd.data); setClients(c.data); setManufs(m.data);
-  };
-  useEffect(() => { load(); }, [id]);
+  useEffect(() => {
+    let active = true;
+
+    async function load() {
+      const [p, prd, c, m] = await Promise.all([
+        api.get(`/proposals/${id}`),
+        api.get("/products"),
+        api.get("/clients"),
+        api.get("/manufacturers"),
+      ]);
+      if (!active) return;
+      setProposal(p.data);
+      setProducts(prd.data);
+      setClients(c.data);
+      setManufs(m.data);
+    }
+
+    load();
+    return () => {
+      active = false;
+    };
+  }, [id]);
 
   if (!proposal) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
 
-  const clientName = clients.find((c) => c.id === proposal.client_id)?.name || "—";
-  const manufName = (id) => manufs.find((m) => m.id === id)?.name || "—";
-  const lineManuf = (l) => {
-    const prod = products.find((p) => p.id === l.product_id);
+  const clientName = clients.find((client) => client.id === proposal.client_id)?.name || "—";
+  const manufName = (manufacturerId) => manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—";
+  const lineManuf = (line) => {
+    const prod = products.find((product) => product.id === line.product_id);
     return prod?.manufacturer_id ? manufName(prod.manufacturer_id) : "—";
   };
 
@@ -48,27 +65,34 @@ export default function ProposalDetail() {
     const lines = [...proposal.lines, { product_id: "", description: "", quantity: 1, unit: "unidade", unit_price: 0, discount_pct: 0, vat_pct: 23, unit_cost: 0 }];
     setProposal({ ...proposal, lines });
   };
-  const removeLine = (i) => {
-    const lines = proposal.lines.filter((_, idx) => idx !== i);
+
+  const removeLine = (index) => {
+    const lines = proposal.lines.filter((_, idx) => idx !== index);
     setProposal({ ...proposal, lines });
   };
-  const updateLine = (i, patch) => {
-    const lines = proposal.lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l));
+
+  const updateLine = (index, patch) => {
+    const lines = proposal.lines.map((line, idx) => (idx === index ? { ...line, ...patch } : line));
     if (patch.product_id) {
-      const prod = products.find((p) => p.id === patch.product_id);
+      const prod = products.find((product) => product.id === patch.product_id);
       if (prod) {
-        lines[i].description = lines[i].description || prod.name;
-        lines[i].unit = prod.unit;
-        lines[i].unit_price = lines[i].unit_price || prod.base_price;
-        lines[i].unit_cost = lines[i].unit_cost || prod.base_cost;
+        lines[index].description = lines[index].description || prod.name;
+        lines[index].unit = prod.unit;
+        lines[index].unit_price = lines[index].unit_price || prod.base_price;
+        lines[index].unit_cost = lines[index].unit_cost || prod.base_cost;
       }
     }
     setProposal({ ...proposal, lines });
   };
 
-  const totals = proposal.lines.reduce((acc, l) => {
-    const c = computeLine(l);
-    return { net: acc.net + c.net, vat: acc.vat + c.vat, gross: acc.gross + c.gross, vab: acc.vab + c.vab };
+  const totals = proposal.lines.reduce((acc, line) => {
+    const computed = computeLine(line);
+    return {
+      net: acc.net + computed.net,
+      vat: acc.vat + computed.vat,
+      gross: acc.gross + computed.gross,
+      vab: acc.vab + computed.vab,
+    };
   }, { net: 0, vat: 0, gross: 0, vab: 0 });
 
   const save = async () => {
@@ -77,20 +101,27 @@ export default function ProposalDetail() {
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
       toast.success("Proposta guardada");
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   const changeStatus = async (status) => {
     try {
       const payload = { status };
       if (status === "perdida") {
-        if (!lostReason.trim()) { toast.error("Indique o motivo de perda"); return; }
+        if (!lostReason.trim()) {
+          toast.error("Indique o motivo de perda");
+          return;
+        }
         payload.lost_reason = lostReason;
       }
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
       toast.success(`Estado: ${PROP_STATUS[status]}`);
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   const convertToOrder = async () => {
@@ -98,7 +129,9 @@ export default function ProposalDetail() {
       const { data } = await api.post(`/proposals/${id}/convert`);
       toast.success(`Encomenda ${data.number} criada`);
       nav("/encomendas");
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   return (
@@ -133,7 +166,6 @@ export default function ProposalDetail() {
           </div>
         </div>
 
-        {/* Lines */}
         <div>
           <div className="flex items-center justify-between mb-2">
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Linhas da proposta</div>
@@ -152,34 +184,34 @@ export default function ProposalDetail() {
               <div className="col-span-1"></div>
             </div>
             {proposal.lines.length === 0 && <div className="p-4 text-sm text-neutral-500">Sem linhas.</div>}
-            {proposal.lines.map((l, i) => {
-              const c = computeLine(l);
+            {proposal.lines.map((line, index) => {
+              const computed = computeLine(line);
               return (
-                <div key={i} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`prop-line-${i}`}>
+                <div key={index} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`prop-line-${index}`}>
                   <div className="col-span-3">
-                    <Select value={l.product_id || ""} onValueChange={(v) => updateLine(i, { product_id: v })}>
+                    <Select value={line.product_id || ""} onValueChange={(value) => updateLine(index, { product_id: value })}>
                       <SelectTrigger className="rounded-none h-8 text-xs"><SelectValue placeholder="Produto/serviço" /></SelectTrigger>
-                      <SelectContent>{products.map((p) => <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>)}</SelectContent>
+                      <SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}</SelectContent>
                     </Select>
-                    <Input placeholder="Descrição" value={l.description} onChange={(e) => updateLine(i, { description: e.target.value })} className="mt-1 rounded-none h-8 text-xs" />
-                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mt-1" data-testid={`prop-line-manuf-${i}`}>Fabricante: <span className="text-neutral-800 normal-case tracking-normal">{lineManuf(l)}</span></div>
+                    <Input placeholder="Descrição" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} className="mt-1 rounded-none h-8 text-xs" />
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500 mt-1" data-testid={`prop-line-manuf-${index}`}>Fabricante: <span className="text-neutral-800 normal-case tracking-normal">{lineManuf(line)}</span></div>
                   </div>
-                  <Input type="number" value={l.quantity} onChange={(e) => updateLine(i, { quantity: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" data-testid={`line-qty-${i}`} />
-                  <Input type="number" value={l.unit_price} onChange={(e) => updateLine(i, { unit_price: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`line-price-${i}`} />
-                  <Input type="number" value={l.discount_pct} onChange={(e) => updateLine(i, { discount_pct: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
-                  <Input type="number" value={l.vat_pct} onChange={(e) => updateLine(i, { vat_pct: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
-                  <Input type="number" value={l.unit_cost} onChange={(e) => updateLine(i, { unit_cost: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
-                  <div className="col-span-1 text-right font-mono text-xs">{eur(c.net)}</div>
-                  <div className="col-span-1 text-right font-mono text-xs">{eur(c.vab)}</div>
+                  <Input type="number" value={line.quantity} onChange={(e) => updateLine(index, { quantity: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" data-testid={`line-qty-${index}`} />
+                  <Input type="number" value={line.unit_price} onChange={(e) => updateLine(index, { unit_price: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`line-price-${index}`} />
+                  <Input type="number" value={line.discount_pct} onChange={(e) => updateLine(index, { discount_pct: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
+                  <Input type="number" value={line.vat_pct} onChange={(e) => updateLine(index, { vat_pct: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
+                  <Input type="number" value={line.unit_cost} onChange={(e) => updateLine(index, { unit_cost: e.target.value })} className="col-span-1 rounded-none h-8 text-right font-mono" />
+                  <div className="col-span-1 text-right font-mono text-xs">{eur(computed.net)}</div>
+                  <div className="col-span-1 text-right font-mono text-xs">{eur(computed.vab)}</div>
                   <div className="col-span-1 text-right">
-                    <Button size="sm" variant="ghost" onClick={() => removeLine(i)} className="rounded-none text-[#FF2A00]" data-testid={`remove-line-${i}`}><Trash2 size={14} /></Button>
+                    <Button size="sm" variant="ghost" onClick={() => removeLine(index)} className="rounded-none text-[#FF2A00]" data-testid={`remove-line-${index}`}><Trash2 size={14} /></Button>
                   </div>
                 </div>
               );
             })}
             <div className="grid grid-cols-12 px-3 py-3 gap-2 bg-neutral-50 text-sm">
               <div className="col-span-8 text-right font-medium">Totais</div>
-              <div className="col-span-1 text-right font-mono">{/* qty */}</div>
+              <div className="col-span-1 text-right font-mono"></div>
               <div className="col-span-1 text-right font-mono">{eur(totals.net)}</div>
               <div className="col-span-1 text-right font-mono">{eur(totals.vab)}</div>
               <div className="col-span-1"></div>
@@ -190,7 +222,6 @@ export default function ProposalDetail() {
           </div>
         </div>
 
-        {/* Notes */}
         <div className="grid grid-cols-2 gap-4">
           <div className="border border-neutral-200 p-4">
             <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Notas internas</Label>
@@ -202,13 +233,12 @@ export default function ProposalDetail() {
           </div>
         </div>
 
-        {/* Status transitions */}
         <div className="border border-neutral-200 p-4">
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Alterar estado</div>
           <div className="flex flex-wrap gap-2 items-center">
-            {["em_elaboracao", "enviada", "em_negociacao", "ganha"].map((s) => (
-              <Button key={s} size="sm" onClick={() => changeStatus(s)} data-testid={`status-${s}-btn`} disabled={proposal.status === s} className="rounded-none bg-neutral-900 hover:bg-neutral-700 text-white text-xs">
-                {PROP_STATUS[s]}
+            {["em_elaboracao", "enviada", "em_negociacao", "ganha"].map((status) => (
+              <Button key={status} size="sm" onClick={() => changeStatus(status)} data-testid={`status-${status}-btn`} disabled={proposal.status === status} className="rounded-none bg-neutral-900 hover:bg-neutral-700 text-white text-xs">
+                {PROP_STATUS[status]}
               </Button>
             ))}
             <div className="flex items-center gap-2 ml-2">

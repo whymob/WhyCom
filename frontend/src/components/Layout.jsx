@@ -52,7 +52,6 @@ export default function Layout() {
 
   return (
     <div className="min-h-screen flex bg-white">
-      {/* Sidebar */}
       <aside className="w-64 border-r border-neutral-200 flex flex-col shrink-0">
         <div className="p-5 border-b border-neutral-200">
           <div className="flex items-center gap-2">
@@ -93,7 +92,6 @@ export default function Layout() {
         </div>
       </aside>
 
-      {/* Content */}
       <main className="flex-1 min-w-0">
         <Outlet />
       </main>

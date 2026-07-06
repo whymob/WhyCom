@@ -18,7 +18,7 @@ async def send_test_email(req: TestEmailRequest, user: dict = Depends(require_ro
         '<h2 style="color:#002FA7;margin:0 0 12px">WhyMob CRM</h2>'
         '<p>Este é um email de teste enviado a partir da plataforma.</p>'
         f'<p style="color:#888;font-size:12px">Enviado por {user.get("email")}</p>'
-        '</div>'
+        "</div>"
     )
     try:
         email = await send_email_async(req.recipient_email, req.subject, html)

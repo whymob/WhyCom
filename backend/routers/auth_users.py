@@ -54,7 +54,6 @@ async def logout(user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
-# ------------- Users management -------------
 @router.get("/users", response_model=List[UserOut])
 async def list_users(user: dict = Depends(get_current_user)):
     docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
