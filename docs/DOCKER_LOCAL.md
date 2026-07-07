@@ -51,6 +51,7 @@ Neste modo:
 
 - o `backend` usa `backend/.env.production`;
 - o `MONGO_URL` deve apontar para `mongodb://mongo:27017`;
+- a seed automatica deve ficar desligada com `ENABLE_STARTUP_SEED=false`;
 - o service `mongo` sobe dentro do mesmo compose;
 - o volume `mongo_data` guarda os dados do Mongo containerizado.
 

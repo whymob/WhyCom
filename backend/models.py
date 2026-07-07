@@ -12,6 +12,14 @@ class UserCreate(BaseModel):
     role: Literal["admin", "ceo", "diretor_tecnico", "comercial", "developer"] = "comercial"
 
 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    name: Optional[str] = None
+    role: Optional[Literal["admin", "ceo", "diretor_tecnico", "comercial", "developer"]] = None
+    active: Optional[bool] = None
+
+
 class UserOut(BaseModel):
     id: str
     email: EmailStr

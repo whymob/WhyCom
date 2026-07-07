@@ -70,11 +70,15 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
-    try:
-        await seed_startup()
-        logger.info("Seed OK")
-    except Exception as e:
-        logger.exception("Seed error: %s", e)
+    seed_enabled = os.environ.get("ENABLE_STARTUP_SEED", "true").lower() in ("1", "true", "yes")
+    if seed_enabled:
+        try:
+            await seed_startup()
+            logger.info("Seed OK")
+        except Exception as e:
+            logger.exception("Seed error: %s", e)
+    else:
+        logger.info("Seed disabled by ENABLE_STARTUP_SEED")
     start_scheduler()
 
 

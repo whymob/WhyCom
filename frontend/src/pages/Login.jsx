@@ -98,7 +98,7 @@ export default function Login() {
           </Button>
 
           <div className="text-xs text-neutral-500 border-t border-neutral-200 pt-4">
-            Credenciais de teste: <span className="font-mono">admin@whymob.pt / admin123</span>
+            
           </div>
         </form>
       </div>

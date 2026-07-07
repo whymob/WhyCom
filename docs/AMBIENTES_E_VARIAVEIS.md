@@ -62,6 +62,7 @@ Exemplos:
 ### Recomendadas
 
 - `CORS_ORIGINS`: dominios permitidos, separados por virgula.
+- `ENABLE_STARTUP_SEED`: controla a seed automatica no arranque.
 - `RESEND_API_KEY`: chave real em staging/producao se notificacoes estiverem ativas.
 - `SENDER_EMAIL`: remetente principal.
 - `RESEND_FROM`: fallback de remetente.
@@ -81,6 +82,9 @@ Exemplos:
 
 Recomendacao:
 
+- `local`: `ENABLE_STARTUP_SEED=true`
+- `staging`: `ENABLE_STARTUP_SEED=false`
+- `producao`: `ENABLE_STARTUP_SEED=false`
 - `local`: `JOBSTORE=memory`
 - `staging`: `JOBSTORE=memory` ou `mongodb` conforme necessidade de persistencia
 - `producao`: `JOBSTORE=mongodb` se o scheduler local da app continuar a ser a abordagem escolhida
@@ -101,6 +105,7 @@ Recomendacao:
 - usar segredos diferentes entre `staging` e `producao`;
 - manter `DB_NAME` exclusivo por ambiente;
 - nunca reutilizar `JWT_SECRET` entre ambientes;
+- manter `ENABLE_STARTUP_SEED=true` apenas em desenvolvimento;
 - validar `CORS_ORIGINS` com dominios exatos, evitando `*` fora de desenvolvimento.
 
 ## Checklist por ambiente
