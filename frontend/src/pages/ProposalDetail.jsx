@@ -4,8 +4,10 @@ import { api, formatApiErrorDetail } from "@/lib/api";
 import { eur, PROP_STATUS, dateShort } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchableSelect from "@/components/ui/searchable-select";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +30,7 @@ export default function ProposalDetail() {
   const [clients, setClients] = useState([]);
   const [manufs, setManufs] = useState([]);
   const [lostReason, setLostReason] = useState("");
+  const [pendingStatus, setPendingStatus] = useState(null);
 
   useEffect(() => {
     let active = true;
@@ -95,6 +98,10 @@ export default function ProposalDetail() {
     };
   }, { net: 0, vat: 0, gross: 0, vab: 0 });
 
+  const hasValidLines = proposal.lines.some((line) => (
+    (line.product_id || String(line.description || "").trim()) && (Number(line.quantity) || 0) > 0
+  ));
+
   const save = async () => {
     try {
       const payload = { lines: proposal.lines, notes: proposal.notes, valid_until: proposal.valid_until };
@@ -107,18 +114,31 @@ export default function ProposalDetail() {
   };
 
   const changeStatus = async (status) => {
+    if (status === "enviada" && proposal.status === "em_elaboracao" && !hasValidLines) {
+      toast.error("Adicione pelo menos uma linha de produto ou servico antes de enviar a proposta");
+      return;
+    }
+
+    if (status === "perdida" && !lostReason.trim()) {
+      toast.error("Indique o motivo de perda");
+      return;
+    }
+
+    setPendingStatus(status);
+  };
+
+  const confirmStatusChange = async () => {
+    if (!pendingStatus) return;
+
     try {
-      const payload = { status };
-      if (status === "perdida") {
-        if (!lostReason.trim()) {
-          toast.error("Indique o motivo de perda");
-          return;
-        }
+      const payload = { status: pendingStatus };
+      if (pendingStatus === "perdida") {
         payload.lost_reason = lostReason;
       }
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
-      toast.success(`Estado: ${PROP_STATUS[status]}`);
+      setPendingStatus(null);
+      toast.success(`Estado: ${PROP_STATUS[pendingStatus]}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -189,10 +209,20 @@ export default function ProposalDetail() {
               return (
                 <div key={index} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`prop-line-${index}`}>
                   <div className="col-span-3">
-                    <Select value={line.product_id || ""} onValueChange={(value) => updateLine(index, { product_id: value })}>
-                      <SelectTrigger className="rounded-none h-8 text-xs"><SelectValue placeholder="Produto/serviço" /></SelectTrigger>
-                      <SelectContent>{products.map((product) => <SelectItem key={product.id} value={product.id}>{product.name}</SelectItem>)}</SelectContent>
-                    </Select>
+                    <SearchableSelect
+                      value={line.product_id || ""}
+                      onValueChange={(value) => updateLine(index, { product_id: value })}
+                      options={products.map((product) => ({
+                        value: product.id,
+                        label: product.name,
+                        keywords: `${product.category || ""} ${product.unit || ""}`,
+                      }))}
+                      placeholder="Produto/serviço"
+                      searchPlaceholder="Pesquisar produto..."
+                      emptyText="Sem produtos."
+                      testId={`line-product-${index}`}
+                      triggerClassName="h-8 text-xs"
+                    />
                     <Input placeholder="Descrição" value={line.description} onChange={(e) => updateLine(index, { description: e.target.value })} className="mt-1 rounded-none h-8 text-xs" />
                     <div className="text-[10px] uppercase tracking-widest text-neutral-500 mt-1" data-testid={`prop-line-manuf-${index}`}>Fabricante: <span className="text-neutral-800 normal-case tracking-normal">{lineManuf(line)}</span></div>
                   </div>
@@ -252,6 +282,22 @@ export default function ProposalDetail() {
           {proposal.lost_reason && <div className="mt-2 text-xs text-[#B91C1C]">Motivo: {proposal.lost_reason}</div>}
         </div>
       </div>
+
+      <Dialog open={!!pendingStatus} onOpenChange={(nextOpen) => !nextOpen && setPendingStatus(null)}>
+        <DialogContent className="max-w-md rounded-none">
+          <DialogHeader>
+            <DialogTitle className="font-display">Confirmar alteracao de estado</DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-neutral-700">
+            A proposta sera alterada para <span className="font-medium">{pendingStatus ? PROP_STATUS[pendingStatus] : ""}</span>.
+            Pode cancelar agora caso precise rever os dados antes de continuar.
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPendingStatus(null)} className="rounded-none">Cancelar</Button>
+            <Button onClick={confirmStatusChange} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Confirmar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

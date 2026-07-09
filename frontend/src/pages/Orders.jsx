@@ -1,77 +1,186 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
+import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { eur, ORDER_STATUS, dateShort } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
 
-const STATUS_STYLE = {
-  aberta: "bg-neutral-100 text-neutral-800",
-  em_planeamento: "bg-[#E0E7FF] text-[#002FA7]",
-  em_faturacao: "bg-[#FEF08A] text-[#854D0E]",
-  parcialmente_faturada: "bg-[#FEF08A] text-[#854D0E]",
-  faturada: "bg-[#FEF08A] text-[#854D0E]",
-  recebida: "bg-[#DCFCE7] text-[#00A859]",
-  fulfilled: "bg-[#00A859] text-white",
-  cancelada: "bg-[#FEE2E2] text-[#B91C1C]",
-};
+function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
+  const active = sort.key === sortKey;
+  const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown;
+  const justifyClass = align === "right" ? "justify-end" : align === "center" ? "justify-center" : "justify-start";
+
+  return (
+    <button type="button" onClick={() => onClick(sortKey)} className={`flex w-full items-center gap-1 ${justifyClass}`}>
+      <span>{label}</span>
+      <Icon className="h-3 w-3" />
+    </button>
+  );
+}
 
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [clients, setClients] = useState([]);
+  const [filters, setFilters] = useState({ search: "", status: "__all__" });
+  const [sort, setSort] = useState({ key: "number", direction: "desc" });
 
   const load = async () => {
-    const [o, c] = await Promise.all([api.get("/orders"), api.get("/clients")]);
-    setOrders(o.data); setClients(c.data);
+    const [orderResponse, clientResponse] = await Promise.all([api.get("/orders"), api.get("/clients")]);
+    setOrders(orderResponse.data);
+    setClients(clientResponse.data);
   };
-  useEffect(() => { load(); }, []);
 
-  const cn = (id) => clients.find((c) => c.id === id)?.name || "—";
+  useEffect(() => {
+    load();
+  }, []);
+
+  const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
 
   const patchOrder = async (id, patch) => {
-    try { await api.patch(`/orders/${id}`, patch); load(); toast.success("Encomenda atualizada"); }
-    catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
+    try {
+      await api.patch(`/orders/${id}`, patch);
+      load();
+      toast.success("Encomenda atualizada");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
+
+  const toggleSort = (key) => {
+    setSort((current) => (
+      current.key === key
+        ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
+        : { key, direction: key === "number" || key === "value" ? "desc" : "asc" }
+    ));
+  };
+
+  const visibleOrders = useMemo(() => {
+    const search = filters.search.trim().toLowerCase();
+
+    const filtered = orders.filter((order) => {
+      const matchesSearch = !search || [
+        order.number || "",
+        clientName(order.client_id),
+        ORDER_STATUS[order.status] || "",
+        order.po_number || "",
+      ].some((value) => String(value).toLowerCase().includes(search));
+      const matchesStatus = filters.status === "__all__" || order.status === filters.status;
+      return matchesSearch && matchesStatus;
+    });
+
+    return [...filtered].sort((a, b) => {
+      let left = "";
+      let right = "";
+
+      if (sort.key === "number") {
+        left = a.number || "";
+        right = b.number || "";
+      } else if (sort.key === "client") {
+        left = clientName(a.client_id);
+        right = clientName(b.client_id);
+      } else if (sort.key === "value") {
+        left = Number(a.total_net) || 0;
+        right = Number(b.total_net) || 0;
+      } else if (sort.key === "status") {
+        left = ORDER_STATUS[a.status] || a.status;
+        right = ORDER_STATUS[b.status] || b.status;
+      }
+
+      const result = typeof left === "number"
+        ? left - right
+        : String(left).localeCompare(String(right), "pt");
+
+      return sort.direction === "asc" ? result : -result;
+    });
+  }, [clientName, filters.search, filters.status, orders, sort]);
 
   return (
     <div>
       <PageHeader kicker="Fase 4" title="Encomendas" />
       <div className="p-8">
         <div className="border border-neutral-200">
-          <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
-            <div className="col-span-2">Número</div>
-            <div className="col-span-3">Cliente</div>
+          <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+            <div className="min-w-[260px] flex-1">
+              <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label>
+              <Input
+                value={filters.search}
+                onChange={(e) => setFilters((current) => ({ ...current, search: e.target.value }))}
+                placeholder="Numero, cliente, PO ou estado"
+                className="mt-1 rounded-none"
+              />
+            </div>
+            <div className="w-[220px]">
+              <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
+              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
+                <SelectTrigger className="mt-1 rounded-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">Todos os estados</SelectItem>
+                  {Object.entries(ORDER_STATUS).map(([key, label]) => (
+                    <SelectItem key={key} value={key}>{label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <Button variant="ghost" onClick={() => setFilters({ search: "", status: "__all__" })} className="rounded-none">
+              Limpar filtros
+            </Button>
+          </div>
+
+          <div className="grid grid-cols-12 border-b border-neutral-200 px-4 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+            <div className="col-span-2">
+              <SortButton label="Numero" sortKey="number" sort={sort} onClick={toggleSort} />
+            </div>
+            <div className="col-span-3">
+              <SortButton label="Cliente" sortKey="client" sort={sort} onClick={toggleSort} />
+            </div>
             <div className="col-span-2">PO</div>
-            <div className="col-span-1 text-right">Valor</div>
-            <div className="col-span-1 text-right">VAB</div>
-            <div className="col-span-2">Estado</div>
+            <div className="col-span-1 text-right">
+              <SortButton label="Valor" sortKey="value" sort={sort} onClick={toggleSort} align="right" />
+            </div>
+            <div className="col-span-1 pr-6 text-right">VAB</div>
+            <div className="col-span-2 text-center">
+              <SortButton label="Estado" sortKey="status" sort={sort} onClick={toggleSort} align="center" />
+            </div>
             <div className="col-span-1 text-right">Data</div>
           </div>
-          {orders.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="orders-empty">Sem encomendas. Converta uma proposta ganha para criar uma.</div>}
-          {orders.map((o) => (
-            <div key={o.id} className="grid grid-cols-12 items-center px-4 py-3 border-b border-neutral-100 text-sm hover:bg-neutral-50" data-testid={`order-row-${o.id}`}>
-              <div className="col-span-2 font-mono"><Link to={`/encomendas/${o.id}`} className="text-[#002FA7] hover:underline" data-testid={`order-link-${o.id}`}>{o.number}</Link></div>
-              <div className="col-span-3 font-medium">{cn(o.client_id)}</div>
-              <div className="col-span-2">
-                <Input defaultValue={o.po_number || ""} onBlur={(e) => e.target.value !== o.po_number && patchOrder(o.id, { po_number: e.target.value })} placeholder="PO / Ordem compra" className="rounded-none h-8 text-xs font-mono" data-testid={`po-input-${o.id}`} />
+
+          {visibleOrders.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="orders-empty">Sem encomendas para os filtros atuais.</div>}
+
+          {visibleOrders.map((order) => (
+            <div key={order.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`order-row-${order.id}`}>
+              <div className="col-span-2 font-mono">
+                <Link to={`/encomendas/${order.id}`} className="text-[#002FA7] hover:underline" data-testid={`order-link-${order.id}`}>{order.number}</Link>
               </div>
-              <div className="col-span-1 text-right font-mono">{eur(o.total_net)}</div>
-              <div className="col-span-1 text-right font-mono">{eur(o.total_vab)}</div>
+              <div className="col-span-3 font-medium">{clientName(order.client_id)}</div>
               <div className="col-span-2">
-                <Select value={o.status} onValueChange={(v) => patchOrder(o.id, { status: v })}>
-                  <SelectTrigger className="rounded-none h-8 text-xs" data-testid={`order-status-${o.id}`}><SelectValue /></SelectTrigger>
+                <Input
+                  defaultValue={order.po_number || ""}
+                  onBlur={(e) => e.target.value !== order.po_number && patchOrder(order.id, { po_number: e.target.value })}
+                  placeholder="PO / Ordem compra"
+                  className="h-8 rounded-none text-xs font-mono"
+                  data-testid={`po-input-${order.id}`}
+                />
+              </div>
+              <div className="col-span-1 text-right font-mono">{eur(order.total_net)}</div>
+              <div className="col-span-1 pr-6 text-right font-mono">{eur(order.total_vab)}</div>
+              <div className="col-span-2 flex justify-center">
+                <Select value={order.status} onValueChange={(value) => patchOrder(order.id, { status: value })}>
+                  <SelectTrigger className="h-8 w-full max-w-[180px] rounded-none text-xs" data-testid={`order-status-${order.id}`}><SelectValue /></SelectTrigger>
                   <SelectContent>
-                    {Object.entries(ORDER_STATUS).filter(([k]) => !["cancelada", "fulfilled"].includes(k)).map(([k, v]) => (
-                      <SelectItem key={k} value={k}>{v}</SelectItem>
+                    {Object.entries(ORDER_STATUS).filter(([key]) => !["cancelada", "fulfilled"].includes(key)).map(([key, label]) => (
+                      <SelectItem key={key} value={key}>{label}</SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-              <div className="col-span-1 text-right font-mono text-xs text-neutral-500">{dateShort(o.order_date)}</div>
+              <div className="col-span-1 text-right font-mono text-xs text-neutral-500">{dateShort(order.order_date)}</div>
             </div>
           ))}
         </div>

@@ -33,9 +33,16 @@ export default function OrderDetail() {
   const [products, setProducts] = useState([]);
   const [manufs, setManufs] = useState([]);
   const [invOpen, setInvOpen] = useState(false);
+  const [parcelOpen, setParcelOpen] = useState(false);
   const [payOpen, setPayOpen] = useState(null);
   const [payForm, setPayForm] = useState({ amount: 0, method: "transferencia", reference: "" });
   const [invForm, setInvForm] = useState({ lines: [], vat_pct: 23 });
+  const [parcelForm, setParcelForm] = useState({
+    count: 2,
+    type: "mensalidade",
+    firstDate: "",
+    lines: [],
+  });
 
   useEffect(() => {
     let active = true;
@@ -128,6 +135,66 @@ export default function OrderDetail() {
     ]);
   };
 
+  const shiftMonth = (dateValue, monthsToAdd) => {
+    if (!dateValue) return "";
+    const [year, month, day] = dateValue.split("-").map(Number);
+    if (!year || !month || !day) return "";
+    const next = new Date(year, month - 1 + monthsToAdd, day);
+    const yyyy = next.getFullYear();
+    const mm = String(next.getMonth() + 1).padStart(2, "0");
+    const dd = String(next.getDate()).padStart(2, "0");
+    return `${yyyy}-${mm}-${dd}`;
+  };
+
+  const buildParcelLines = (count, type, firstDate) => {
+    const safeCount = Math.max(1, Number(count) || 1);
+    const totalCents = Math.round((Number(order.total_net) || 0) * 100);
+    const base = Math.floor(totalCents / safeCount);
+    const remainder = totalCents % safeCount;
+
+    return Array.from({ length: safeCount }, (_, index) => {
+      const cents = base + (index < remainder ? 1 : 0);
+      return {
+        id: `parcel-${Date.now()}-${index}`,
+        type,
+        description: `Parcela ${index + 1}/${safeCount}`,
+        expected_date: shiftMonth(firstDate, index),
+        value: (cents / 100).toFixed(2),
+        status: "planeada",
+        invoiced_amount: 0,
+      };
+    });
+  };
+
+  const openParcelModal = () => {
+    setParcelForm({
+      count: 2,
+      type: "mensalidade",
+      firstDate: "",
+      lines: buildParcelLines(2, "mensalidade", ""),
+    });
+    setParcelOpen(true);
+  };
+
+  const regenerateParcelLines = (patch = {}) => {
+    const next = {
+      count: patch.count ?? parcelForm.count,
+      type: patch.type ?? parcelForm.type,
+      firstDate: patch.firstDate ?? parcelForm.firstDate,
+    };
+    setParcelForm({
+      ...next,
+      lines: buildParcelLines(next.count, next.type, next.firstDate),
+    });
+  };
+
+  const updateParcelLine = (index, patch) => {
+    setParcelForm((current) => ({
+      ...current,
+      lines: current.lines.map((line, idx) => (idx === index ? { ...line, ...patch } : line)),
+    }));
+  };
+
   const updatePlanLine = (index, patch) => {
     setPlanLines(planLines.map((line, idx) => (idx === index ? { ...line, ...patch } : line)));
   };
@@ -161,6 +228,35 @@ export default function OrderDetail() {
 
   const planTotal = planLines.filter((line) => line.status !== "cancelada").reduce((sum, line) => sum + (Number(line.value) || 0), 0);
   const planDelta = planTotal - order.total_net;
+  const parcelTotal = parcelForm.lines.reduce((sum, line) => sum + (Number(line.value) || 0), 0);
+  const parcelDelta = parcelTotal - (Number(order.total_net) || 0);
+
+  const applyParcelPlan = () => {
+    if ((Number(parcelForm.count) || 0) < 1) {
+      toast.error("Indique uma quantidade valida de parcelas");
+      return;
+    }
+
+    if (!parcelForm.lines.length) {
+      toast.error("Gere pelo menos uma parcela");
+      return;
+    }
+
+    if (Math.abs(parcelDelta) > 0.01) {
+      toast.error("A soma das parcelas deve ser igual ao valor total da encomenda");
+      return;
+    }
+
+    setPlanLines([
+      ...planLines,
+      ...parcelForm.lines.map((line, index) => ({
+        ...line,
+        id: `new-parcel-${Date.now()}-${index}`,
+      })),
+    ]);
+    setParcelOpen(false);
+    toast.success("Parcelamento adicionado ao plano");
+  };
 
   const openInvoice = () => {
     const seed = planLines
@@ -333,6 +429,7 @@ export default function OrderDetail() {
               </div>
             </div>
             <div className="flex gap-2">
+              <Button size="sm" onClick={openParcelModal} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
               <Button size="sm" onClick={addPlanLine} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
               <Button size="sm" onClick={savePlan} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
             </div>
@@ -516,6 +613,76 @@ export default function OrderDetail() {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setInvOpen(false)} className="rounded-none">Cancelar</Button>
             <Button onClick={submitInvoice} data-testid="inv-submit-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Emitir fatura</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={parcelOpen} onOpenChange={setParcelOpen}>
+        <DialogContent className="max-w-3xl rounded-none">
+          <DialogHeader><DialogTitle className="font-display">Criar plano parcelado</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <Label>Numero de parcelas</Label>
+                <Input
+                  type="number"
+                  min="1"
+                  value={parcelForm.count}
+                  onChange={(e) => setParcelForm((current) => ({ ...current, count: e.target.value }))}
+                  onBlur={() => regenerateParcelLines({ count: parcelForm.count })}
+                  className="rounded-none font-mono"
+                  data-testid="parcel-count-input"
+                />
+              </div>
+              <div>
+                <Label>Tipo</Label>
+                <Select value={parcelForm.type} onValueChange={(value) => regenerateParcelLines({ type: value })}>
+                  <SelectTrigger className="rounded-none"><SelectValue /></SelectTrigger>
+                  <SelectContent>{PLAN_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Primeira data prevista</Label>
+                <Input
+                  type="date"
+                  value={parcelForm.firstDate}
+                  onChange={(e) => setParcelForm((current) => ({ ...current, firstDate: e.target.value }))}
+                  onBlur={() => regenerateParcelLines({ firstDate: parcelForm.firstDate })}
+                  className="rounded-none font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between text-xs text-neutral-500">
+              <span>Total da encomenda: <span className="font-mono text-neutral-900">{eur(order.total_net)}</span></span>
+              <span className={Math.abs(parcelDelta) > 0.01 ? "text-[#FF2A00]" : "text-[#00A859]"}>
+                Soma parcelas: <span className="font-mono">{eur(parcelTotal)}</span> · Delta {eur(parcelDelta)}
+              </span>
+            </div>
+
+            <div className="border border-neutral-200">
+              <div className="grid grid-cols-12 gap-2 border-b border-neutral-200 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                <div className="col-span-2">Tipo</div>
+                <div className="col-span-4">Descricao</div>
+                <div className="col-span-3">Data prevista</div>
+                <div className="col-span-3 text-right">Valor</div>
+              </div>
+              {parcelForm.lines.map((line, index) => (
+                <div key={line.id || index} className="grid grid-cols-12 items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                  <Select value={line.type} onValueChange={(value) => updateParcelLine(index, { type: value })}>
+                    <SelectTrigger className="col-span-2 rounded-none h-8 text-xs"><SelectValue /></SelectTrigger>
+                    <SelectContent>{PLAN_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input value={line.description || ""} onChange={(e) => updateParcelLine(index, { description: e.target.value })} className="col-span-4 rounded-none h-8 text-xs" />
+                  <Input type="date" value={(line.expected_date || "").slice(0, 10)} onChange={(e) => updateParcelLine(index, { expected_date: e.target.value })} className="col-span-3 rounded-none h-8 text-xs font-mono" />
+                  <Input type="number" value={line.value} onChange={(e) => updateParcelLine(index, { value: e.target.value })} className="col-span-3 rounded-none h-8 text-right font-mono" data-testid={`parcel-value-${index}`} />
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setParcelOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button onClick={applyParcelPlan} data-testid="parcel-apply-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Adicionar ao plano</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

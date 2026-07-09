@@ -6,6 +6,7 @@ import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import SearchableSelect from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { toast } from "sonner";
@@ -206,10 +207,20 @@ export default function ProjectDetail() {
           <div className="space-y-3">
             <div>
               <Label>Utilizador</Label>
-              <Select value={allocForm.user_id} onValueChange={(value) => setAllocForm({ ...allocForm, user_id: value })}>
-                <SelectTrigger className="rounded-none" data-testid="alloc-user-select"><SelectValue placeholder="Selecionar" /></SelectTrigger>
-                <SelectContent>{users.map((user) => <SelectItem key={user.id} value={user.id}>{user.name} · {user.role}</SelectItem>)}</SelectContent>
-              </Select>
+              <SearchableSelect
+                value={allocForm.user_id}
+                onValueChange={(value) => setAllocForm({ ...allocForm, user_id: value })}
+                options={users.map((user) => ({
+                  value: user.id,
+                  label: `${user.name} - ${user.role}`,
+                  keywords: `${user.email || ""} ${user.role || ""}`,
+                }))}
+                placeholder="Selecionar utilizador"
+                searchPlaceholder="Pesquisar utilizador..."
+                emptyText="Sem utilizadores."
+                testId="alloc-user-select"
+                triggerClassName="h-10"
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div><Label>€/hora custo</Label><Input type="number" value={allocForm.hourly_cost} onChange={(e) => setAllocForm({ ...allocForm, hourly_cost: e.target.value })} className="rounded-none font-mono" data-testid="alloc-cost-input" /></div>
