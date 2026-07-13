@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
-import { useSearchParams } from "react-router-dom";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Eye, Plus } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import PageHeader from "@/components/PageHeader";
@@ -54,6 +54,8 @@ export default function Opportunities() {
   const [opps, setOpps] = useState([]);
   const [clients, setClients] = useState([]);
   const [open, setOpen] = useState(false);
+  const [viewOpen, setViewOpen] = useState(false);
+  const [viewing, setViewing] = useState(null);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(defaultForm());
   const [lostOpen, setLostOpen] = useState(null);
@@ -105,6 +107,11 @@ export default function Opportunities() {
       status: opportunity.status,
     });
     setOpen(true);
+  };
+
+  const openView = (opportunity) => {
+    setViewing(opportunity);
+    setViewOpen(true);
   };
 
   const submit = async () => {
@@ -277,6 +284,17 @@ export default function Opportunities() {
                 <Badge className={`${STATUS_STYLE[opportunity.status]} rounded-none font-normal`}>{OPP_STATUS[opportunity.status]}</Badge>
               </div>
               <div className="col-span-1 flex justify-end gap-1">
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => openView(opportunity)}
+                  data-testid={`view-opp-${opportunity.id}`}
+                  title="Visualizar oportunidade"
+                  aria-label={`Visualizar oportunidade ${opportunity.description}`}
+                  className="h-8 w-8 rounded-none p-0 text-neutral-700"
+                >
+                  <Eye size={14} />
+                </Button>
                 {opportunity.status !== "convertida" && opportunity.status !== "perdida" && (
                   <>
                     <Button size="sm" variant="ghost" onClick={() => openEdit(opportunity)} data-testid={`edit-opp-${opportunity.id}`} className="rounded-none text-xs">Editar</Button>
@@ -289,6 +307,67 @@ export default function Opportunities() {
           ))}
         </div>
       </div>
+
+      <Dialog open={viewOpen} onOpenChange={setViewOpen}>
+        <DialogContent className="max-h-[85vh] max-w-xl overflow-hidden rounded-none">
+          <DialogHeader>
+            <DialogTitle className="font-display">Visualizar oportunidade</DialogTitle>
+          </DialogHeader>
+          {viewing && (
+            <div className="space-y-4 overflow-y-auto pr-1">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="col-span-2">
+                  <Label>Cliente</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{clientName(viewing.client_id)}</div>
+                </div>
+                <div className="col-span-2">
+                  <Label>Descrição</Label>
+                  <div className="mt-1 min-h-10 whitespace-pre-wrap border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.description || "-"}</div>
+                </div>
+                <div>
+                  <Label>Valor estimado</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{eur(viewing.estimated_value)}</div>
+                </div>
+                <div>
+                  <Label>VAB estimado</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{eur(viewing.estimated_vab)}</div>
+                </div>
+                <div>
+                  <Label>Probabilidade</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{viewing.probability}%</div>
+                </div>
+                <div>
+                  <Label>Prioridade</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.priority || "-"}</div>
+                </div>
+                <div>
+                  <Label>Concorrente</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.competitor || "-"}</div>
+                </div>
+                <div>
+                  <Label>Estado</Label>
+                  <div className="mt-1"><Badge className={`${STATUS_STYLE[viewing.status]} rounded-none font-normal`}>{OPP_STATUS[viewing.status]}</Badge></div>
+                </div>
+                <div className="col-span-2">
+                  <Label>Notas</Label>
+                  <div className="mt-1 min-h-10 whitespace-pre-wrap border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.notes || "-"}</div>
+                </div>
+              </div>
+              {viewing.converted_proposal_id && (
+                <div className="flex flex-wrap gap-3 border-t border-neutral-200 pt-3 text-xs">
+                  {viewing.converted_proposal_id && <Link to={`/propostas/${viewing.converted_proposal_id}`} className="text-[#002FA7] hover:underline">Ver proposta gerada</Link>}
+                </div>
+              )}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setViewOpen(false)} className="rounded-none">Fechar</Button>
+            {viewing && viewing.status !== "convertida" && viewing.status !== "perdida" && (
+              <Button onClick={() => { setViewOpen(false); openEdit(viewing); }} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Editar</Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-xl rounded-none">

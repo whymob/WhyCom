@@ -4,7 +4,7 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from deps import db, get_current_user, now_iso, new_id, logger
+from deps import db, get_current_user, require_roles, now_iso, new_id, logger
 from models import Lead, Opportunity, Proposal, ProposalLine, Order, compute_proposal_totals
 from helpers import audit_log, notify_proposal_won
 
@@ -137,7 +137,7 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
         "opportunity_id": oid, "client_id": opp["client_id"],
         "lines": [],
         "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": "", "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opp.get("description", ""), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None,
         "total_net": 0.0, "total_vat": 0.0, "total_gross": 0.0, "total_vab": 0.0,
         "created_at": now_iso(), "updated_at": now_iso(),
@@ -164,11 +164,17 @@ async def get_proposal(pid: str, user: dict = Depends(get_current_user)):
 
 @router.patch("/proposals/{pid}", response_model=Proposal)
 async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_current_user)):
+    current = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not current:
+        raise HTTPException(404, "Proposta não encontrada")
+    if current.get("converted_order_id") and ("lines" in payload or "status" in payload):
+        raise HTTPException(400, "Proposta convertida em encomenda: itens e estado não podem ser alterados")
+
     payload.pop("id", None)
     payload["updated_at"] = now_iso()
     if payload.get("status") == "perdida" and not payload.get("lost_reason"):
         raise HTTPException(400, "Motivo de perda obrigatório")
-    before = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    before = current
     if "lines" in payload:
         lines_models = [ProposalLine(**ln) for ln in payload["lines"]]
         net, vat, gross, vab = compute_proposal_totals(lines_models)
@@ -222,6 +228,30 @@ async def convert_proposal(pid: str, user: dict = Depends(get_current_user)):
     return order
 
 
+@router.post("/proposals/{pid}/reopen", response_model=Proposal)
+async def reopen_proposal(pid: str, user: dict = Depends(require_roles("admin"))):
+    proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not proposal:
+        raise HTTPException(404, "Proposta não encontrada")
+    order_id = proposal.get("converted_order_id")
+    if not order_id:
+        raise HTTPException(400, "Proposta ainda não foi convertida em encomenda")
+
+    order = await db.orders.find_one({"id": order_id}, {"_id": 0})
+    if not order or order.get("status") != "cancelada":
+        raise HTTPException(400, "Anule primeiro a encomenda associada")
+    active_invoice = await db.invoices.find_one({"order_id": order_id, "status": {"$ne": "anulada"}}, {"_id": 0, "id": 1})
+    active_payment = await db.payments.find_one({"order_id": order_id, "status": {"$ne": "anulado"}}, {"_id": 0, "id": 1})
+    if active_invoice or active_payment:
+        raise HTTPException(400, "Anule primeiro todas as faturas e recebimentos da encomenda")
+
+    await db.proposals.update_one({"id": pid}, {"$set": {"status": "em_elaboracao", "converted_order_id": None, "updated_at": now_iso()}})
+    await audit_log("reopen", "proposal", pid, {"status": proposal.get("status"), "converted_order_id": order_id}, {"status": "em_elaboracao", "converted_order_id": None}, user, "Reabertura após anulação da encomenda")
+    proposal["status"] = "em_elaboracao"
+    proposal["converted_order_id"] = None
+    return proposal
+
+
 # ------------- Orders (basic CRUD, financial ops live in finance.py) -------------
 @router.get("/orders", response_model=List[Order])
 async def list_orders(user: dict = Depends(get_current_user)):
@@ -230,13 +260,25 @@ async def list_orders(user: dict = Depends(get_current_user)):
 
 @router.patch("/orders/{oid}", response_model=Order)
 async def update_order(oid: str, payload: dict, user: dict = Depends(get_current_user)):
+    current = await db.orders.find_one({"id": oid}, {"_id": 0})
+    if not current:
+        raise HTTPException(404, "Encomenda nao encontrada")
     payload.pop("id", None)
     if payload.get("status") == "cancelada" and not payload.get("cancel_reason"):
         raise HTTPException(400, "Motivo de cancelamento obrigatório")
+    if payload.get("status") == "cancelada":
+        if user.get("role") != "admin":
+            raise HTTPException(403, "A anulação da encomenda requer um admin")
+        active_invoice = await db.invoices.find_one({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0, "id": 1})
+        active_payment = await db.payments.find_one({"order_id": oid, "status": {"$ne": "anulado"}}, {"_id": 0, "id": 1})
+        if active_invoice or active_payment:
+            raise HTTPException(400, "Anule primeiro todas as faturas e recebimentos da encomenda")
     await db.orders.update_one({"id": oid}, {"$set": payload})
     doc = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not doc:
         raise HTTPException(404, "Encomenda não encontrada")
+    if payload.get("status") == "cancelada":
+        await audit_log("cancel", "order", oid, {"status": current.get("status")}, {"status": "cancelada"}, user, payload.get("cancel_reason", ""))
     return doc
 
 

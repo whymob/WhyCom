@@ -49,7 +49,7 @@ async def recalc_order_status(oid: str):
 
     plan = await db.plan_lines.find({"order_id": oid, "status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(1000)
     invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
-    payments = await db.payments.find({"order_id": oid}, {"_id": 0}).to_list(1000)
+    payments = await db.payments.find({"order_id": oid, "status": {"$ne": "anulado"}}, {"_id": 0}).to_list(1000)
 
     plan_value = sum(p["value"] for p in plan)  # net
     invoiced_net = sum(i["total_net"] for i in invoices)

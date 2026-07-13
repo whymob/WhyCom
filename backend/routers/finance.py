@@ -4,7 +4,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 
 from deps import db, get_current_user, require_roles, now_iso, new_id, TOLERANCE
-from helpers import get_order_or_404, recalc_order_status, compute_alerts
+from helpers import audit_log, get_order_or_404, recalc_order_status, compute_alerts
 
 router = APIRouter()
 
@@ -19,10 +19,21 @@ async def get_plan(oid: str, user: dict = Depends(get_current_user)):
 
 @router.put("/orders/{oid}/plan")
 async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current_user)):
-    await get_order_or_404(oid)
+    order = await get_order_or_404(oid)
+    active_invoice = await db.invoices.find_one({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0, "number": 1})
+    if active_invoice:
+        raise HTTPException(400, "Anule primeiro as faturas ativas, com motivo, antes de alterar o plano")
     lines_in = payload.get("lines", [])
     existing = await db.plan_lines.find({"order_id": oid}, {"_id": 0}).to_list(1000)
     used_ids = {ln["id"] for ln in existing if ln.get("invoiced_amount", 0) > 0}
+    existing_ids = {ln["id"] for ln in existing}
+    existing_active_total = sum(float(ln.get("value") or 0) for ln in existing if ln.get("status") != "cancelada")
+    requested_total = sum(float(ln.get("value") or 0) for ln in lines_in if ln.get("status") != "cancelada")
+    if requested_total > float(order.get("total_net") or 0) + TOLERANCE:
+        raise HTTPException(400, "O plano de faturação excede o valor da encomenda")
+    has_new_line = any(ln.get("id") not in existing_ids for ln in lines_in)
+    if has_new_line and existing_active_total + TOLERANCE >= float(order.get("total_net") or 0):
+        raise HTTPException(400, "Esta encomenda nao tem valor disponivel para uma nova linha de faturacao")
     new_lines = []
     for ln in lines_in:
         line_id = ln.get("id")
@@ -31,6 +42,7 @@ async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current
         new_lines.append({
             "id": new_id(),
             "order_id": oid,
+            "source_item_key": ln.get("source_item_key"),
             "type": ln.get("type", "projeto"),
             "description": ln.get("description", ""),
             "expected_date": ln.get("expected_date"),
@@ -52,7 +64,7 @@ async def reconcile(oid: str, user: dict = Depends(get_current_user)):
     order = await get_order_or_404(oid)
     plan = await db.plan_lines.find({"order_id": oid, "status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(1000)
     invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
-    payments = await db.payments.find({"order_id": oid}, {"_id": 0}).to_list(1000)
+    payments = await db.payments.find({"order_id": oid, "status": {"$ne": "anulado"}}, {"_id": 0}).to_list(1000)
     plan_val = round(sum(p["value"] for p in plan), 2)
     inv_net = round(sum(i["total_net"] for i in invoices), 2)
     inv_gross = round(sum(i.get("total_gross", i["total_net"]) for i in invoices), 2)
@@ -74,7 +86,20 @@ async def reconcile(oid: str, user: dict = Depends(get_current_user)):
 @router.get("/invoices")
 async def list_invoices(order_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     q = {"order_id": order_id} if order_id else {}
-    return await db.invoices.find(q, {"_id": 0}).sort("issued_at", -1).to_list(2000)
+    invoices = await db.invoices.find(q, {"_id": 0}).sort("issued_at", -1).to_list(2000)
+    invoice_ids = [invoice["id"] for invoice in invoices]
+    payments = await db.payments.find({"invoice_id": {"$in": invoice_ids}, "status": {"$ne": "anulado"}}, {"_id": 0, "invoice_id": 1, "amount": 1}).to_list(5000) if invoice_ids else []
+    received_by_invoice = {}
+    for payment in payments:
+        received_by_invoice[payment["invoice_id"]] = received_by_invoice.get(payment["invoice_id"], 0) + float(payment.get("amount") or 0)
+
+    for invoice in invoices:
+        received_amount = round(received_by_invoice.get(invoice["id"], 0), 2)
+        invoice["received_amount"] = received_amount
+        if invoice.get("status") != "anulada":
+            gross = float(invoice.get("total_gross", invoice.get("total_net", 0)) or 0)
+            invoice["status"] = "recebida" if abs(received_amount - gross) <= TOLERANCE else ("parcialmente_recebida" if received_amount > TOLERANCE else "emitida")
+    return invoices
 
 
 @router.post("/invoices")
@@ -137,7 +162,7 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
 
 
 @router.post("/invoices/{iid}/cancel")
-async def cancel_invoice(iid: str, payload: dict, user: dict = Depends(require_roles("admin", "ceo"))):
+async def cancel_invoice(iid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
     reason = (payload or {}).get("reason", "").strip()
     if not reason:
         raise HTTPException(400, "Motivo de anulação obrigatório")
@@ -145,6 +170,10 @@ async def cancel_invoice(iid: str, payload: dict, user: dict = Depends(require_r
     if not inv:
         raise HTTPException(404, "Fatura não encontrada")
     if inv["status"] == "anulada":
+        raise HTTPException(400, "Fatura ja anulada")
+    active_payment = await db.payments.find_one({"invoice_id": iid, "status": {"$ne": "anulado"}}, {"_id": 0, "id": 1})
+    if active_payment:
+        raise HTTPException(400, "Anule primeiro os recebimentos associados a esta fatura")
         raise HTTPException(400, "Já anulada")
     for il in inv["lines"]:
         pl = await db.plan_lines.find_one({"id": il["plan_line_id"]})
@@ -153,6 +182,7 @@ async def cancel_invoice(iid: str, payload: dict, user: dict = Depends(require_r
             status = "planeada" if new_amt <= TOLERANCE else "parcialmente_faturada"
             await db.plan_lines.update_one({"id": pl["id"]}, {"$set": {"invoiced_amount": round(new_amt, 2), "status": status}})
     await db.invoices.update_one({"id": iid}, {"$set": {"status": "anulada", "cancel_reason": reason}})
+    await audit_log("cancel", "invoice", iid, {"status": inv.get("status")}, {"status": "anulada"}, user, reason)
     await recalc_order_status(inv["order_id"])
     return {"ok": True}
 
@@ -181,7 +211,9 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
         raise HTTPException(400, "Valor deve ser > 0")
     # Recebimento em valor BRUTO (com IVA) — valida contra total_gross
     inv_gross = inv.get("total_gross", inv["total_net"])
-    open_balance = inv_gross - inv.get("received_amount", 0)
+    payments = await db.payments.find({"invoice_id": invoice_id, "status": {"$ne": "anulado"}}, {"_id": 0, "amount": 1}).to_list(5000)
+    received_amount = round(sum(float(payment.get("amount") or 0) for payment in payments), 2)
+    open_balance = inv_gross - received_amount
     if amount > open_balance + TOLERANCE:
         raise HTTPException(400, f"Valor excede saldo em aberto ({open_balance:.2f}€ c/ IVA)")
 
@@ -201,12 +233,36 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
         "created_at": now_iso(),
     }
     await db.payments.insert_one(pay)
-    new_received = inv.get("received_amount", 0) + amount
+    new_received = received_amount + amount
     inv_status = "recebida" if abs(new_received - inv_gross) <= TOLERANCE else "parcialmente_recebida"
     await db.invoices.update_one({"id": invoice_id}, {"$set": {"received_amount": round(new_received, 2), "status": inv_status}})
     await recalc_order_status(inv["order_id"])
     pay.pop("_id", None)
     return pay
+
+
+@router.post("/payments/{pid}/cancel")
+async def cancel_payment(pid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+    reason = (payload or {}).get("reason", "").strip()
+    if not reason:
+        raise HTTPException(400, "Motivo de anulação obrigatório")
+    payment = await db.payments.find_one({"id": pid}, {"_id": 0})
+    if not payment:
+        raise HTTPException(404, "Recebimento não encontrado")
+    if payment.get("status") == "anulado":
+        raise HTTPException(400, "Recebimento já anulado")
+
+    await db.payments.update_one({"id": pid}, {"$set": {"status": "anulado", "cancel_reason": reason}})
+    invoice = await db.invoices.find_one({"id": payment["invoice_id"]}, {"_id": 0})
+    if invoice and invoice.get("status") != "anulada":
+        active_payments = await db.payments.find({"invoice_id": payment["invoice_id"], "status": {"$ne": "anulado"}}, {"_id": 0, "amount": 1}).to_list(5000)
+        received_amount = round(sum(float(item.get("amount") or 0) for item in active_payments), 2)
+        gross = float(invoice.get("total_gross", invoice.get("total_net", 0)) or 0)
+        invoice_status = "recebida" if abs(received_amount - gross) <= TOLERANCE else ("parcialmente_recebida" if received_amount > TOLERANCE else "emitida")
+        await db.invoices.update_one({"id": payment["invoice_id"]}, {"$set": {"received_amount": received_amount, "status": invoice_status}})
+    await audit_log("cancel", "payment", pid, {"status": payment.get("status", "ativo"), "amount": payment.get("amount")}, {"status": "anulado"}, user, reason)
+    await recalc_order_status(payment["order_id"])
+    return {"ok": True}
 
 
 # ------------- Alerts -------------

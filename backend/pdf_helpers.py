@@ -4,6 +4,7 @@ Uses reportlab (pure Python). Style follows WhyMob brand: navy #002FA7, black.
 """
 import io
 from datetime import datetime
+from xml.sax.saxutils import escape
 from fastapi.responses import Response
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -240,8 +241,18 @@ def build_billing_orders_pdf(month: str, invoices: list, clients_map: dict, orde
     header_row = ["Nº", "Data", "Cliente", "Encomenda", "s/IVA", "c/IVA", "Recebido", "Estado"]
     rows = [header_row]
     for inv in invoices:
+        descriptions = []
+        for line in inv.get("lines", []):
+            description = str(line.get("description") or "").strip()
+            if description and description not in descriptions:
+                descriptions.append(description)
+        invoice_description = " / ".join(descriptions) or "Sem descriÃ§Ã£o"
+        invoice_label = Paragraph(
+            f"<b>{escape(str(inv['number']))}</b><br/><font size=7 color='#666666'>{escape(invoice_description)}</font>",
+            st["small"],
+        )
         rows.append([
-            inv["number"],
+            invoice_label,
             inv["issued_at"][:10],
             (clients_map.get(inv["client_id"], "")[:22]),
             (orders_map.get(inv["order_id"], {}).get("number", "")),
@@ -265,6 +276,45 @@ def build_billing_orders_pdf(month: str, invoices: list, clients_map: dict, orde
     ]))
     story.append(t)
     story.append(Spacer(1, 6 * mm))
+
+    story.append(_footer())
+    return _pdf_response(story, f"ordem-faturacao-{month}.pdf")
+
+    # Kept below for reference while older generated PDFs are being compared.
+    story.append(Paragraph("COMPOSICAO DAS FATURAS", st["h2"]))
+    for inv in invoices:
+        order = orders_map.get(inv["order_id"], {})
+        client_name = clients_map.get(inv["client_id"], "")
+        story.append(Paragraph(
+            f"{inv['number']} · {client_name} · {order.get('number', '')}",
+            st["body"],
+        ))
+
+        invoice_line_rows = [["Descricao", "Ref. plano", "Valor s/IVA"]]
+        for line in inv.get("lines", []):
+            plan_line = plan_lines_map.get(line.get("plan_line_id"), {})
+            invoice_line_rows.append([
+                line.get("description") or plan_line.get("description") or plan_line.get("type") or "Linha sem descricao",
+                plan_line.get("id", ""),
+                _eur(line.get("amount", 0)),
+            ])
+
+        item_table = Table(invoice_line_rows, colWidths=[100 * mm, 40 * mm, 30 * mm])
+        item_table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), LIGHT),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("TEXTCOLOR", (0, 0), (-1, 0), NAVY),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("ALIGN", (2, 0), (2, -1), "RIGHT"),
+            ("FONTNAME", (2, 1), (2, -1), "Courier"),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.4, NAVY),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.2, colors.HexColor("#EEEEEE")),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ]))
+        story.append(item_table)
+        story.append(Spacer(1, 4 * mm))
+
     story.append(_footer())
     return _pdf_response(story, f"ordem-faturacao-{month}.pdf")
 

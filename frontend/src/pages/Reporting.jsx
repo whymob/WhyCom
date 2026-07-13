@@ -546,12 +546,14 @@ export default function Reporting() {
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-6xl rounded-none">
+        <DialogContent className="max-h-[85vh] max-w-6xl overflow-hidden rounded-none">
           <DialogHeader>
             <DialogTitle className="font-display">{detailConfig.title}</DialogTitle>
           </DialogHeader>
-          {detailConfig.description && <div className="text-sm text-neutral-600">{detailConfig.description}</div>}
-          <Table columns={detailConfig.columns} rows={detailConfig.rows} testid="reporting-detail-table" />
+          <div className="overflow-y-auto pr-1">
+            {detailConfig.description && <div className="mb-3 text-sm text-neutral-600">{detailConfig.description}</div>}
+            <Table columns={detailConfig.columns} rows={detailConfig.rows} testid="reporting-detail-table" />
+          </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDetailOpen(false)} className="rounded-none">Fechar</Button>
           </DialogFooter>
@@ -559,9 +561,9 @@ export default function Reporting() {
       </Dialog>
 
       <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
-        <DialogContent className="max-w-md rounded-none" data-testid="billing-orders-dialog">
+        <DialogContent className="max-h-[85vh] max-w-md overflow-hidden rounded-none" data-testid="billing-orders-dialog">
           <DialogHeader><DialogTitle className="font-display">Ordem de Faturacao</DialogTitle></DialogHeader>
-          <div className="space-y-3">
+          <div className="space-y-3 overflow-y-auto pr-1">
             <div className="text-xs text-neutral-500">Escolha o mes e o formato para exportar as faturas emitidas.</div>
             <div>
               <Label>Mes (AAAA-MM)</Label>

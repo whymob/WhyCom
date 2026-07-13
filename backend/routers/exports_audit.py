@@ -138,6 +138,16 @@ async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current
         {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}},
         {"_id": 0},
     ).sort("issued_at", 1).to_list(5000)
+    invoice_ids = [invoice["id"] for invoice in invoices]
+    payments = await db.payments.find(
+        {"invoice_id": {"$in": invoice_ids}, "status": {"$ne": "anulado"}},
+        {"_id": 0, "invoice_id": 1, "amount": 1},
+    ).to_list(5000) if invoice_ids else []
+    received_by_invoice = {}
+    for payment in payments:
+        received_by_invoice[payment["invoice_id"]] = received_by_invoice.get(payment["invoice_id"], 0) + float(payment.get("amount") or 0)
+    for invoice in invoices:
+        invoice["received_amount"] = round(received_by_invoice.get(invoice["id"], 0), 2)
     clients_map = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     orders_map = {o["id"]: o for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
     plan_lines_map = {pl["id"]: pl for pl in await db.plan_lines.find({}, {"_id": 0}).to_list(5000)}

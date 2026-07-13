@@ -30,6 +30,21 @@ function KPI({ label, value, sub, testid, icon: Icon, to }) {
   );
 }
 
+function getAlertHref(alert) {
+  if (alert.type === "proposta_sem_encomenda") return `/propostas/${alert.ref_id}`;
+  if (["encomenda_sem_plano", "desvio_plano", "plano_atraso"].includes(alert.type)) return `/encomendas/${alert.ref_id}`;
+  return null;
+}
+
+function getAlertTypeLabel(type) {
+  if (type === "proposta_sem_encomenda") return "Proposta";
+  if (type === "encomenda_sem_plano") return "Encomenda sem plano";
+  if (type === "desvio_plano") return "Desvio no plano";
+  if (type === "plano_atraso") return "Plano em atraso";
+  if (type === "fatura_atraso") return "Fatura em atraso";
+  return type;
+}
+
 export default function Dashboard() {
   const [kpis, setKpis] = useState(null);
   const [alerts, setAlerts] = useState([]);
@@ -48,11 +63,63 @@ export default function Dashboard() {
   }, []);
 
   const maxVab = Math.max(1, ...topManuf.map((row) => row.won_vab));
+  const criticalAlerts = alerts.filter((alert) => alert.level === "danger");
+  const visibleAlerts = alerts.slice(0, 5);
 
   return (
     <div>
       <PageHeader kicker="Visao geral" title="Dashboard Comercial" />
       <div className="space-y-8 p-8">
+        <section className="border border-neutral-200 bg-white" data-testid="alerts-highlight">
+          <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center border border-[#FFC800] bg-[#FEF9C3] text-[#7C5A00]">
+                <AlertTriangle size={16} />
+              </div>
+              <div>
+                <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Alertas & Desvios</div>
+                <div className="mt-1 text-sm text-neutral-700">
+                  {alerts.length === 0
+                    ? "Sem alertas ativos."
+                    : `${alerts.length} alerta(s) ativo(s)${criticalAlerts.length ? ` · ${criticalAlerts.length} crítico(s)` : ""}`}
+                </div>
+              </div>
+            </div>
+            {alerts.length > visibleAlerts.length && (
+              <div className="text-xs text-neutral-500">
+                A mostrar os {visibleAlerts.length} mais recentes
+              </div>
+            )}
+          </div>
+          <div data-testid="alerts-list">
+            {alerts.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="alerts-empty">Sem alertas ativos.</div>}
+            {visibleAlerts.map((alert, index) => {
+              const href = getAlertHref(alert);
+              const content = (
+                <div
+                  className={`border-b border-neutral-100 border-l-4 px-4 py-3 text-sm transition-colors ${LEVEL_STYLE[alert.level] || ""} ${href ? "hover:bg-neutral-50" : ""}`}
+                  data-testid={`alert-${index}`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="font-medium text-neutral-900">{alert.message}</div>
+                      {href && <div className="mt-1 text-xs text-[#002FA7]">Abrir documento relacionado</div>}
+                    </div>
+                    <span className="whitespace-nowrap text-[10px] uppercase tracking-widest text-neutral-500">{getAlertTypeLabel(alert.type)}</span>
+                  </div>
+                </div>
+              );
+
+              if (!href) return <div key={`${alert.type}-${index}`}>{content}</div>;
+              return (
+                <Link key={`${alert.type}-${index}`} to={href} className="block">
+                  {content}
+                </Link>
+              );
+            })}
+          </div>
+        </section>
+
         <section>
           <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Pipeline</div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
@@ -70,7 +137,7 @@ export default function Dashboard() {
               value={kpis?.opps_open ?? "-"}
               sub={`Ponderado ${eur(kpis?.opps_weighted_value)}`}
               icon={Target}
-              to="/opportunities?status_scope=open"
+              to="/oportunidades?status_scope=open"
             />
             <KPI
               testid="kpi-props-sent"
@@ -78,7 +145,7 @@ export default function Dashboard() {
               value={kpis?.props_sent ?? "-"}
               sub={`${kpis?.props_won ?? 0} ganhas · ${kpis?.props_lost ?? 0} perdidas`}
               icon={FileText}
-              to="/proposals?status_scope=in_progress"
+              to="/propostas?status_scope=in_progress"
             />
             <KPI testid="kpi-conv-rate" label="Taxa de Conversao" value={pct(kpis?.conversion_rate)} sub="Propostas fechadas" icon={Percent} />
           </div>
@@ -89,7 +156,7 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
             <KPI testid="kpi-won-value" label="Valor Ganho" value={eur(kpis?.won_value)} sub="Propostas ganhas · sem IVA" icon={TrendingUp} />
             <KPI testid="kpi-won-vab" label="VAB Ganho" value={eur(kpis?.won_vab)} sub="Margem bruta ganha" icon={TrendingUp} />
-            <KPI testid="kpi-orders" label="Encomendas" value={kpis?.orders_count ?? "-"} sub={`${eur(kpis?.orders_value)} · VAB ${eur(kpis?.orders_vab)}`} icon={Package} />
+            <KPI testid="kpi-orders" label="Encomendas" value={kpis?.orders_count ?? "-"} sub={`${eur(kpis?.orders_value)} · VAB ${eur(kpis?.orders_vab)}`} icon={Package} to="/encomendas" />
           </div>
         </section>
 
@@ -137,20 +204,6 @@ export default function Dashboard() {
           </p>
         </section>
 
-        <section>
-          <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-neutral-500"><AlertTriangle size={12} /> Alertas & Desvios</div>
-          <div className="border border-neutral-200" data-testid="alerts-list">
-            {alerts.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="alerts-empty">Sem alertas ativos.</div>}
-            {alerts.map((alert, index) => (
-              <div key={index} className={`border-b border-neutral-100 border-l-4 px-4 py-2.5 text-sm ${LEVEL_STYLE[alert.level] || ""}`} data-testid={`alert-${index}`}>
-                <div className="flex items-center justify-between gap-2">
-                  <span>{alert.message}</span>
-                  <span className="text-[10px] uppercase tracking-widest text-neutral-500">{alert.type}</span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
       </div>
     </div>
   );

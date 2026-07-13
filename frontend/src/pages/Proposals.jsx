@@ -38,6 +38,7 @@ export default function Proposals() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [props, setProps] = useState([]);
   const [clients, setClients] = useState([]);
+  const [opportunities, setOpportunities] = useState([]);
   const [convertOpen, setConvertOpen] = useState(null);
   const [filters, setFilters] = useState({
     search: searchParams.get("search") || "",
@@ -46,9 +47,14 @@ export default function Proposals() {
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
 
   const load = async () => {
-    const [proposalResponse, clientResponse] = await Promise.all([api.get("/proposals"), api.get("/clients")]);
+    const [proposalResponse, clientResponse, opportunityResponse] = await Promise.all([
+      api.get("/proposals"),
+      api.get("/clients"),
+      api.get("/opportunities"),
+    ]);
     setProps(proposalResponse.data);
     setClients(clientResponse.data);
+    setOpportunities(opportunityResponse.data);
   };
 
   useEffect(() => {
@@ -64,6 +70,10 @@ export default function Proposals() {
   }, [filters, setSearchParams]);
 
   const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
+  const opportunityDescription = useCallback(
+    (id) => opportunities.find((opportunity) => opportunity.id === id)?.description || "-",
+    [opportunities],
+  );
 
   const confirmConvert = async () => {
     if (!convertOpen) return;
@@ -92,6 +102,7 @@ export default function Proposals() {
       const matchesSearch = !search || [
         proposal.number || "",
         clientName(proposal.client_id),
+        opportunityDescription(proposal.opportunity_id),
         PROP_STATUS[proposal.status] || "",
       ].some((value) => String(value).toLowerCase().includes(search));
       const matchesStatus = filters.status === "__all__"
@@ -110,6 +121,9 @@ export default function Proposals() {
       } else if (sort.key === "client") {
         left = clientName(a.client_id);
         right = clientName(b.client_id);
+      } else if (sort.key === "opportunity") {
+        left = opportunityDescription(a.opportunity_id);
+        right = opportunityDescription(b.opportunity_id);
       } else if (sort.key === "value") {
         left = Number(a.total_net) || 0;
         right = Number(b.total_net) || 0;
@@ -124,7 +138,7 @@ export default function Proposals() {
 
       return sort.direction === "asc" ? result : -result;
     });
-  }, [clientName, filters.search, filters.status, props, sort]);
+  }, [clientName, filters.search, filters.status, opportunityDescription, props, sort]);
 
   return (
     <div>
@@ -137,7 +151,7 @@ export default function Proposals() {
               <Input
                 value={filters.search}
                 onChange={(e) => setFilters((current) => ({ ...current, search: e.target.value }))}
-                placeholder="Numero, cliente ou estado"
+                placeholder="Numero, cliente, oportunidade ou estado"
                 className="mt-1 rounded-none"
               />
             </div>
@@ -165,11 +179,14 @@ export default function Proposals() {
             <div className="col-span-2">
               <SortButton label="Numero" sortKey="number" sort={sort} onClick={toggleSort} />
             </div>
-            <div className="col-span-3">
+            <div className="col-span-2">
               <SortButton label="Cliente" sortKey="client" sort={sort} onClick={toggleSort} />
             </div>
-            <div className="col-span-2 text-right">Total s/ IVA</div>
-            <div className="col-span-2 pr-6 text-right">
+            <div className="col-span-3">
+              <SortButton label="Oportunidade" sortKey="opportunity" sort={sort} onClick={toggleSort} />
+            </div>
+            <div className="col-span-1 text-right">Total s/ IVA</div>
+            <div className="col-span-1 pr-6 text-right">
               <SortButton label="VAB" sortKey="value" sort={sort} onClick={toggleSort} align="right" />
             </div>
             <div className="col-span-2 text-center">
@@ -188,9 +205,10 @@ export default function Proposals() {
                 </Link>
                 <div className="text-[10px] text-neutral-500">v{proposal.version} · {dateShort(proposal.created_at)}</div>
               </div>
-              <div className="col-span-3 font-medium">{clientName(proposal.client_id)}</div>
-              <div className="col-span-2 text-right font-mono">{eur(proposal.total_net)}</div>
-              <div className="col-span-2 pr-6 text-right font-mono">{eur(proposal.total_vab)}</div>
+              <div className="col-span-2 font-medium">{clientName(proposal.client_id)}</div>
+              <div className="col-span-3 truncate" title={opportunityDescription(proposal.opportunity_id)}>{opportunityDescription(proposal.opportunity_id)}</div>
+              <div className="col-span-1 text-right font-mono">{eur(proposal.total_net)}</div>
+              <div className="col-span-1 pr-6 text-right font-mono">{eur(proposal.total_vab)}</div>
               <div className="col-span-2 flex justify-center">
                 <Badge className={`${STATUS_STYLE[proposal.status]} rounded-none font-normal`}>{PROP_STATUS[proposal.status]}</Badge>
               </div>
