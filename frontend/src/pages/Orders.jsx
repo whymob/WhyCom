@@ -5,6 +5,7 @@ import { api, formatApiErrorDetail } from "@/lib/api";
 import { eur, ORDER_STATUS, dateShort } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -154,7 +155,7 @@ export default function Orders() {
           {visibleOrders.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="orders-empty">Sem encomendas para os filtros atuais.</div>}
 
           {visibleOrders.map((order) => (
-            <div key={order.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`order-row-${order.id}`}>
+            <div key={order.id} className={`grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50 ${order.status === "cancelada" ? "bg-[#FFF7F7]" : ""}`} data-testid={`order-row-${order.id}`}>
               <div className="col-span-2 font-mono">
                 <Link to={`/encomendas/${order.id}`} className="text-[#002FA7] hover:underline" data-testid={`order-link-${order.id}`}>{order.number}</Link>
               </div>
@@ -162,6 +163,7 @@ export default function Orders() {
               <div className="col-span-2">
                 <Input
                   defaultValue={order.po_number || ""}
+                  disabled={order.status === "cancelada"}
                   onBlur={(e) => e.target.value !== order.po_number && patchOrder(order.id, { po_number: e.target.value })}
                   placeholder="PO / Ordem compra"
                   className="h-8 rounded-none text-xs font-mono"
@@ -171,14 +173,21 @@ export default function Orders() {
               <div className="col-span-1 text-right font-mono">{eur(order.total_net)}</div>
               <div className="col-span-1 pr-6 text-right font-mono">{eur(order.total_vab)}</div>
               <div className="col-span-2 flex justify-center">
-                <Select value={order.status} onValueChange={(value) => patchOrder(order.id, { status: value })}>
-                  <SelectTrigger className="h-8 w-full max-w-[180px] rounded-none text-xs" data-testid={`order-status-${order.id}`}><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    {Object.entries(ORDER_STATUS).filter(([key]) => !["cancelada", "fulfilled"].includes(key)).map(([key, label]) => (
-                      <SelectItem key={key} value={key}>{label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {order.status === "cancelada" ? (
+                  <div className="text-center">
+                    <Badge className="rounded-none bg-[#FEE2E2] font-normal text-[#B91C1C]">{ORDER_STATUS[order.status]}</Badge>
+                    {order.cancel_reason && <div className="mt-1 max-w-[180px] truncate text-[10px] text-[#B91C1C]" title={order.cancel_reason}>{order.cancel_reason}</div>}
+                  </div>
+                ) : (
+                  <Select value={order.status} onValueChange={(value) => patchOrder(order.id, { status: value })}>
+                    <SelectTrigger className="h-8 w-full max-w-[180px] rounded-none text-xs" data-testid={`order-status-${order.id}`}><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {Object.entries(ORDER_STATUS).filter(([key]) => !["cancelada", "fulfilled"].includes(key)).map(([key, label]) => (
+                        <SelectItem key={key} value={key}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
               </div>
               <div className="col-span-1 text-right font-mono text-xs text-neutral-500">{dateShort(order.order_date)}</div>
             </div>

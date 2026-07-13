@@ -20,6 +20,8 @@ async def get_plan(oid: str, user: dict = Depends(get_current_user)):
 @router.put("/orders/{oid}/plan")
 async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current_user)):
     order = await get_order_or_404(oid)
+    if order.get("status") == "cancelada":
+        raise HTTPException(400, "Encomenda anulada: o plano não pode ser alterado")
     active_invoice = await db.invoices.find_one({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0, "number": 1})
     if active_invoice:
         raise HTTPException(400, "Anule primeiro as faturas ativas, com motivo, antes de alterar o plano")
@@ -106,6 +108,8 @@ async def list_invoices(order_id: Optional[str] = None, user: dict = Depends(get
 async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
     order_id = payload["order_id"]
     order = await get_order_or_404(order_id)
+    if order.get("status") == "cancelada":
+        raise HTTPException(400, "Encomenda anulada: não é possível emitir faturas")
     lines_in = payload.get("lines", [])
     if not lines_in:
         raise HTTPException(400, "Fatura deve ter pelo menos 1 linha")
@@ -167,6 +171,9 @@ async def cancel_invoice(iid: str, payload: dict, user: dict = Depends(require_r
     if not reason:
         raise HTTPException(400, "Motivo de anulação obrigatório")
     inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    order = await get_order_or_404(inv["order_id"]) if inv else None
+    if order and order.get("status") == "cancelada":
+        raise HTTPException(400, "Encomenda anulada: a fatura nao pode ser alterada")
     if not inv:
         raise HTTPException(404, "Fatura não encontrada")
     if inv["status"] == "anulada":
@@ -204,6 +211,9 @@ async def create_payment(payload: dict, user: dict = Depends(get_current_user)):
     inv = await db.invoices.find_one({"id": invoice_id}, {"_id": 0})
     if not inv:
         raise HTTPException(404, "Fatura não encontrada")
+    order = await get_order_or_404(inv["order_id"])
+    if order.get("status") == "cancelada":
+        raise HTTPException(400, "Encomenda anulada: não é possível registar recebimentos")
     if inv["status"] == "anulada":
         raise HTTPException(400, "Fatura anulada")
     amount = float(payload["amount"])
@@ -247,6 +257,9 @@ async def cancel_payment(pid: str, payload: dict, user: dict = Depends(require_r
     if not reason:
         raise HTTPException(400, "Motivo de anulação obrigatório")
     payment = await db.payments.find_one({"id": pid}, {"_id": 0})
+    order = await get_order_or_404(payment["order_id"]) if payment else None
+    if order and order.get("status") == "cancelada":
+        raise HTTPException(400, "Encomenda anulada: o recebimento nao pode ser alterado")
     if not payment:
         raise HTTPException(404, "Recebimento não encontrado")
     if payment.get("status") == "anulado":

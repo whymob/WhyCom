@@ -263,6 +263,8 @@ async def update_order(oid: str, payload: dict, user: dict = Depends(get_current
     current = await db.orders.find_one({"id": oid}, {"_id": 0})
     if not current:
         raise HTTPException(404, "Encomenda nao encontrada")
+    if current.get("status") == "cancelada":
+        raise HTTPException(400, "Encomenda anulada: não pode ser alterada")
     payload.pop("id", None)
     if payload.get("status") == "cancelada" and not payload.get("cancel_reason"):
         raise HTTPException(400, "Motivo de cancelamento obrigatório")

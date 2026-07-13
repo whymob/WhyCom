@@ -108,6 +108,7 @@ export default function OrderDetail() {
   if (!order) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
 
   const productName = (productId) => products.find((product) => product.id === productId)?.name || "—";
+  const isCancelled = order.status === "cancelada";
   const productManuf = (productId) => {
     const product = products.find((item) => item.id === productId);
     if (!product?.manufacturer_id) return "—";
@@ -210,6 +211,7 @@ export default function OrderDetail() {
   };
 
   const addPlanLine = () => {
+    if (isCancelled) return;
     if (totalRemainingToPlan <= 0.01) {
       toast.error("Esta encomenda nao tem valor disponivel para uma nova linha de faturacao");
       return;
@@ -280,6 +282,7 @@ export default function OrderDetail() {
   };
 
   const openParcelModal = () => {
+    if (isCancelled) return;
     if (totalRemainingToPlan <= 0.01) {
       toast.error("Esta encomenda já não tem valor disponível para novo faseamento");
       return;
@@ -325,10 +328,12 @@ export default function OrderDetail() {
   };
 
   const updatePlanLine = (index, patch) => {
+    if (isCancelled) return;
     setPlanLines(planLines.map((line, idx) => (idx === index ? { ...line, ...patch } : line)));
   };
 
   const removePlanLine = (index) => {
+    if (isCancelled) return;
     const line = planLines[index];
     if ((line.invoiced_amount || 0) > 0) {
       toast.error("Linha já faturada, não pode ser removida");
@@ -338,6 +343,10 @@ export default function OrderDetail() {
   };
 
   const savePlan = async () => {
+    if (isCancelled) {
+      toast.error("Encomenda anulada: o plano nao pode ser alterado");
+      return;
+    }
     try {
       const clean = planLines.map((line) => ({
         id: line.id?.startsWith("new-") ? undefined : line.id,
@@ -474,6 +483,7 @@ export default function OrderDetail() {
   };
 
   const openInvoice = () => {
+    if (isCancelled) return;
     const seed = planLines
       .filter((line) => line.status !== "cancelada" && (line.value - (line.invoiced_amount || 0)) > 0.001)
       .map((line) => ({
@@ -488,6 +498,7 @@ export default function OrderDetail() {
   };
 
   const submitInvoice = async () => {
+    if (isCancelled) return;
     try {
       const lines = invForm.lines
         .filter((line) => line._selected && Number(line.amount) > 0)
@@ -512,6 +523,7 @@ export default function OrderDetail() {
   };
 
   const submitPayment = async () => {
+    if (isCancelled) return;
     try {
       await api.post("/payments", {
         invoice_id: payOpen,
@@ -673,7 +685,8 @@ export default function OrderDetail() {
           <div className="mt-3 flex items-center justify-between flex-wrap gap-2">
             <div className="flex gap-2 items-center">
               <span className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</span>
-              <Badge className="rounded-none bg-neutral-900 text-white" data-testid="order-status-badge">{ORDER_STATUS[order.status]}</Badge>
+              <Badge className={`rounded-none ${order.status === "cancelada" ? "bg-[#FEE2E2] text-[#B91C1C]" : "bg-neutral-900 text-white"}`} data-testid="order-status-badge">{ORDER_STATUS[order.status]}</Badge>
+              {order.status === "cancelada" && order.cancel_reason && <div className="mt-2 text-xs text-[#B91C1C]">Motivo: {order.cancel_reason}</div>}
             </div>
             <div className="text-xs text-neutral-500 flex gap-4 font-mono">
               <span>Δ Plano: <span className={Math.abs(recon?.deltas.plan_vs_order || 0) > 0.5 ? "text-[#FF2A00]" : "text-[#00A859]"}>{eur(recon?.deltas.plan_vs_order)}</span></span>
@@ -725,9 +738,9 @@ export default function OrderDetail() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={openParcelModal} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
-              <Button size="sm" onClick={addPlanLine} disabled={totalRemainingToPlan <= 0.01} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
-              <Button size="sm" onClick={savePlan} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
+              <Button size="sm" onClick={openParcelModal} disabled={isCancelled} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
+              <Button size="sm" onClick={addPlanLine} disabled={isCancelled || totalRemainingToPlan <= 0.01} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
+              <Button size="sm" onClick={savePlan} disabled={isCancelled} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
             </div>
           </div>
           <div className="border border-neutral-200">
@@ -743,17 +756,17 @@ export default function OrderDetail() {
             {planLines.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="plan-empty">Sem plano. Adicione linhas para começar.</div>}
             {planLines.map((line, index) => (
               <div key={line.id || index} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`plan-line-${index}`}>
-                <Select value={line.type} onValueChange={(value) => updatePlanLine(index, { type: value })}>
+                <Select value={line.type} disabled={isCancelled} onValueChange={(value) => updatePlanLine(index, { type: value })}>
                   <SelectTrigger className="col-span-2 rounded-none h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>{PLAN_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
                 </Select>
-                <Input value={line.description || ""} onChange={(e) => updatePlanLine(index, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
-                <Input type="date" value={(line.expected_date || "").slice(0, 10)} onChange={(e) => updatePlanLine(index, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
-                <Input type="number" value={line.value} onChange={(e) => updatePlanLine(index, { value: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${index}`} />
+                <Input value={line.description || ""} disabled={isCancelled} onChange={(e) => updatePlanLine(index, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
+                <Input type="date" value={(line.expected_date || "").slice(0, 10)} disabled={isCancelled} onChange={(e) => updatePlanLine(index, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
+                <Input type="number" value={line.value} disabled={isCancelled} onChange={(e) => updatePlanLine(index, { value: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${index}`} />
                 <div className="col-span-1 text-right font-mono text-xs">{eur(line.invoiced_amount || 0)}</div>
                 <div className="col-span-1"><Badge className={`${PLAN_STATUS_STYLE[line.status] || ""} rounded-none font-normal text-[10px]`}>{line.status}</Badge></div>
                 <div className="col-span-1 text-right">
-                  <Button size="sm" variant="ghost" onClick={() => removePlanLine(index)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button>
+                  <Button size="sm" variant="ghost" disabled={isCancelled} onClick={() => removePlanLine(index)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button>
                 </div>
               </div>
             ))}
@@ -763,7 +776,7 @@ export default function OrderDetail() {
         <section id="faturas">
           <div className="flex items-center justify-between mb-3">
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturas</div>
-            <Button size="sm" onClick={openInvoice} data-testid="new-invoice-btn" disabled={planLines.filter((line) => (line.value - (line.invoiced_amount || 0)) > 0.001 && line.status !== "cancelada").length === 0} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={14} className="mr-1" /> Emitir fatura</Button>
+            <Button size="sm" onClick={openInvoice} data-testid="new-invoice-btn" disabled={isCancelled || planLines.filter((line) => (line.value - (line.invoiced_amount || 0)) > 0.001 && line.status !== "cancelada").length === 0} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={14} className="mr-1" /> Emitir fatura</Button>
           </div>
           <div className="border border-neutral-200">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
@@ -794,7 +807,7 @@ export default function OrderDetail() {
                   >
                     PDF
                   </button>
-                  {invoice.status !== "anulada" && invoice.status !== "recebida" && (
+                  {!isCancelled && invoice.status !== "anulada" && invoice.status !== "recebida" && (
                     <Button
                       size="sm"
                       onClick={() => {
@@ -811,7 +824,7 @@ export default function OrderDetail() {
                       Receber
                     </Button>
                   )}
-                  {isAdmin && invoice.status !== "anulada" && (
+                  {!isCancelled && isAdmin && invoice.status !== "anulada" && (
                     <Button
                       size="sm"
                       variant="ghost"
@@ -848,7 +861,7 @@ export default function OrderDetail() {
                   <div className="col-span-2 text-right font-mono">{eur(payment.amount)}</div>
                   <div className="col-span-2 flex items-center justify-between text-xs">
                     <span>{payment.method}</span>
-                    {isAdmin && payment.status !== "anulado" && <Button size="sm" variant="ghost" onClick={() => openCancellation("payment", payment.id)} className="h-7 rounded-none p-1 text-xs text-[#FF2A00]">Anular</Button>}
+                    {!isCancelled && isAdmin && payment.status !== "anulado" && <Button size="sm" variant="ghost" onClick={() => openCancellation("payment", payment.id)} className="h-7 rounded-none p-1 text-xs text-[#FF2A00]">Anular</Button>}
                   </div>
                   <div className="col-span-2 text-xs font-mono text-neutral-500">{payment.reference || "—"}</div>
                 </div>

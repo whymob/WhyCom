@@ -59,7 +59,9 @@ export default function ProposalDetail() {
       setManufs(m.data);
       setOpportunity(opportunitiesResponse.data.find((item) => item.id === p.data.opportunity_id) || null);
 
-      const linkedOrder = ordersResponse.data.find((item) => item.id === p.data.converted_order_id || item.proposal_id === p.data.id) || null;
+      const linkedOrder = p.data.converted_order_id
+        ? ordersResponse.data.find((item) => item.id === p.data.converted_order_id) || null
+        : null;
       setOrder(linkedOrder);
       if (linkedOrder) {
         const [planResponse, invoiceResponse, paymentResponse] = await Promise.all([
