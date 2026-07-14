@@ -988,9 +988,9 @@ export default function OrderDetail() {
       </Dialog>
 
       <Dialog open={parcelOpen} onOpenChange={setParcelOpen}>
-        <DialogContent className="max-h-[85vh] max-w-5xl overflow-hidden rounded-none">
-          <DialogHeader><DialogTitle className="font-display">Criar plano parcelado</DialogTitle></DialogHeader>
-          <div className="space-y-4 overflow-y-auto pr-1">
+        <DialogContent className="flex max-h-[90vh] max-w-5xl flex-col overflow-hidden rounded-none">
+          <DialogHeader className="shrink-0"><DialogTitle className="font-display">Criar plano parcelado</DialogTitle></DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
             <div className="grid grid-cols-3 gap-3">
               <div>
                 <Label>Numero de parcelas</Label>
@@ -1086,7 +1086,7 @@ export default function OrderDetail() {
               ))}
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button variant="ghost" onClick={() => setParcelOpen(false)} className="rounded-none">Cancelar</Button>
             <Button onClick={applyParcelPlan} data-testid="parcel-apply-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Adicionar ao plano</Button>
           </DialogFooter>
