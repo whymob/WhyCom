@@ -17,6 +17,10 @@ import { useAuth } from "@/context/AuthContext";
 
 const PLAN_TYPES = ["setup", "mensalidade", "trimestralidade", "anuidade", "avos", "consumo_horas", "projeto", "outros"];
 const PAY_METHODS = ["transferencia", "cartao", "mbway", "cheque", "numerario", "outro"];
+const todayInputValue = () => {
+  const today = new Date();
+  return [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
+};
 
 const PLAN_STATUS_STYLE = {
   planeada: "bg-neutral-100 text-neutral-800",
@@ -44,8 +48,9 @@ export default function OrderDetail() {
   const [payOpen, setPayOpen] = useState(null);
   const [cancelDialog, setCancelDialog] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
-  const [payForm, setPayForm] = useState({ amount: 0, method: "transferencia", reference: "" });
-  const [invForm, setInvForm] = useState({ lines: [], vat_pct: 23 });
+  const [externalInvoiceDialog, setExternalInvoiceDialog] = useState(null);
+  const [payForm, setPayForm] = useState({ amount: 0, method: "transferencia", reference: "", paid_at: todayInputValue() });
+  const [invForm, setInvForm] = useState({ lines: [], vat_pct: 23, issued_at: "", external_invoice_number: "" });
   const [parcelForm, setParcelForm] = useState({
     count: 2,
     type: "mensalidade",
@@ -484,6 +489,8 @@ export default function OrderDetail() {
 
   const openInvoice = () => {
     if (isCancelled) return;
+    const today = new Date();
+    const issuedAt = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-");
     const seed = planLines
       .filter((line) => line.status !== "cancelada" && (line.value - (line.invoiced_amount || 0)) > 0.001)
       .map((line) => ({
@@ -493,7 +500,7 @@ export default function OrderDetail() {
         remaining: line.value - (line.invoiced_amount || 0),
         _selected: false,
       }));
-    setInvForm({ lines: seed, vat_pct: 23 });
+    setInvForm({ lines: seed, vat_pct: 23, issued_at: issuedAt, external_invoice_number: "" });
     setInvOpen(true);
   };
 
@@ -513,7 +520,18 @@ export default function OrderDetail() {
         return;
       }
 
-      await api.post("/invoices", { order_id: id, lines, vat_pct: invForm.vat_pct });
+      if (!invForm.issued_at) {
+        toast.error("Indique a data da fatura");
+        return;
+      }
+
+      await api.post("/invoices", {
+        order_id: id,
+        lines,
+        vat_pct: invForm.vat_pct,
+        issued_at: invForm.issued_at,
+        external_invoice_number: invForm.external_invoice_number,
+      });
       toast.success("Fatura emitida");
       setInvOpen(false);
       reload();
@@ -530,9 +548,24 @@ export default function OrderDetail() {
         amount: Number(payForm.amount),
         method: payForm.method,
         reference: payForm.reference,
+        paid_at: payForm.paid_at,
       });
       toast.success("Recebimento registado");
       setPayOpen(null);
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
+  const saveExternalInvoiceNumber = async () => {
+    if (!externalInvoiceDialog) return;
+    try {
+      await api.patch(`/invoices/${externalInvoiceDialog.id}/external-reference`, {
+        external_invoice_number: externalInvoiceDialog.value,
+      });
+      toast.success("Número da fatura externa atualizado");
+      setExternalInvoiceDialog(null);
       reload();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
@@ -791,7 +824,10 @@ export default function OrderDetail() {
             {invoices.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="invoices-empty">Sem faturas emitidas.</div>}
             {invoices.map((invoice) => (
               <div key={invoice.id} className="grid grid-cols-12 gap-2 px-3 py-2 border-b border-neutral-100 text-sm items-center" data-testid={`invoice-row-${invoice.id}`}>
-                <div className="col-span-2 font-mono">{invoice.number}</div>
+                <div className="col-span-2 font-mono">
+                  <div>{invoice.number}</div>
+                  {invoice.external_invoice_number && <div className="text-[10px] text-neutral-500">Ext.: {invoice.external_invoice_number}</div>}
+                </div>
                 <div className="col-span-2 text-xs font-mono text-neutral-600">{dateShort(invoice.issued_at)}</div>
                 <div className="col-span-2 text-right font-mono">{eur(invoice.total_net)}</div>
                 <div className="col-span-2 text-right font-mono">{eur(invoice.total_gross)}</div>
@@ -816,12 +852,24 @@ export default function OrderDetail() {
                           amount: (invoice.total_gross || invoice.total_net) - invoice.received_amount,
                           method: "transferencia",
                           reference: "",
+                          paid_at: todayInputValue(),
                         });
                       }}
                       data-testid={`pay-invoice-${invoice.id}`}
                       className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs h-7"
                     >
                       Receber
+                    </Button>
+                  )}
+                  {!isCancelled && isAdmin && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => setExternalInvoiceDialog({ id: invoice.id, value: invoice.external_invoice_number || "" })}
+                      data-testid={`edit-external-invoice-${invoice.id}`}
+                      className="rounded-none text-[#002FA7] text-xs h-7"
+                    >
+                      Ext.
                     </Button>
                   )}
                   {!isCancelled && isAdmin && invoice.status !== "anulada" && (
@@ -871,6 +919,26 @@ export default function OrderDetail() {
         </section>
       </div>
 
+      <Dialog open={!!externalInvoiceDialog} onOpenChange={(open) => !open && setExternalInvoiceDialog(null)}>
+        <DialogContent className="max-w-md rounded-none">
+          <DialogHeader><DialogTitle className="font-display">Fatura externa</DialogTitle></DialogHeader>
+          <div>
+            <Label>Número da fatura externa</Label>
+            <Input
+              value={externalInvoiceDialog?.value || ""}
+              onChange={(e) => setExternalInvoiceDialog((current) => current ? { ...current, value: e.target.value } : current)}
+              placeholder="Opcional"
+              className="mt-1 rounded-none font-mono"
+              data-testid="edit-external-invoice-input"
+            />
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setExternalInvoiceDialog(null)} className="rounded-none">Cancelar</Button>
+            <Button onClick={saveExternalInvoiceNumber} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]" data-testid="save-external-invoice-btn">Guardar</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!cancelDialog} onOpenChange={(open) => !open && setCancelDialog(null)}>
         <DialogContent className="max-w-md rounded-none">
           <DialogHeader><DialogTitle className="font-display">{cancelDialog?.title || "Anular"}</DialogTitle></DialogHeader>
@@ -896,9 +964,9 @@ export default function OrderDetail() {
       </Dialog>
 
       <Dialog open={invOpen} onOpenChange={setInvOpen}>
-        <DialogContent className="max-h-[85vh] max-w-2xl overflow-hidden rounded-none">
-          <DialogHeader><DialogTitle className="font-display">Emitir fatura</DialogTitle></DialogHeader>
-          <div className="space-y-3 overflow-y-auto pr-1">
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden rounded-none">
+          <DialogHeader className="shrink-0"><DialogTitle className="font-display">Emitir fatura</DialogTitle></DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
             <div className="text-xs text-neutral-500">Selecione as linhas do plano e indique o valor a faturar (pode ser parcial).</div>
             <div className="hidden border border-neutral-200">
               <div className="grid grid-cols-12 gap-2 border-b border-neutral-200 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
@@ -975,12 +1043,28 @@ export default function OrderDetail() {
                 </div>
               ))}
             </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Data da fatura</Label>
+                <Input type="date" value={invForm.issued_at || ""} onChange={(e) => setInvForm({ ...invForm, issued_at: e.target.value })} className="rounded-none font-mono" data-testid="invoice-date-input" />
+              </div>
+              <div>
+                <Label>IVA %</Label>
+                <Input type="number" value={invForm.vat_pct ?? 23} onChange={(e) => setInvForm({ ...invForm, vat_pct: Number(e.target.value) })} className="rounded-none font-mono" />
+              </div>
+            </div>
             <div>
-              <Label>IVA %</Label>
-              <Input type="number" value={invForm.vat_pct ?? 23} onChange={(e) => setInvForm({ ...invForm, vat_pct: Number(e.target.value) })} className="rounded-none font-mono w-24" />
+              <Label>Número da fatura externa</Label>
+              <Input
+                value={invForm.external_invoice_number || ""}
+                onChange={(e) => setInvForm({ ...invForm, external_invoice_number: e.target.value })}
+                placeholder="Opcional"
+                className="rounded-none font-mono"
+                data-testid="external-invoice-number-input"
+              />
             </div>
           </div>
-          <DialogFooter>
+          <DialogFooter className="shrink-0">
             <Button variant="ghost" onClick={() => setInvOpen(false)} className="rounded-none">Cancelar</Button>
             <Button onClick={submitInvoice} data-testid="inv-submit-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Emitir fatura</Button>
           </DialogFooter>
@@ -1099,6 +1183,7 @@ export default function OrderDetail() {
           <div className="space-y-3 overflow-y-auto pr-1">
             <div className="text-xs text-neutral-500">O valor a receber inclui IVA (valor bruto).</div>
             <div><Label>Valor recebido (c/IVA)</Label><Input type="number" value={payForm.amount} onChange={(e) => setPayForm({ ...payForm, amount: e.target.value })} className="rounded-none font-mono" data-testid="pay-amount-input" /></div>
+            <div><Label>Data do recebimento</Label><Input type="date" value={payForm.paid_at || ""} onChange={(e) => setPayForm({ ...payForm, paid_at: e.target.value })} className="rounded-none font-mono" data-testid="pay-date-input" /></div>
             <div><Label>Método</Label>
               <Select value={payForm.method} onValueChange={(value) => setPayForm({ ...payForm, method: value })}>
                 <SelectTrigger className="rounded-none" data-testid="pay-method-select"><SelectValue /></SelectTrigger>

@@ -138,6 +138,7 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
     invoice = {
         "id": new_id(),
         "number": payload.get("number") or f"FT-{datetime.now().year}-{(await db.invoices.count_documents({})) + 1:04d}",
+        "external_invoice_number": (payload.get("external_invoice_number") or "").strip(),
         "order_id": order_id,
         "client_id": order["client_id"],
         "issued_at": payload.get("issued_at") or now_iso(),
@@ -163,6 +164,29 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
     await recalc_order_status(order_id)
     invoice.pop("_id", None)
     return invoice
+
+
+@router.patch("/invoices/{iid}/external-reference")
+async def update_external_invoice_number(iid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+    invoice = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(404, "Fatura não encontrada")
+    external_number = str((payload or {}).get("external_invoice_number") or "").strip()
+    before = invoice.get("external_invoice_number", "")
+    await db.invoices.update_one(
+        {"id": iid},
+        {"$set": {"external_invoice_number": external_number}},
+    )
+    updated = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    await audit_log(
+        "update",
+        "invoice",
+        iid,
+        {"external_invoice_number": before},
+        {"external_invoice_number": external_number},
+        user,
+    )
+    return updated
 
 
 @router.post("/invoices/{iid}/cancel")

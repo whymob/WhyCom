@@ -115,6 +115,70 @@ async def export_billing_orders(month: str, user: dict = Depends(get_current_use
     )
 
 
+@router.get("/exports/billing-competence.csv")
+async def export_billing_competence(month: Optional[str] = None, user: dict = Depends(get_current_user)):
+    """Exporta a competência provável de cada linha faturada através do plano.
+
+    Não altera datas. A competência é derivada de plan_lines.expected_date e
+    fica separada da data real de emissão da fatura.
+    """
+    if month and (len(month) != 7 or month[4] != "-"):
+        raise HTTPException(400, "Parâmetro 'month' deve ter o formato YYYY-MM")
+
+    invoices = await db.invoices.find({}, {"_id": 0}).sort("issued_at", 1).to_list(5000)
+    clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    orders = {o["id"]: o for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
+    plan_lines = {pl["id"]: pl for pl in await db.plan_lines.find({}, {"_id": 0}).to_list(5000)}
+    invoice_ids = [invoice.get("id") for invoice in invoices if invoice.get("id")]
+    payments = await db.payments.find(
+        {"invoice_id": {"$in": invoice_ids}, "status": {"$ne": "anulado"}},
+        {"_id": 0, "invoice_id": 1, "amount": 1},
+    ).to_list(5000) if invoice_ids else []
+    received_by_invoice = {}
+    for payment in payments:
+        invoice_id = payment.get("invoice_id")
+        received_by_invoice[invoice_id] = received_by_invoice.get(invoice_id, 0) + float(payment.get("amount") or 0)
+
+    rows = []
+    for invoice in invoices:
+        vat_pct = float(invoice.get("vat_pct") or 0)
+        order = orders.get(invoice.get("order_id"), {})
+        invoice_lines = invoice.get("lines") or []
+        source_lines = invoice_lines or [{"amount": invoice.get("total_net", 0), "description": ""}]
+        for invoice_line in source_lines:
+            plan_line = plan_lines.get(invoice_line.get("plan_line_id"), {})
+            expected_date = str(plan_line.get("expected_date") or "")[:10]
+            competence = expected_date[:7] if expected_date else ""
+            if month and competence != month:
+                continue
+            amount = float(invoice_line.get("amount") or 0)
+            rows.append({
+                "competencia": competence,
+                "data_prevista_plano": expected_date,
+                "fatura": invoice.get("number", ""),
+                "data_emissao": str(invoice.get("issued_at") or invoice.get("created_at") or "")[:10],
+                "cliente": clients.get(invoice.get("client_id"), ""),
+                "encomenda": order.get("number", ""),
+                "linha_descricao": invoice_line.get("description") or plan_line.get("description", ""),
+                "linha_tipo": plan_line.get("type", ""),
+                "valor_sem_iva": round(amount, 2),
+                "iva_pct": vat_pct,
+                "iva": round(amount * vat_pct / 100, 2),
+                "valor_com_iva": round(amount * (1 + vat_pct / 100), 2),
+                "recebido_fatura": round(received_by_invoice.get(invoice.get("id"), 0), 2),
+                "estado_fatura": invoice.get("status", ""),
+                "competencia_origem": "plan_lines.expected_date" if expected_date else "sem_data_no_plano",
+            })
+
+    columns = [
+        "competencia", "data_prevista_plano", "fatura", "data_emissao", "cliente", "encomenda",
+        "linha_descricao", "linha_tipo", "valor_sem_iva", "iva_pct", "iva", "valor_com_iva",
+        "recebido_fatura", "estado_fatura", "competencia_origem",
+    ]
+    suffix = month or "todas"
+    return csv_response(rows, columns, f"competencias-faturacao-{suffix}.csv")
+
+
 # =========================================================
 # PDF exports
 # =========================================================

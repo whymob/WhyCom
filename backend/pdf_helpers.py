@@ -204,10 +204,16 @@ def build_invoice_pdf(invoice: dict, client: dict, order: dict, plan_lines_map: 
 def build_billing_orders_pdf(month: str, invoices: list, clients_map: dict, orders_map: dict, plan_lines_map: dict) -> Response:
     st = _styles()
     story = []
-    total_net = sum(i["total_net"] for i in invoices)
-    total_vat = sum(i.get("total_vat", 0) for i in invoices)
-    total_gross = sum(i.get("total_gross", i["total_net"]) for i in invoices)
-    total_received = sum(i.get("received_amount", 0) for i in invoices)
+    def number(value):
+        try:
+            return float(value or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    total_net = sum(number(i.get("total_net")) for i in invoices)
+    total_vat = sum(number(i.get("total_vat")) for i in invoices)
+    total_gross = sum(number(i.get("total_gross", i.get("total_net"))) for i in invoices)
+    total_received = sum(number(i.get("received_amount")) for i in invoices)
 
     story.append(_header("Ordem de Faturação", month, f"{len(invoices)} faturas emitidas neste mês"))
     story.append(Spacer(1, 8 * mm))
@@ -240,6 +246,7 @@ def build_billing_orders_pdf(month: str, invoices: list, clients_map: dict, orde
     story.append(Paragraph("DETALHE POR FATURA", st["h2"]))
     header_row = ["Nº", "Data", "Cliente", "Encomenda", "s/IVA", "c/IVA", "Recebido", "Estado"]
     rows = [header_row]
+    description_row_indexes = []
     for inv in invoices:
         descriptions = []
         for line in inv.get("lines", []):
@@ -248,20 +255,36 @@ def build_billing_orders_pdf(month: str, invoices: list, clients_map: dict, orde
                 descriptions.append(description)
         invoice_description = " / ".join(descriptions) or "Sem descriÃ§Ã£o"
         invoice_label = Paragraph(
-            f"<b>{escape(str(inv['number']))}</b><br/><font size=7 color='#666666'>{escape(invoice_description)}</font>",
+            f"<b>{escape(str(inv.get('number') or 'Sem número'))}</b><br/><font size=7 color='#666666'>{escape(invoice_description)}</font>",
             st["small"],
         )
+        # Keep the invoice metadata on its own row; the full item description is rendered below it.
+        invoice_label = Paragraph(
+            f"<b>{escape(str(inv.get('number') or 'Sem nÃºmero'))}</b>",
+            st["small"],
+        )
+        description_label = Paragraph(
+            f"<font size=7 color='#666666'>{escape(invoice_description)}</font>",
+            st["small"],
+        )
+        issued_at = str(inv.get("issued_at") or inv.get("created_at") or "")[:10] or "-"
+        client_name = str(clients_map.get(inv.get("client_id"), "") or "")[:22]
+        order_number = str(orders_map.get(inv.get("order_id"), {}).get("number", "") or "")
+        total_invoice_net = number(inv.get("total_net"))
         rows.append([
             invoice_label,
-            inv["issued_at"][:10],
-            (clients_map.get(inv["client_id"], "")[:22]),
-            (orders_map.get(inv["order_id"], {}).get("number", "")),
-            _eur(inv["total_net"]),
-            _eur(inv.get("total_gross", inv["total_net"])),
+            issued_at,
+            client_name,
+            order_number,
+            _eur(total_invoice_net),
+            _eur(inv.get("total_gross", total_invoice_net)),
             _eur(inv.get("received_amount", 0)),
-            inv["status"],
+            inv.get("status") or "emitida",
         ])
-    t = Table(rows, colWidths=[22 * mm, 18 * mm, 34 * mm, 22 * mm, 22 * mm, 22 * mm, 20 * mm, 20 * mm])
+        description_row_indexes.append(len(rows))
+        rows.append([description_label, "", "", "", "", "", "", ""])
+    # Use the full printable width so long invoice descriptions do not create an oversized row.
+    t = Table(rows, colWidths=[26 * mm, 18 * mm, 30 * mm, 22 * mm, 18 * mm, 18 * mm, 20 * mm, 18 * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), LIGHT),
         ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -274,6 +297,14 @@ def build_billing_orders_pdf(month: str, invoices: list, clients_map: dict, orde
         ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
         ("TOPPADDING", (0, 0), (-1, -1), 4),
     ]))
+    for row_index in description_row_indexes:
+        t.setStyle(TableStyle([
+            ("SPAN", (0, row_index), (-1, row_index)),
+            ("LEFTPADDING", (0, row_index), (-1, row_index), 4),
+            ("RIGHTPADDING", (0, row_index), (-1, row_index), 4),
+            ("TOPPADDING", (0, row_index), (-1, row_index), 2),
+            ("BOTTOMPADDING", (0, row_index), (-1, row_index), 5),
+        ]))
     story.append(t)
     story.append(Spacer(1, 6 * mm))
 

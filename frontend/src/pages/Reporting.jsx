@@ -77,6 +77,7 @@ export default function Reporting() {
     return `${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}`;
   });
   const [billingFormat, setBillingFormat] = useState("csv");
+  const [competenceMonth, setCompetenceMonth] = useState("");
 
   const clientMap = useMemo(() => Object.fromEntries(clients.map((client) => [client.id, client])), [clients]);
   const productMap = useMemo(() => Object.fromEntries(products.map((product) => [product.id, product])), [products]);
@@ -84,6 +85,16 @@ export default function Reporting() {
   const download = async (path, filename) => {
     const token = localStorage.getItem("whymob_token");
     const response = await fetch(`${API}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (!response.ok) {
+      let detail = `Falha ao gerar o ficheiro (${response.status})`;
+      try {
+        const body = await response.json();
+        if (body?.detail) detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      } catch (_error) {
+        // Keep the HTTP status when the server does not return JSON.
+      }
+      throw new Error(detail);
+    }
     const blob = await response.blob();
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -98,9 +109,26 @@ export default function Reporting() {
       return;
     }
     const format = billingFormat === "pdf" ? "pdf" : "csv";
-    await download(`/exports/billing-orders.${format}?month=${billingMonth}`, `ordem-faturacao-${billingMonth}.${format}`);
-    setBillingOpen(false);
-    toast.success(`Download iniciado (${billingMonth}, ${format.toUpperCase()})`);
+    try {
+      await download(`/exports/billing-orders.${format}?month=${billingMonth}`, `ordem-faturacao-${billingMonth}.${format}`);
+      setBillingOpen(false);
+      toast.success(`Download iniciado (${billingMonth}, ${format.toUpperCase()})`);
+    } catch (error) {
+      toast.error(error.message || "Não foi possível gerar o ficheiro");
+    }
+  };
+
+  const submitCompetenceExport = async () => {
+    try {
+      const reportMonth = competenceMonth || billingMonth;
+      const query = reportMonth ? `?month=${reportMonth}` : "";
+      const suffix = reportMonth || "todas";
+      await download(`/exports/billing-competence.csv${query}`, `competencias-faturacao-${suffix}.csv`);
+      setCompetenceOpen(false);
+      toast.success("Relatório de competências exportado");
+    } catch (error) {
+      toast.error(error.message || "Não foi possível exportar o relatório");
+    }
   };
 
   useEffect(() => {
@@ -595,6 +623,7 @@ export default function Reporting() {
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setBillingOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button variant="outline" onClick={submitCompetenceExport} data-testid="billing-competence-submit-btn" className="rounded-none">Competencias CSV</Button>
             <Button onClick={submitBillingExport} data-testid="billing-orders-submit-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Descarregar {billingFormat.toUpperCase()}</Button>
           </DialogFooter>
         </DialogContent>

@@ -1,11 +1,22 @@
 """Analytics: by-commercial, by-client, by-manufacturer, forecasts, VAB, executive."""
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from deps import db, get_current_user
 from helpers import month_key
 
 router = APIRouter()
+
+
+def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
+    for field in fields:
+        value = record.get(field)
+        if value:
+            try:
+                return int(str(value)[:4])
+            except (TypeError, ValueError):
+                continue
+    return None
 
 
 @router.get("/analytics/by-commercial")
@@ -84,11 +95,11 @@ async def by_client(user: dict = Depends(get_current_user)):
 
 
 @router.get("/analytics/by-manufacturer")
-async def by_manufacturer(user: dict = Depends(get_current_user)):
+async def by_manufacturer(user: dict = Depends(get_current_user), year: int = Query(datetime.now().year, ge=2000, le=2100)):
     manufs = {m["id"]: m for m in await db.manufacturers.find({}, {"_id": 0}).to_list(1000)}
     products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(2000)}
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
-    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
+    props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
     rows = {}
 
     def row(mid):

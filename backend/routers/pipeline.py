@@ -11,6 +11,17 @@ from helpers import audit_log, notify_proposal_won
 router = APIRouter()
 
 
+def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
+    for field in fields:
+        value = record.get(field)
+        if value:
+            try:
+                return int(str(value)[:4])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
 # ------------- Leads -------------
 @router.get("/leads", response_model=List[Lead])
 async def list_leads(user: dict = Depends(get_current_user)):
@@ -286,11 +297,15 @@ async def update_order(oid: str, payload: dict, user: dict = Depends(get_current
 
 # ------------- Dashboard: KPIs + Funnel -------------
 @router.get("/dashboard/kpis")
-async def kpis(user: dict = Depends(get_current_user)):
-    leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
-    opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
-    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    leads = [item for item in await db.leads.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
+    opps = [item for item in await db.opportunities.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
+    props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
+    orders = [item for item in await db.orders.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("order_date", "created_at")) == year]
+    invoices = await db.invoices.find(
+        {"issued_at": {"$regex": f"^{year}-"}, "status": {"$ne": "anulada"}},
+        {"_id": 0},
+    ).to_list(5000)
 
     leads_open = [ln for ln in leads if ln["status"] in ("nova", "em_qualificacao")]
     opps_open = [o for o in opps if o["status"] in ("aberta", "em_analise")]
@@ -304,6 +319,16 @@ async def kpis(user: dict = Depends(get_current_user)):
     won_value = sum(p.get("total_net", 0) for p in props_won)
     won_vab = sum(p.get("total_vab", 0) for p in props_won)
     weighted_pipeline = sum(o.get("estimated_value", 0) * (o.get("probability", 0) / 100) for o in opps_open)
+    billing_monthly = []
+    for month in range(1, 13):
+        prefix = f"{year}-{month:02d}"
+        month_invoices = [invoice for invoice in invoices if str(invoice.get("issued_at", "")).startswith(prefix)]
+        billing_monthly.append({
+            "month": prefix,
+            "total_net": round(sum(float(invoice.get("total_net") or 0) for invoice in month_invoices), 2),
+            "total_gross": round(sum(float(invoice.get("total_gross") or invoice.get("total_net") or 0) for invoice in month_invoices), 2),
+            "count": len(month_invoices),
+        })
 
     return {
         "leads_open": len(leads_open),
@@ -319,6 +344,8 @@ async def kpis(user: dict = Depends(get_current_user)):
         "orders_count": len(orders),
         "orders_value": round(sum(o.get("total_net", 0) for o in orders), 2),
         "orders_vab": round(sum(o.get("total_vab", 0) for o in orders), 2),
+        "year": year,
+        "billing_monthly": billing_monthly,
     }
 
 
