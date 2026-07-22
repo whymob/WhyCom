@@ -160,6 +160,7 @@ async def compute_alerts() -> list:
                     "type": "fatura_atraso",
                     "message": f"Fatura {invoice['number']} em atraso ({(now - issued_at).days}d)",
                     "ref_id": invoice["id"],
+                    "order_id": invoice.get("order_id"),
                 })
         except Exception:
             pass

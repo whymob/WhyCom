@@ -37,6 +37,25 @@ async def export_invoices(user: dict = Depends(get_current_user)):
     return csv_response(rows, ["numero", "data", "cliente", "encomenda", "total_sem_iva", "iva", "total_com_iva", "recebido", "estado"], "faturas.csv")
 
 
+@router.get("/exports/orders.csv")
+async def export_orders(user: dict = Depends(get_current_user)):
+    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    proposals = {p["id"]: p for p in await db.proposals.find({}, {"_id": 0}).to_list(5000)}
+    rows = []
+    for order in orders:
+        proposal = proposals.get(order.get("proposal_id"), {})
+        rows.append({
+            "numero_encomenda": order.get("number", ""),
+            "cliente": clients.get(order.get("client_id"), ""),
+            "valor_total_com_iva": order.get("total_gross", order.get("total_net", 0)),
+            "data_conversao_proposta": str(order.get("created_at") or "")[:19],
+            "numero_proposta": proposal.get("number", ""),
+        })
+    fields = ["numero_encomenda", "cliente", "valor_total_com_iva", "data_conversao_proposta", "numero_proposta"]
+    return csv_response(rows, fields, "encomendas-com-propostas.csv")
+
+
 @router.get("/exports/timesheet.csv")
 async def export_timesheet(project_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     q = {"project_id": project_id} if project_id else {}

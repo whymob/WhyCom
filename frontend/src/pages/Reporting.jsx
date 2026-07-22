@@ -386,6 +386,16 @@ export default function Reporting() {
         )}
       />
       <div className="p-8">
+        <div className="mb-4 flex justify-end">
+          <button
+            type="button"
+            onClick={() => download("/exports/orders.csv", "encomendas-com-propostas.csv")}
+            data-testid="export-orders-csv"
+            className="border border-[#002FA7] px-3 py-1.5 text-xs text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white"
+          >
+            ↓ Encomendas + propostas (Excel/CSV)
+          </button>
+        </div>
         <Tabs value={tab} onValueChange={setTab}>
           <TabsList className="h-auto rounded-none border border-neutral-200 bg-transparent p-0">
             {[

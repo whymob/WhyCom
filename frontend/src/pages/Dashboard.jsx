@@ -33,6 +33,7 @@ function KPI({ label, value, sub, testid, icon: Icon, to }) {
 
 function getAlertHref(alert) {
   if (alert.type === "proposta_sem_encomenda") return `/propostas/${alert.ref_id}`;
+  if (alert.type === "fatura_atraso" && alert.order_id) return `/encomendas/${alert.order_id}#faturas`;
   if (["encomenda_sem_plano", "desvio_plano", "plano_atraso"].includes(alert.type)) return `/encomendas/${alert.ref_id}`;
   return null;
 }
