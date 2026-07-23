@@ -183,15 +183,15 @@ export default function Dashboard() {
         </section>
 
         <section className="border border-neutral-200 bg-white p-5" data-testid="billing-monthly-chart">
-          <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturação mensal c/IVA · {dashboardYear}</div>
+          <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturação mensal s/IVA · {dashboardYear}</div>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart data={kpis?.billing_monthly || []} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
               <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
               <XAxis dataKey="month" fontSize={10} />
               <YAxis fontSize={10} />
               <Tooltip formatter={(value) => eur(value)} />
-              <Bar dataKey="total_gross" fill="#002FA7" name="Faturado c/IVA">
-                <LabelList dataKey="total_gross" position="top" formatter={(value) => eur(value)} fill="#111111" fontSize={10} />
+              <Bar dataKey="total_net" fill="#002FA7" name="Faturado s/IVA">
+                <LabelList dataKey="total_net" position="top" formatter={(value) => eur(value)} fill="#111111" fontSize={10} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>

@@ -48,11 +48,11 @@ async def export_orders(user: dict = Depends(get_current_user)):
         rows.append({
             "numero_encomenda": order.get("number", ""),
             "cliente": clients.get(order.get("client_id"), ""),
-            "valor_total_com_iva": order.get("total_gross", order.get("total_net", 0)),
+            "valor_total_sem_iva": order.get("total_net", 0),
             "data_conversao_proposta": str(order.get("created_at") or "")[:19],
             "numero_proposta": proposal.get("number", ""),
         })
-    fields = ["numero_encomenda", "cliente", "valor_total_com_iva", "data_conversao_proposta", "numero_proposta"]
+    fields = ["numero_encomenda", "cliente", "valor_total_sem_iva", "data_conversao_proposta", "numero_proposta"]
     return csv_response(rows, fields, "encomendas-com-propostas.csv")
 
 
