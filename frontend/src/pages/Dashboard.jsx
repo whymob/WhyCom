@@ -175,10 +175,11 @@ export default function Dashboard() {
 
         <section>
           <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Resultado</div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
             <KPI testid="kpi-won-value" label="Valor Ganho" value={eur(kpis?.won_value)} sub="Propostas ganhas · sem IVA" icon={TrendingUp} />
             <KPI testid="kpi-won-vab" label="VAB Ganho" value={eur(kpis?.won_vab)} sub="Margem bruta ganha" icon={TrendingUp} />
             <KPI testid="kpi-orders" label="Encomendas" value={kpis?.orders_count ?? "-"} sub={`${eur(kpis?.orders_value)} · VAB ${eur(kpis?.orders_vab)}`} icon={Package} to="/encomendas" />
+            <KPI testid="kpi-billed-year" label="Faturado no ano" value={eur(kpis?.billed_net)} sub={`${kpis?.billed_invoice_count ?? 0} fatura(s) · sem IVA`} icon={FileText} />
           </div>
         </section>
 

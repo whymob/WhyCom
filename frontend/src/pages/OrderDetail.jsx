@@ -377,8 +377,10 @@ export default function OrderDetail() {
     return value && (!latest || value > latest) ? value : latest;
   }, "");
   const activeTimelinePlanLines = planLines.filter((line) => line.status !== "cancelada");
-  const invoiceTotal = invoices.reduce((sum, invoice) => sum + (Number(invoice.total_net) || 0), 0);
-  const paymentTotal = payments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const activeTimelineInvoices = invoices.filter((invoice) => invoice.status !== "anulada");
+  const activeTimelinePayments = payments.filter((payment) => payment.status !== "anulado");
+  const invoiceTotal = activeTimelineInvoices.reduce((sum, invoice) => sum + (Number(invoice.total_net) || 0), 0);
+  const paymentTotal = activeTimelinePayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
   const timelineEvents = [
     {
       key: "opportunity",
@@ -418,19 +420,19 @@ export default function OrderDetail() {
     {
       key: "invoices",
       label: "Faturação",
-      complete: invoices.length > 0,
-      date: latestDate(invoices, ["issued_at", "created_at"]),
-      description: invoices.length ? `${invoices.length} fatura(s) emitida(s)` : "Sem faturas emitidas",
-      value: invoices.length ? invoiceTotal : undefined,
+      complete: activeTimelineInvoices.length > 0,
+      date: latestDate(activeTimelineInvoices, ["issued_at", "created_at"]),
+      description: activeTimelineInvoices.length ? `${activeTimelineInvoices.length} fatura(s) emitida(s)` : "Sem faturas emitidas",
+      value: activeTimelineInvoices.length ? invoiceTotal : undefined,
       href: "#faturas",
     },
     {
       key: "payments",
       label: "Recebimento",
-      complete: payments.length > 0,
-      date: latestDate(payments, ["payment_date", "date", "created_at"]),
-      description: payments.length ? `${payments.length} recebimento(s) registado(s)` : "Sem recebimentos",
-      value: payments.length ? paymentTotal : undefined,
+      complete: activeTimelinePayments.length > 0,
+      date: latestDate(activeTimelinePayments, ["payment_date", "date", "created_at"]),
+      description: activeTimelinePayments.length ? `${activeTimelinePayments.length} recebimento(s) registado(s)` : "Sem recebimentos",
+      value: activeTimelinePayments.length ? paymentTotal : undefined,
       href: "#recebimentos",
     },
   ];

@@ -139,8 +139,10 @@ export default function ProposalDetail() {
   ));
   const activePlanLines = planLines.filter((line) => line.status !== "cancelada");
   const planTotal = activePlanLines.reduce((sum, line) => sum + (Number(line.value) || 0), 0);
-  const invoiceTotal = invoices.filter((invoice) => invoice.status !== "anulada").reduce((sum, invoice) => sum + (Number(invoice.total_net) || 0), 0);
-  const paymentTotal = payments.filter((payment) => payment.status !== "anulado").reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
+  const activeTimelineInvoices = invoices.filter((invoice) => invoice.status !== "anulada");
+  const activeTimelinePayments = payments.filter((payment) => payment.status !== "anulado");
+  const invoiceTotal = activeTimelineInvoices.reduce((sum, invoice) => sum + (Number(invoice.total_net) || 0), 0);
+  const paymentTotal = activeTimelinePayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
   const latestDate = (items, fields) => items.reduce((latest, item) => {
     const value = fields.map((field) => item[field]).find(Boolean);
     return value && (!latest || value > latest) ? value : latest;
@@ -184,18 +186,18 @@ export default function ProposalDetail() {
     {
       key: "invoices",
       label: "Faturação",
-      complete: invoices.some((invoice) => invoice.status !== "anulada"),
-      date: latestDate(invoices, ["issued_at", "created_at"]),
-      description: invoiceTotal ? `${invoices.filter((invoice) => invoice.status !== "anulada").length} fatura(s) emitida(s)` : "Sem faturas emitidas",
+      complete: activeTimelineInvoices.length > 0,
+      date: latestDate(activeTimelineInvoices, ["issued_at", "created_at"]),
+      description: invoiceTotal ? `${activeTimelineInvoices.length} fatura(s) emitida(s)` : "Sem faturas emitidas",
       value: invoiceTotal || undefined,
       href: order ? `/encomendas/${order.id}#faturas` : null,
     },
     {
       key: "payments",
       label: "Recebimento",
-      complete: payments.some((payment) => payment.status !== "anulado"),
-      date: latestDate(payments, ["paid_at", "created_at"]),
-      description: paymentTotal ? `${payments.filter((payment) => payment.status !== "anulado").length} recebimento(s) registado(s)` : "Sem recebimentos",
+      complete: activeTimelinePayments.length > 0,
+      date: latestDate(activeTimelinePayments, ["paid_at", "created_at"]),
+      description: paymentTotal ? `${activeTimelinePayments.length} recebimento(s) registado(s)` : "Sem recebimentos",
       value: paymentTotal || undefined,
       href: order ? `/encomendas/${order.id}#recebimentos` : null,
     },

@@ -87,6 +87,20 @@ export default function Proposals() {
     }
   };
 
+  const exportProposals = async () => {
+    try {
+      const response = await api.get("/exports/proposals.csv", { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "propostas.csv";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
   const toggleSort = (key) => {
     setSort((current) => (
       current.key === key
@@ -172,6 +186,9 @@ export default function Proposals() {
             </div>
             <Button variant="ghost" onClick={() => setFilters({ search: "", status: "__all__" })} className="rounded-none">
               Limpar filtros
+            </Button>
+            <Button onClick={exportProposals} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
+              ↓ Exportar propostas (Excel/CSV)
             </Button>
           </div>
 

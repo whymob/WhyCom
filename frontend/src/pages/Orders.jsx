@@ -178,11 +178,15 @@ export default function Orders() {
                     <Badge className="rounded-none bg-[#FEE2E2] font-normal text-[#B91C1C]">{ORDER_STATUS[order.status]}</Badge>
                     {order.cancel_reason && <div className="mt-1 max-w-[180px] truncate text-[10px] text-[#B91C1C]" title={order.cancel_reason}>{order.cancel_reason}</div>}
                   </div>
+                ) : order.status === "fulfilled" ? (
+                  <Badge className="rounded-none bg-[#DCFCE7] font-normal text-[#15803D]" data-testid={`order-status-${order.id}`}>
+                    {ORDER_STATUS[order.status]}
+                  </Badge>
                 ) : (
                   <Select value={order.status} onValueChange={(value) => patchOrder(order.id, { status: value })}>
                     <SelectTrigger className="h-8 w-full max-w-[180px] rounded-none text-xs" data-testid={`order-status-${order.id}`}><SelectValue /></SelectTrigger>
                     <SelectContent>
-                      {Object.entries(ORDER_STATUS).filter(([key]) => !["cancelada", "fulfilled"].includes(key)).map(([key, label]) => (
+                      {Object.entries(ORDER_STATUS).filter(([key]) => key !== "cancelada").map(([key, label]) => (
                         <SelectItem key={key} value={key}>{label}</SelectItem>
                       ))}
                     </SelectContent>

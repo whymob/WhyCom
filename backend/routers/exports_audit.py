@@ -5,7 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from deps import db, get_current_user
 from helpers import csv_response
 from pdf_helpers import build_invoice_pdf, build_billing_orders_pdf, build_dashboard_pdf
-from routers.analytics import by_commercial, by_client, by_manufacturer, _kpis_summary, _forecast_receiving, _forecast_invoicing, _vab_analysis
+from routers.analytics import (
+    by_commercial, by_client, by_manufacturer, _kpis_summary, _forecast_receiving,
+    _forecast_invoicing, _vab_analysis, _active_orders,
+)
 
 router = APIRouter()
 
@@ -24,7 +27,11 @@ async def list_audit(entity: Optional[str] = None, entity_id: Optional[str] = No
 
 @router.get("/exports/invoices.csv")
 async def export_invoices(user: dict = Depends(get_current_user)):
-    invoices = await db.invoices.find({}, {"_id": 0}).sort("issued_at", -1).to_list(5000)
+    active_order_ids = [o["id"] for o in await _active_orders()]
+    invoices = await db.invoices.find(
+        {"status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).sort("issued_at", -1).to_list(5000)
     clients = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     orders = {o["id"]: o["number"] for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
     rows = [{
@@ -39,7 +46,7 @@ async def export_invoices(user: dict = Depends(get_current_user)):
 
 @router.get("/exports/orders.csv")
 async def export_orders(user: dict = Depends(get_current_user)):
-    orders = await db.orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    orders = sorted(await _active_orders(), key=lambda order: order.get("created_at", ""), reverse=True)
     clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     proposals = {p["id"]: p for p in await db.proposals.find({}, {"_id": 0}).to_list(5000)}
     rows = []
@@ -54,6 +61,45 @@ async def export_orders(user: dict = Depends(get_current_user)):
         })
     fields = ["numero_encomenda", "cliente", "valor_total_sem_iva", "data_conversao_proposta", "numero_proposta"]
     return csv_response(rows, fields, "encomendas-com-propostas.csv")
+
+
+@router.get("/exports/proposals.csv")
+async def export_proposals(user: dict = Depends(get_current_user)):
+    """Exporta todas as propostas com o respetivo contexto comercial."""
+    def single_line(value) -> str:
+        return " ".join(str(value or "").replace("\r", " ").replace("\n", " ").split())
+
+    proposals = await db.proposals.find({}, {"_id": 0}).sort("created_at", -1).to_list(10000)
+    clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    opportunities = {o["id"]: o for o in await db.opportunities.find({}, {"_id": 0}).to_list(5000)}
+    orders = {o["id"]: o for o in await db.orders.find({}, {"_id": 0}).to_list(10000)}
+
+    rows = []
+    for proposal in proposals:
+        opportunity = opportunities.get(proposal.get("opportunity_id"), {})
+        order = orders.get(proposal.get("converted_order_id"), {})
+        rows.append({
+            "numero_proposta": proposal.get("number", ""),
+            "versao": proposal.get("version", ""),
+            "data_criacao": str(proposal.get("created_at") or "")[:19],
+            "cliente": clients.get(proposal.get("client_id"), ""),
+            "descricao_oportunidade": single_line(opportunity.get("description", "")),
+            "notas": single_line(proposal.get("notes", "")),
+            "estado": proposal.get("status", ""),
+            "valor_sem_iva": proposal.get("total_net", 0),
+            "iva": proposal.get("total_vat", 0),
+            "valor_com_iva": proposal.get("total_gross", 0),
+            "vab": proposal.get("total_vab", 0),
+            "data_conversao_encomenda": str(order.get("created_at") or "")[:19],
+            "numero_encomenda": order.get("number", ""),
+        })
+
+    fields = [
+        "numero_proposta", "versao", "data_criacao", "cliente", "descricao_oportunidade", "notas",
+        "estado", "valor_sem_iva", "iva", "valor_com_iva", "vab",
+        "data_conversao_encomenda", "numero_encomenda",
+    ]
+    return csv_response(rows, fields, "propostas.csv")
 
 
 @router.get("/exports/timesheet.csv")
@@ -88,8 +134,9 @@ async def export_billing_orders(month: str, user: dict = Depends(get_current_use
     """
     if not month or len(month) != 7 or month[4] != "-":
         raise HTTPException(400, "Parâmetro 'month' deve ter o formato YYYY-MM")
+    active_order_ids = [o["id"] for o in await _active_orders()]
     invoices = await db.invoices.find(
-        {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}},
+        {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
         {"_id": 0},
     ).sort("issued_at", 1).to_list(5000)
     clients = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
@@ -144,7 +191,11 @@ async def export_billing_competence(month: Optional[str] = None, user: dict = De
     if month and (len(month) != 7 or month[4] != "-"):
         raise HTTPException(400, "Parâmetro 'month' deve ter o formato YYYY-MM")
 
-    invoices = await db.invoices.find({}, {"_id": 0}).sort("issued_at", 1).to_list(5000)
+    active_order_ids = [o["id"] for o in await _active_orders()]
+    invoices = await db.invoices.find(
+        {"status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).sort("issued_at", 1).to_list(5000)
     clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     orders = {o["id"]: o for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
     plan_lines = {pl["id"]: pl for pl in await db.plan_lines.find({}, {"_id": 0}).to_list(5000)}
@@ -217,8 +268,9 @@ async def export_invoice_pdf(iid: str, user: dict = Depends(get_current_user)):
 async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current_user)):
     if not month or len(month) != 7 or month[4] != "-":
         raise HTTPException(400, "Parâmetro 'month' deve ter o formato YYYY-MM")
+    active_order_ids = [o["id"] for o in await _active_orders()]
     invoices = await db.invoices.find(
-        {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}},
+        {"issued_at": {"$regex": f"^{month}"}, "status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
         {"_id": 0},
     ).sort("issued_at", 1).to_list(5000)
     invoice_ids = [invoice["id"] for invoice in invoices]

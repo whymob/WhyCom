@@ -175,13 +175,13 @@ def month_key(iso: str) -> str:
 
 
 def csv_response(rows: list, fields: list, filename: str) -> Response:
-    buffer = io.StringIO()
-    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore")
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore", lineterminator="\r\n")
     writer.writeheader()
     for row in rows:
         writer.writerow(row)
     return Response(
-        content=buffer.getvalue(),
+        content="\ufeff" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",
         headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )

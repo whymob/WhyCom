@@ -7,6 +7,8 @@ from helpers import month_key
 
 router = APIRouter()
 
+EXCLUDED_ORDER_STATUSES = ["cancelada", "anulada"]
+
 
 def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
     for field in fields:
@@ -19,13 +21,33 @@ def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
     return None
 
 
+async def _active_orders() -> list[dict]:
+    return await db.orders.find(
+        {"status": {"$nin": EXCLUDED_ORDER_STATUSES}},
+        {"_id": 0},
+    ).to_list(5000)
+
+
+async def _excluded_order_ids() -> set[str]:
+    orders = await db.orders.find(
+        {"status": {"$in": EXCLUDED_ORDER_STATUSES}},
+        {"_id": 0, "id": 1},
+    ).to_list(5000)
+    return {o["id"] for o in orders if o.get("id")}
+
+
+def _active_proposals(proposals: list[dict], excluded_order_ids: set[str]) -> list[dict]:
+    return [p for p in proposals if p.get("converted_order_id") not in excluded_order_ids]
+
+
 @router.get("/analytics/by-commercial")
 async def by_commercial(user: dict = Depends(get_current_user)):
     users = {u["id"]: u for u in await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)}
     leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
     props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    orders = await _active_orders()
+    props = _active_proposals(props, await _excluded_order_ids())
     rows = {}
 
     def row(uid):
@@ -65,7 +87,8 @@ async def by_commercial(user: dict = Depends(get_current_user)):
 async def by_client(user: dict = Depends(get_current_user)):
     clients = {c["id"]: c for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    orders = await _active_orders()
+    props = _active_proposals(props, await _excluded_order_ids())
     rows = {}
 
     def row(cid):
@@ -100,6 +123,7 @@ async def by_manufacturer(user: dict = Depends(get_current_user), year: int = Qu
     products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(2000)}
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
     props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
+    props = _active_proposals(props, await _excluded_order_ids())
     rows = {}
 
     def row(mid):
@@ -135,7 +159,12 @@ async def by_manufacturer(user: dict = Depends(get_current_user), year: int = Qu
 
 
 async def _forecast_invoicing():
-    plan_lines = await db.plan_lines.find({"status": {"$in": ["planeada", "parcialmente_faturada"]}}, {"_id": 0}).to_list(5000)
+    active_orders = await _active_orders()
+    active_order_ids = [o["id"] for o in active_orders]
+    plan_lines = await db.plan_lines.find(
+        {"status": {"$in": ["planeada", "parcialmente_faturada"]}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(5000)
     buckets = {}
     for pl in plan_lines:
         exp = pl.get("expected_date")
@@ -159,7 +188,12 @@ async def forecast_invoicing(months: int = 6, user: dict = Depends(get_current_u
 
 
 async def _forecast_receiving():
-    invoices = await db.invoices.find({"status": {"$in": ["emitida", "parcialmente_recebida"]}}, {"_id": 0}).to_list(5000)
+    active_orders = await _active_orders()
+    active_order_ids = [o["id"] for o in active_orders]
+    invoices = await db.invoices.find(
+        {"status": {"$in": ["emitida", "parcialmente_recebida"]}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(5000)
     now = datetime.now(timezone.utc)
     buckets = {"em_atraso": 0.0, "0_30": 0.0, "31_60": 0.0, "61_90": 0.0, "gt_90": 0.0}
     total_open = 0.0
@@ -186,7 +220,7 @@ async def _forecast_receiving():
     return {
         "total_open": round(total_open, 2),
         "buckets": {k: round(v, 2) for k, v in buckets.items()},
-        "count": len(invoices),
+        "count": sum(1 for inv in invoices if (inv.get("total_net", 0) - inv.get("received_amount", 0)) > 0.01),
     }
 
 
@@ -199,7 +233,8 @@ async def _vab_analysis():
     """VAB só faz sentido até à fase da Encomenda. Não inclui plano/fatura."""
     opps = await db.opportunities.find({"status": {"$in": ["aberta", "em_analise"]}}, {"_id": 0}).to_list(5000)
     props_won = await db.proposals.find({"status": "ganha"}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({"status": {"$nin": ["cancelada"]}}, {"_id": 0}).to_list(5000)
+    orders = await _active_orders()
+    props_won = _active_proposals(props_won, await _excluded_order_ids())
     by_m = {}
     for p in props_won:
         k = month_key(p.get("updated_at") or p.get("created_at", ""))
@@ -228,7 +263,8 @@ async def _kpis_summary():
     leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
     props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    orders = await _active_orders()
+    props = _active_proposals(props, await _excluded_order_ids())
     won = [p for p in props if p["status"] == "ganha"]
     return {
         "leads": len(leads),

@@ -301,9 +301,14 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
     leads = [item for item in await db.leads.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
     opps = [item for item in await db.opportunities.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
     props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
-    orders = [item for item in await db.orders.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("order_date", "created_at")) == year]
+    active_orders = await db.orders.find(
+        {"status": {"$nin": ["cancelada", "anulada"]}},
+        {"_id": 0},
+    ).to_list(5000)
+    active_order_ids = {item.get("id") for item in active_orders}
+    orders = [item for item in active_orders if record_year(item, ("order_date", "created_at")) == year]
     invoices = await db.invoices.find(
-        {"issued_at": {"$regex": f"^{year}-"}, "status": {"$ne": "anulada"}},
+        {"issued_at": {"$regex": f"^{year}-"}, "status": {"$ne": "anulada"}, "order_id": {"$in": list(active_order_ids)}},
         {"_id": 0},
     ).to_list(5000)
 
@@ -318,6 +323,8 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
 
     won_value = sum(p.get("total_net", 0) for p in props_won)
     won_vab = sum(p.get("total_vab", 0) for p in props_won)
+    billed_net = sum(float(invoice.get("total_net") or 0) for invoice in invoices)
+    billed_gross = sum(float(invoice.get("total_gross") or invoice.get("total_net") or 0) for invoice in invoices)
     weighted_pipeline = sum(o.get("estimated_value", 0) * (o.get("probability", 0) / 100) for o in opps_open)
     billing_monthly = []
     for month in range(1, 13):
@@ -344,6 +351,9 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
         "orders_count": len(orders),
         "orders_value": round(sum(o.get("total_net", 0) for o in orders), 2),
         "orders_vab": round(sum(o.get("total_vab", 0) for o in orders), 2),
+        "billed_net": round(billed_net, 2),
+        "billed_gross": round(billed_gross, 2),
+        "billed_invoice_count": len(invoices),
         "year": year,
         "billing_monthly": billing_monthly,
     }
