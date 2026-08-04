@@ -12,6 +12,21 @@ from fastapi.responses import Response
 from deps import db, now_iso, new_id, TOLERANCE, SENDER_EMAIL, logger
 
 
+def invoice_line_vab(line: dict, order: dict, amount: float | None = None) -> float:
+    """Return the VAB allocated to an invoice line.
+
+    New invoices persist ``vab_amount``. Older invoices keep using the
+    historical proportional calculation so no migration or data rewrite is
+    required.
+    """
+    if "vab_amount" in line and line.get("vab_amount") is not None:
+        return round(float(line.get("vab_amount") or 0), 2)
+    line_amount = float(amount if amount is not None else line.get("amount") or 0)
+    order_net = float(order.get("total_net") or 0)
+    order_vab = float(order.get("total_vab") or 0)
+    return round(order_vab * line_amount / order_net, 2) if order_net else 0.0
+
+
 async def audit_log(action: str, entity: str, entity_id: str, before, after, user: dict, reason: str = ""):
     doc = {
         "id": new_id(),
@@ -180,6 +195,39 @@ def csv_response(rows: list, fields: list, filename: str) -> Response:
     writer.writeheader()
     for row in rows:
         writer.writerow(row)
+    return Response(
+        content="\ufeff" + buffer.getvalue(),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
+
+
+def csv_response_pt(rows: list, fields: list, filename: str, money_fields=(), date_fields=()) -> Response:
+    """CSV para Excel em locale PT: separador ;, moeda EUR e datas DD/MM/AAAA."""
+    money_fields = set(money_fields)
+    date_fields = set(date_fields)
+
+    def format_value(field, value):
+        if value in (None, ""):
+            return ""
+        if field in money_fields:
+            try:
+                return f"{float(value):,.2f} €".replace(",", "X").replace(".", ",").replace("X", ".")
+            except (TypeError, ValueError):
+                return str(value)
+        if field in date_fields:
+            raw = str(value)
+            if len(raw) >= 10 and raw[4] == "-" and raw[7] == "-":
+                return f"{raw[8:10]}/{raw[5:7]}/{raw[0:4]}"
+            if len(raw) == 7 and raw[4] == "-":
+                return f"{raw[5:7]}/{raw[0:4]}"
+        return str(value)
+
+    buffer = io.StringIO(newline="")
+    writer = csv.DictWriter(buffer, fieldnames=fields, extrasaction="ignore", delimiter=";", lineterminator="\r\n")
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({field: format_value(field, row.get(field)) for field in fields})
     return Response(
         content="\ufeff" + buffer.getvalue(),
         media_type="text/csv; charset=utf-8",

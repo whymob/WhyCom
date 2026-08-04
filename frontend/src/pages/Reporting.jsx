@@ -8,9 +8,35 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Legend } from "recharts";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Legend, Cell } from "recharts";
 
 const COLORS = { blue: "#002FA7", green: "#00A859", yellow: "#FFC800", red: "#FF2A00" };
+const MONTH_COLORS = ["#0072B2", "#E69F00", "#56B4E9", "#009E73", "#F0E442", "#D55E00", "#CC79A7", "#332288", "#88CCEE", "#117733", "#AA4499", "#661100"];
+
+function ForecastTooltip({ active, payload, label }) {
+  if (!active || !payload?.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="border border-neutral-300 bg-white p-3 text-xs shadow-sm">
+      <div className="font-medium">{label}</div>
+      <div className="mt-1">Planeado: <span className="font-mono">{eur(row.planned_value)}</span></div>
+      <div>Faturado: <span className="font-mono">{eur(row.billed_value)}</span></div>
+      <div>Por faturar: <span className="font-mono">{eur(row.remaining_value)}</span></div>
+      {row.items?.length > 0 && <div className="mt-2 border-t border-neutral-200 pt-2"><div className="mb-1 font-medium">Itens</div>{row.items.map((item, index) => <div key={item.name} className="flex items-center gap-2"><span className="h-2.5 w-2.5 shrink-0" style={{ backgroundColor: MONTH_COLORS[index % MONTH_COLORS.length] }} /><span className="max-w-[180px] truncate" title={item.name}>{item.name}</span><span className="ml-auto font-mono">{eur(item.planned_value)}</span></div>)}</div>}
+    </div>
+  );
+}
+
+function recordYear(item, fields) {
+  for (const field of fields) {
+    const value = item?.[field];
+    if (value) {
+      const year = Number(String(value).slice(0, 4));
+      if (year) return year;
+    }
+  }
+  return null;
+}
 
 function Table({ columns, rows, testid }) {
   return (
@@ -55,6 +81,7 @@ function DetailLink({ children, onClick, testId, align = "left" }) {
 
 export default function Reporting() {
   const [tab, setTab] = useState("executive");
+  const [reportingYear, setReportingYear] = useState(new Date().getFullYear());
   const [exec, setExec] = useState(null);
   const [comm, setComm] = useState([]);
   const [cli, setCli] = useState([]);
@@ -78,9 +105,25 @@ export default function Reporting() {
   });
   const [billingFormat, setBillingFormat] = useState("csv");
   const [competenceMonth, setCompetenceMonth] = useState("");
+  const [annualBillingOpen, setAnnualBillingOpen] = useState(false);
+  const [annualBillingFormat, setAnnualBillingFormat] = useState("pdf");
+  const [annualBillingMode, setAnnualBillingMode] = useState("year");
+  const [annualBillingStart, setAnnualBillingStart] = useState(`${new Date().getFullYear()}-01`);
+  const [annualBillingEnd, setAnnualBillingEnd] = useState(`${new Date().getFullYear()}-12`);
+
+  useEffect(() => {
+    setBillingMonth(`${reportingYear}-01`);
+    setAnnualBillingStart(`${reportingYear}-01`);
+    setAnnualBillingEnd(`${reportingYear}-12`);
+  }, [reportingYear]);
 
   const clientMap = useMemo(() => Object.fromEntries(clients.map((client) => [client.id, client])), [clients]);
   const productMap = useMemo(() => Object.fromEntries(products.map((product) => [product.id, product])), [products]);
+  const forecastTotals = useMemo(() => fi.reduce((totals, month) => ({
+    planned: totals.planned + (Number(month.planned_value) || 0),
+    billed: totals.billed + (Number(month.billed_value) || 0),
+    remaining: totals.remaining + (Number(month.remaining_value) || 0),
+  }), { planned: 0, billed: 0, remaining: 0 }), [fi]);
 
   const download = async (path, filename) => {
     const token = localStorage.getItem("whymob_token");
@@ -108,6 +151,10 @@ export default function Reporting() {
       toast.error("Mes invalido. Use o formato AAAA-MM.");
       return;
     }
+    if (!billingMonth.startsWith(`${reportingYear}-`)) {
+      toast.error(`Escolha um mes do ano ${reportingYear}.`);
+      return;
+    }
     const format = billingFormat === "pdf" ? "pdf" : "csv";
     try {
       await download(`/exports/billing-orders.${format}?month=${billingMonth}`, `ordem-faturacao-${billingMonth}.${format}`);
@@ -131,16 +178,40 @@ export default function Reporting() {
     }
   };
 
+  const openAnnualBillingExport = (format) => {
+    setAnnualBillingFormat(format);
+    setAnnualBillingOpen(true);
+  };
+
+  const submitAnnualBillingExport = async () => {
+    const startMonth = annualBillingMode === "year" ? `${reportingYear}-01` : annualBillingStart;
+    const endMonth = annualBillingMode === "year" ? `${reportingYear}-12` : annualBillingEnd;
+    if (!/^\d{4}-\d{2}$/.test(startMonth) || !/^\d{4}-\d{2}$/.test(endMonth) || startMonth > endMonth || !startMonth.startsWith(`${reportingYear}-`) || !endMonth.startsWith(`${reportingYear}-`)) {
+      toast.error(`Escolha um periodo valido dentro de ${reportingYear}.`);
+      return;
+    }
+    const query = `?year=${reportingYear}&start_month=${startMonth}&end_month=${endMonth}`;
+    const suffix = annualBillingMode === "year" ? `${reportingYear}` : `${startMonth}_${endMonth}`;
+    const extension = annualBillingFormat === "pdf" ? "pdf" : "csv";
+    try {
+      await download(`/exports/billing-annual.${extension}${query}`, `faturacao-${suffix}.${extension}`);
+      setAnnualBillingOpen(false);
+      toast.success(`Faturacao exportada (${suffix}, ${extension.toUpperCase()})`);
+    } catch (error) {
+      toast.error(error.message || "Nao foi possivel exportar a faturacao");
+    }
+  };
+
   useEffect(() => {
-    api.get("/analytics/executive").then((response) => {
+    api.get(`/analytics/executive?year=${reportingYear}`).then((response) => {
       setExec(response.data);
       setFi(response.data.forecast_invoicing);
       setFr(response.data.forecast_receiving);
       setVab(response.data.vab);
     });
-    api.get("/analytics/by-commercial").then((response) => setComm(response.data.rows));
-    api.get("/analytics/by-client").then((response) => setCli(response.data.rows));
-    api.get("/analytics/by-manufacturer").then((response) => setManuf(response.data.rows));
+    api.get(`/analytics/by-commercial?year=${reportingYear}`).then((response) => setComm(response.data.rows));
+    api.get(`/analytics/by-client?year=${reportingYear}`).then((response) => setCli(response.data.rows));
+    api.get(`/analytics/by-manufacturer?year=${reportingYear}`).then((response) => setManuf(response.data.rows));
 
     Promise.all([
       api.get("/leads"),
@@ -157,14 +228,14 @@ export default function Reporting() {
       clientsResponse,
       productsResponse,
     ]) => {
-      setLeads(leadsResponse.data);
-      setOpps(oppsResponse.data);
-      setPropsList(propsResponse.data);
-      setOrders(ordersResponse.data);
+      setLeads(leadsResponse.data.filter((item) => recordYear(item, ["created_at"]) === reportingYear));
+      setOpps(oppsResponse.data.filter((item) => recordYear(item, ["created_at"]) === reportingYear));
+      setPropsList(propsResponse.data.filter((item) => recordYear(item, ["updated_at", "created_at"]) === reportingYear));
+      setOrders(ordersResponse.data.filter((item) => !["cancelada", "anulada"].includes(item.status) && recordYear(item, ["order_date", "created_at"]) === reportingYear));
       setClients(clientsResponse.data);
       setProducts(productsResponse.data);
     });
-  }, []);
+  }, [reportingYear]);
 
   const openDetail = ({ title, description, columns, rows }) => {
     setDetailConfig({ title, description, columns, rows });
@@ -377,10 +448,18 @@ export default function Reporting() {
         title="Dashboards Avancados"
         actions={(
           <div className="flex flex-wrap gap-2 text-xs">
-            <button onClick={() => download("/exports/dashboard.pdf", `dashboard-${new Date().toISOString().slice(0, 10)}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
+            <label className="flex items-center gap-2 border border-neutral-300 px-2 py-1.5 text-neutral-600">
+              Ano
+              <select value={reportingYear} onChange={(event) => setReportingYear(Number(event.target.value))} className="bg-white font-mono text-[#002FA7]" data-testid="reporting-year-select">
+                {Array.from({ length: 7 }, (_, index) => new Date().getFullYear() - 3 + index).map((year) => <option key={year} value={year}>{year}</option>)}
+              </select>
+            </label>
+            <button onClick={() => download(`/exports/dashboard.pdf?year=${reportingYear}`, `dashboard-${reportingYear}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
             <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Ordem faturacao (por mes)</button>
+            <button onClick={() => openAnnualBillingExport("pdf")} data-testid="export-annual-billing-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Faturação anual PDF</button>
+            <button onClick={() => openAnnualBillingExport("csv")} data-testid="export-annual-billing-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturação anual Excel/CSV</button>
             <button onClick={() => download("/exports/invoices.csv", "faturas.csv")} data-testid="export-invoices-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturas CSV</button>
-            <button onClick={() => download("/exports/reporting-commercial.csv", "reporting-comerciais.csv")} data-testid="export-commercial-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Comerciais CSV</button>
+            <button onClick={() => download(`/exports/reporting-commercial.csv?year=${reportingYear}`, `reporting-comerciais-${reportingYear}.csv`)} data-testid="export-commercial-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Comerciais CSV</button>
             <button onClick={() => download("/exports/timesheet.csv", "timesheet.csv")} data-testid="export-timesheet-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Timesheet CSV</button>
           </div>
         )}
@@ -421,14 +500,23 @@ export default function Reporting() {
                 </div>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
                   <div className="border border-neutral-200 p-4">
-                    <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Previsao de Faturacao (proximos meses)</div>
+                    <div className="mb-1 text-[10px] uppercase tracking-widest text-neutral-500">Previsao de Faturacao (ano {reportingYear})</div>
+                    <div className="mb-3 text-xs text-neutral-500">Planeado: <span className="font-mono">{eur(forecastTotals.planned)}</span> · Faturado: <span className="font-mono">{eur(forecastTotals.billed)}</span> · Por faturar: <span className="font-mono">{eur(forecastTotals.remaining)}</span></div>
+                    <div className="mb-2 flex flex-wrap gap-x-4 gap-y-1 text-[11px] text-neutral-600" aria-label="Legenda da previsao de faturacao">
+                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 border border-[#0072B2] bg-[#0072B2]" aria-hidden="true" />Planeado (por mes)</span>
+                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 border border-[#1F2937] bg-[#1F2937]" aria-hidden="true" />Faturado</span>
+                      <span className="inline-flex items-center gap-1.5"><span className="h-2.5 w-2.5 border border-[#9A6700] bg-[#FFC800]" aria-hidden="true" />Por faturar</span>
+                    </div>
                     <ResponsiveContainer width="100%" height={220}>
                       <BarChart data={fi}>
                         <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
                         <XAxis dataKey="month" fontSize={11} />
                         <YAxis fontSize={11} />
-                        <Tooltip formatter={(value) => eur(value)} />
-                        <Bar dataKey="planned_value" fill={COLORS.blue} name="Planeado" />
+                        <Tooltip content={<ForecastTooltip />} />
+                        <Bar dataKey="planned_value" name="Planeado">
+                          {fi.map((entry, index) => <Cell key={`planned-${entry.month}`} fill={MONTH_COLORS[index % MONTH_COLORS.length]} />)}
+                        </Bar>
+                        <Bar dataKey="billed_value" fill="#1F2937" name="Faturado" />
                         <Bar dataKey="remaining_value" fill={COLORS.yellow} name="Por faturar" />
                       </BarChart>
                     </ResponsiveContainer>
@@ -511,17 +599,21 @@ export default function Reporting() {
           <TabsContent value="forecast" className="mt-6">
             <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
               <div className="border border-neutral-200 p-4" data-testid="forecast-invoicing-panel">
-                <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Previsao de Faturacao por Mes</div>
+                <div className="mb-1 text-[10px] uppercase tracking-widest text-neutral-500">Previsao de Faturacao por Mes · {reportingYear}</div>
+                <div className="mb-3 text-xs text-neutral-500">Planeado: <span className="font-mono">{eur(forecastTotals.planned)}</span> · Faturado: <span className="font-mono">{eur(forecastTotals.billed)}</span> · Por faturar: <span className="font-mono">{eur(forecastTotals.remaining)}</span></div>
                 <ResponsiveContainer width="100%" height={260}>
-                  <LineChart data={fi}>
+                  <BarChart data={fi}>
                     <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
                     <XAxis dataKey="month" fontSize={11} />
                     <YAxis fontSize={11} />
-                    <Tooltip formatter={(value) => eur(value)} />
+                    <Tooltip content={<ForecastTooltip />} />
                     <Legend />
-                    <Line type="monotone" dataKey="planned_value" stroke={COLORS.blue} name="Planeado" strokeWidth={2} />
-                    <Line type="monotone" dataKey="remaining_value" stroke={COLORS.green} name="Por faturar" strokeWidth={2} />
-                  </LineChart>
+                    <Bar dataKey="planned_value" name="Planeado">
+                      {fi.map((entry, index) => <Cell key={`forecast-planned-${entry.month}`} fill={MONTH_COLORS[index % MONTH_COLORS.length]} />)}
+                    </Bar>
+                    <Bar dataKey="billed_value" fill="#1F2937" name="Faturado" />
+                    <Bar dataKey="remaining_value" fill={COLORS.yellow} name="Por faturar" />
+                  </BarChart>
                 </ResponsiveContainer>
               </div>
               <div className="border border-neutral-200 p-4" data-testid="forecast-receiving-panel">
@@ -598,6 +690,30 @@ export default function Reporting() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={annualBillingOpen} onOpenChange={setAnnualBillingOpen}>
+        <DialogContent className="max-w-md rounded-none" data-testid="annual-billing-dialog">
+          <DialogHeader><DialogTitle className="font-display">Faturacao anual</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div className="text-xs text-neutral-500">Escolha o ano completo ou um periodo especifico para exportar.</div>
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={annualBillingMode === "year"} onChange={() => setAnnualBillingMode("year")} /> Ano completo ({reportingYear})</label>
+              <label className="flex items-center gap-2 text-sm"><input type="radio" checked={annualBillingMode === "range"} onChange={() => setAnnualBillingMode("range")} /> Periodo especifico</label>
+            </div>
+            {annualBillingMode === "range" && (
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Mes inicial</Label><Input type="month" value={annualBillingStart} min={`${reportingYear}-01`} max={`${reportingYear}-12`} onChange={(event) => setAnnualBillingStart(event.target.value)} className="rounded-none font-mono" data-testid="annual-billing-start" /></div>
+                <div><Label>Mes final</Label><Input type="month" value={annualBillingEnd} min={`${reportingYear}-01`} max={`${reportingYear}-12`} onChange={(event) => setAnnualBillingEnd(event.target.value)} className="rounded-none font-mono" data-testid="annual-billing-end" /></div>
+              </div>
+            )}
+            <div><Label>Formato</Label><div className="mt-1 flex gap-2">
+              <button type="button" onClick={() => setAnnualBillingFormat("pdf")} className={`flex-1 border px-3 py-2 text-xs ${annualBillingFormat === "pdf" ? "border-[#002FA7] bg-[#002FA7] text-white" : "border-neutral-300"}`}>PDF</button>
+              <button type="button" onClick={() => setAnnualBillingFormat("csv")} className={`flex-1 border px-3 py-2 text-xs ${annualBillingFormat === "csv" ? "border-[#002FA7] bg-[#002FA7] text-white" : "border-neutral-300"}`}>Excel/CSV</button>
+            </div></div>
+          </div>
+          <DialogFooter><Button variant="ghost" onClick={() => setAnnualBillingOpen(false)} className="rounded-none">Cancelar</Button><Button onClick={submitAnnualBillingExport} data-testid="annual-billing-submit" className="rounded-none bg-[#002FA7] text-white">Exportar</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={billingOpen} onOpenChange={setBillingOpen}>
         <DialogContent className="max-h-[85vh] max-w-md overflow-hidden rounded-none" data-testid="billing-orders-dialog">
           <DialogHeader><DialogTitle className="font-display">Ordem de Faturacao</DialogTitle></DialogHeader>
@@ -609,6 +725,8 @@ export default function Reporting() {
                 type="month"
                 value={billingMonth}
                 onChange={(e) => setBillingMonth(e.target.value)}
+                min={`${reportingYear}-01`}
+                max={`${reportingYear}-12`}
                 className="rounded-none font-mono"
                 data-testid="billing-orders-month-input"
               />

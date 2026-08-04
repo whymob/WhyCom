@@ -195,3 +195,39 @@ Opcional, mas recomendada:
 - reorganizar frontend por dominios;
 - padronizar estrategia de fetch e estado;
 - simplificar estrutura para manutencao de medio prazo.
+
+## 8. Regras de reporting e exportacao (atualizacao 29/07/2026)
+
+Esta secao registra as regras consolidadas nas ultimas alteracoes, para evitar divergencias futuras entre Dashboard, Reporting e exportacoes.
+
+### 8.1 Filtros temporais
+
+- Dashboard e Reporting usam um seletor de ano.
+- Indicadores de faturacao usam `invoices.issued_at` como data real de emissao.
+- Linhas anuladas e encomendas com estado `cancelada` ou `anulada` sao ignoradas.
+- O plano e o valor por faturar usam `plan_lines.expected_date`; esta data representa a previsao, nao substitui a data de emissao.
+
+### 8.2 VAB faturado
+
+O VAB faturado do ano nao e o VAB total da encomenda. As novas linhas de fatura guardam o campo `vab_amount`, calculado no momento da emissao. Assim, varias faturas podem receber parcelas diferentes do VAB sem perder a rastreabilidade.
+
+Para faturas antigas que ainda nao possuem esse campo, o sistema mantem o fallback historico:
+
+`VAB da encomenda x (valor sem IVA faturado / valor sem IVA da encomenda)`
+
+Quando uma encomenda e faturada em varios anos, cada ano recebe somente a parcela proporcional faturada nesse ano.
+
+Um administrador pode corrigir o VAB por linha em `PATCH /api/invoices/{id}/vab`. O valor da fatura nao e alterado, o motivo e obrigatorio e a mudanca fica registada em `audit_log` com a acao `vab_correction`. Faturas anuladas nao podem ser corrigidas.
+
+### 8.3 Relatorios e exportacoes
+
+- `GET /api/dashboard/kpis?year=AAAA`: KPIs, faturado anual, VAB faturado e faturacao mensal.
+- `GET /api/exports/dashboard.pdf?year=AAAA`: snapshot do Dashboard no ano selecionado.
+- `GET /api/exports/billing-annual.pdf?year=AAAA`: PDF horizontal agrupado por mes, com planeado, faturado, VAB faturado, por faturar e VAB por faturar.
+- `GET /api/exports/billing-annual.csv?year=AAAA`: exportacao compativel com Excel, uma linha por item/fatura.
+- `GET /api/exports/billing-orders.csv?month=AAAA-MM` e `.pdf`: ordem de faturacao de um mes especifico.
+- `GET /api/exports/invoices.csv`: faturas ativas em CSV.
+- `GET /api/exports/orders.csv`: encomendas ativas com cliente, valor sem IVA, data de conversao e proposta.
+- `GET /api/exports/proposals.csv`: propostas com oportunidade, notas, estado, valores e conversao.
+
+O PDF anual usa duas referencias: faturado e VAB faturado pela data de emissao; planeado e por faturar pela data prevista do plano. Linhas planeadas noutro ano, mas faturadas no ano selecionado, aparecem no mes de emissao com planeado zero, para que o total faturado coincida com o Dashboard.

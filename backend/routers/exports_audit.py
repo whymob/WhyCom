@@ -1,10 +1,11 @@
 """Audit log + CSV/PDF Exports."""
+from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 
 from deps import db, get_current_user
-from helpers import csv_response
-from pdf_helpers import build_invoice_pdf, build_billing_orders_pdf, build_dashboard_pdf
+from helpers import csv_response, csv_response_pt, invoice_line_vab
+from pdf_helpers import build_invoice_pdf, build_billing_orders_pdf, build_dashboard_pdf, build_annual_billing_pdf_grouped
 from routers.analytics import (
     by_commercial, by_client, by_manufacturer, _kpis_summary, _forecast_receiving,
     _forecast_invoicing, _vab_analysis, _active_orders,
@@ -35,13 +36,26 @@ async def export_invoices(user: dict = Depends(get_current_user)):
     clients = {c["id"]: c["name"] for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     orders = {o["id"]: o["number"] for o in await db.orders.find({}, {"_id": 0}).to_list(2000)}
     rows = [{
-        "numero": i["number"], "data": i["issued_at"][:10],
-        "cliente": clients.get(i["client_id"], ""), "encomenda": orders.get(i["order_id"], ""),
-        "total_sem_iva": i["total_net"], "iva": i["total_vat"], "total_com_iva": i["total_gross"],
+        "numero_fatura_interna": i["number"],
+        "numero_fatura_externa": i.get("external_invoice_number", ""),
+        "data_emissao": i["issued_at"][:10],
+        "cliente": clients.get(i["client_id"], ""),
+        "encomenda": orders.get(i["order_id"], ""),
+        "total_sem_iva": i["total_net"],
+        "iva": i["total_vat"],
+        "total_com_iva": i["total_gross"],
         "recebido": i.get("received_amount", 0),
+        "saldo_em_aberto": max(0, float(i.get("total_gross") or 0) - float(i.get("received_amount") or 0)),
         "estado": i["status"],
     } for i in invoices]
-    return csv_response(rows, ["numero", "data", "cliente", "encomenda", "total_sem_iva", "iva", "total_com_iva", "recebido", "estado"], "faturas.csv")
+    fields = ["numero_fatura_interna", "numero_fatura_externa", "data_emissao", "cliente", "encomenda", "total_sem_iva", "iva", "total_com_iva", "recebido", "saldo_em_aberto", "estado"]
+    return csv_response_pt(
+        rows,
+        fields,
+        "faturas.csv",
+        money_fields=("total_sem_iva", "iva", "total_com_iva", "recebido", "saldo_em_aberto"),
+        date_fields=("data_emissao",),
+    )
 
 
 @router.get("/exports/orders.csv")
@@ -117,8 +131,8 @@ async def export_timesheet(project_id: Optional[str] = None, user: dict = Depend
 
 
 @router.get("/exports/reporting-commercial.csv")
-async def export_reporting_commercial(user: dict = Depends(get_current_user)):
-    data = await by_commercial(user)
+async def export_reporting_commercial(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    data = await by_commercial(user, year)
     return csv_response(
         data["rows"],
         ["name", "role", "leads", "opps", "props", "won", "lost", "conversion_rate", "won_value", "won_vab", "orders_value", "orders_vab"],
@@ -179,6 +193,150 @@ async def export_billing_orders(month: str, user: dict = Depends(get_current_use
          "valor_sem_iva", "iva_pct", "iva", "valor_com_iva", "estado_fatura", "recebido"],
         f"ordem-faturacao-{month}.csv",
     )
+
+
+async def _annual_billing_report(year: int, start_month: Optional[str] = None, end_month: Optional[str] = None):
+    start_month = start_month or f"{year}-01"
+    end_month = end_month or f"{year}-12"
+    if not all(len(value) == 7 and value[4] == "-" for value in (start_month, end_month)):
+        raise HTTPException(400, "Os meses devem usar o formato AAAA-MM")
+    if start_month[:4] != str(year) or end_month[:4] != str(year) or start_month > end_month:
+        raise HTTPException(400, "O periodo deve estar dentro do ano selecionado")
+    active_orders = await _active_orders()
+    active_order_ids = [order["id"] for order in active_orders]
+    orders = {order["id"]: order for order in active_orders}
+    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    plan_lines = await db.plan_lines.find(
+        {"status": {"$ne": "cancelada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(10000)
+    plan_lines_by_id = {line.get("id"): line for line in plan_lines if line.get("id")}
+    invoices = await db.invoices.find(
+        {"status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(10000)
+    invoices = [
+        invoice for invoice in invoices
+        if start_month <= str(invoice.get("issued_at") or invoice.get("created_at") or "")[:7] <= end_month
+    ]
+    invoice_by_plan = {}
+    invoice_only_rows = []
+    for invoice in invoices:
+        invoice_number = invoice.get("number", "")
+        lines = invoice.get("lines") or [{"amount": invoice.get("total_net", 0), "description": ""}]
+        for line in lines:
+            plan_id = line.get("plan_line_id")
+            amount = float(line.get("amount") or 0)
+            description = str(line.get("description") or "").strip()
+            if plan_id:
+                invoice_by_plan.setdefault(plan_id, []).append({
+                    "number": invoice_number, "amount": amount, "description": description,
+                    "vab_amount": line.get("vab_amount"),
+                    "month": str(invoice.get("issued_at") or invoice.get("created_at") or "")[:7],
+                    "order_id": invoice.get("order_id"), "client_id": invoice.get("client_id"),
+                })
+            else:
+                order = orders.get(invoice.get("order_id"), {})
+                total_net = float(order.get("total_net") or 0)
+                vab = invoice_line_vab(line, order, amount)
+                invoice_only_rows.append({
+                    "mes": str(invoice.get("issued_at") or invoice.get("created_at") or "")[:7],
+                    "encomenda": order.get("number", ""), "cliente": clients.get(invoice.get("client_id"), ""),
+                    "item_fatura": f"{description or 'Fatura'} · {invoice_number}",
+                    "planeado": 0, "faturado": amount, "por_faturar": 0,
+                    "vab_faturado": vab, "vab_por_faturar": 0,
+                })
+
+    rows = []
+    included_plan_ids = set()
+    for plan_line in plan_lines:
+        expected = str(plan_line.get("expected_date") or "")
+        if not start_month <= expected[:7] <= end_month:
+            continue
+        included_plan_ids.add(plan_line.get("id"))
+        order = orders.get(plan_line.get("order_id"), {})
+        planned = float(plan_line.get("value") or 0)
+        linked = invoice_by_plan.get(plan_line.get("id"), [])
+        billed = sum(item["amount"] for item in linked)
+        total_net = float(order.get("total_net") or 0)
+        vab = float(order.get("total_vab") or 0) * planned / total_net if total_net else 0
+        vab_billed = sum(
+            invoice_line_vab(item, order, item.get("amount"))
+            for item in linked
+        )
+        if not linked:
+            vab_billed = 0.0
+        invoice_label = ", ".join(
+            f"{item['number']} · {item['description']}" if item['description'] else item['number']
+            for item in linked
+        )
+        rows.append({
+            "mes": expected[:7], "encomenda": order.get("number", ""),
+            "cliente": clients.get(order.get("client_id"), ""),
+            "item_fatura": f"{plan_line.get('description') or plan_line.get('type') or 'Sem descrição'}{f' · {invoice_label}' if invoice_label else ''}",
+            "planeado": planned, "faturado": billed, "por_faturar": max(0, planned - billed),
+            "vab_faturado": vab_billed, "vab_por_faturar": max(0, vab - vab_billed),
+        })
+
+    # Faturas do ano podem referenciar linhas cujo mês planeado pertence a
+    # outro ano. Mantemos essas linhas no mês de emissão para alinhar o
+    # total faturado com o Dashboard.
+    for plan_id, linked in invoice_by_plan.items():
+        if plan_id in included_plan_ids:
+            continue
+        plan_line = plan_lines_by_id.get(plan_id, {})
+        for invoice_line in linked:
+            order = orders.get(invoice_line.get("order_id") or plan_line.get("order_id"), {})
+            amount = float(invoice_line.get("amount") or 0)
+            total_net = float(order.get("total_net") or 0)
+            vab_billed = invoice_line_vab(invoice_line, order, amount)
+            item_name = plan_line.get("description") or plan_line.get("type") or "Sem descricao"
+            description = invoice_line.get("description")
+            if description and description != item_name:
+                item_name = f"{item_name} - {description}"
+            rows.append({
+                "mes": invoice_line.get("month", ""),
+                "encomenda": order.get("number", ""),
+                "cliente": clients.get(invoice_line.get("client_id") or order.get("client_id"), ""),
+                "item_fatura": f"{item_name} · {invoice_line.get('number', '')}",
+                "planeado": 0, "faturado": amount, "por_faturar": 0,
+                "vab_faturado": vab_billed, "vab_por_faturar": 0,
+            })
+    rows.extend(invoice_only_rows)
+    summary = []
+    first_month = int(start_month[5:7])
+    last_month = int(end_month[5:7])
+    for month in range(first_month, last_month + 1):
+        key = f"{year}-{month:02d}"
+        month_rows = [row for row in rows if row["mes"] == key]
+        summary.append({
+            "month": key,
+            "planned_value": sum(row["planeado"] for row in month_rows),
+            "billed_value": sum(row["faturado"] for row in month_rows),
+            "remaining_value": sum(row["por_faturar"] for row in month_rows),
+            "vab_billed_value": sum(row["vab_faturado"] for row in month_rows),
+            "vab_remaining_value": sum(row["vab_por_faturar"] for row in month_rows),
+        })
+    return summary, rows
+
+
+@router.get("/exports/billing-annual.csv")
+async def export_billing_annual_csv(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    _summary, rows = await _annual_billing_report(year, start_month, end_month)
+    fields = ["mes", "encomenda", "cliente", "item_fatura", "planeado", "faturado", "vab_faturado", "por_faturar", "vab_por_faturar"]
+    return csv_response_pt(
+        rows,
+        fields,
+        f"faturacao-anual-{year}.csv",
+        money_fields=("planeado", "faturado", "vab_faturado", "por_faturar", "vab_por_faturar"),
+        date_fields=("mes",),
+    )
+
+
+@router.get("/exports/billing-annual.pdf")
+async def export_billing_annual_pdf(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    summary, rows = await _annual_billing_report(year, start_month, end_month)
+    return build_annual_billing_pdf_grouped(year, summary, rows)
 
 
 @router.get("/exports/billing-competence.csv")
@@ -290,14 +448,14 @@ async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current
 
 
 @router.get("/exports/dashboard.pdf")
-async def export_dashboard_pdf(user: dict = Depends(get_current_user)):
-    kpis = await _kpis_summary()
-    fi = await _forecast_invoicing()
-    fr = await _forecast_receiving()
-    vab = await _vab_analysis()
-    bc = (await by_commercial(user))["rows"]
-    bcli = (await by_client(user))["rows"]
-    bm = (await by_manufacturer(user))["rows"]
+async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    kpis = await _kpis_summary(year)
+    fi = await _forecast_invoicing(year)
+    fr = await _forecast_receiving(year)
+    vab = await _vab_analysis(year)
+    bc = (await by_commercial(user, year))["rows"]
+    bcli = (await by_client(user, year))["rows"]
+    bm = (await by_manufacturer(user, year))["rows"]
     # Filtrar "(sem fabricante)" para o snapshot
     bm = [r for r in bm if r.get("manufacturer_id")]
     return build_dashboard_pdf(kpis, fr, fi, vab, bc, bcli, bm)

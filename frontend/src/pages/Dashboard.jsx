@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 import { eur, pct } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
 import { TrendingUp, Sparkles, Target, FileText, Package, Percent, AlertTriangle, Factory } from "lucide-react";
-import { BarChart, Bar, CartesianGrid, LabelList, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { BarChart, Bar, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
 const LEVEL_STYLE = {
   info: "border-l-[#002FA7] bg-[#E0E7FF]/40",
@@ -43,7 +43,7 @@ function getAlertTypeLabel(type) {
   if (type === "encomenda_sem_plano") return "Encomenda sem plano";
   if (type === "desvio_plano") return "Desvio no plano";
   if (type === "plano_atraso") return "Plano em atraso";
-  if (type === "fatura_atraso") return "Fatura em atraso";
+  if (type === "fatura_atraso") return "Recebimento em atraso";
   return type;
 }
 
@@ -52,8 +52,10 @@ export default function Dashboard() {
   const [alerts, setAlerts] = useState([]);
   const [topManuf, setTopManuf] = useState([]);
   const [dashboardYear, setDashboardYear] = useState(new Date().getFullYear());
+  const [selectedBillingMonth, setSelectedBillingMonth] = useState(null);
 
   useEffect(() => {
+    setSelectedBillingMonth(null);
     api.get(`/dashboard/kpis?year=${dashboardYear}`).then((response) => setKpis(response.data));
     api.get("/dashboard/alerts").then((response) => setAlerts(response.data.alerts));
     api.get(`/analytics/by-manufacturer?year=${dashboardYear}`).then((response) => {
@@ -66,8 +68,9 @@ export default function Dashboard() {
   }, [dashboardYear]);
 
   const maxVab = Math.max(1, ...topManuf.map((row) => row.won_vab));
+  const selectedBilling = (kpis?.billing_monthly || []).find((month) => month.month === selectedBillingMonth);
   const criticalAlerts = alerts.filter((alert) => alert.level === "danger");
-  const visibleAlerts = alerts.slice(0, 5);
+  const visibleAlerts = alerts;
 
   return (
     <div>
@@ -107,13 +110,9 @@ export default function Dashboard() {
                 </div>
               </div>
             </div>
-            {alerts.length > visibleAlerts.length && (
-              <div className="text-xs text-neutral-500">
-                A mostrar os {visibleAlerts.length} mais recentes
-              </div>
-            )}
+            {visibleAlerts.length > 5 && <div className="text-xs text-neutral-500">Deslize para consultar todos os alertas</div>}
           </div>
-          <div data-testid="alerts-list">
+          <div data-testid="alerts-list" className="max-h-80 overflow-y-auto">
             {alerts.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="alerts-empty">Sem alertas ativos.</div>}
             {visibleAlerts.map((alert, index) => {
               const href = getAlertHref(alert);
@@ -175,27 +174,85 @@ export default function Dashboard() {
 
         <section>
           <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Resultado</div>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             <KPI testid="kpi-won-value" label="Valor Ganho" value={eur(kpis?.won_value)} sub="Propostas ganhas · sem IVA" icon={TrendingUp} />
             <KPI testid="kpi-won-vab" label="VAB Ganho" value={eur(kpis?.won_vab)} sub="Margem bruta ganha" icon={TrendingUp} />
             <KPI testid="kpi-orders" label="Encomendas" value={kpis?.orders_count ?? "-"} sub={`${eur(kpis?.orders_value)} · VAB ${eur(kpis?.orders_vab)}`} icon={Package} to="/encomendas" />
             <KPI testid="kpi-billed-year" label="Faturado no ano" value={eur(kpis?.billed_net)} sub={`${kpis?.billed_invoice_count ?? 0} fatura(s) · sem IVA`} icon={FileText} />
+            <KPI testid="kpi-billed-vab" label="VAB faturado no ano" value={eur(kpis?.billed_vab)} sub="VAB proporcional das faturas · sem IVA" icon={TrendingUp} />
           </div>
         </section>
 
         <section className="border border-neutral-200 bg-white p-5" data-testid="billing-monthly-chart">
           <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturação mensal s/IVA · {dashboardYear}</div>
           <ResponsiveContainer width="100%" height={250}>
-            <BarChart data={kpis?.billing_monthly || []} margin={{ top: 5, right: 10, left: 0, bottom: 5 }}>
+            <BarChart
+              data={kpis?.billing_monthly || []}
+              margin={{ top: 5, right: 10, left: 0, bottom: 5 }}
+              onClick={({ activeLabel }) => activeLabel && setSelectedBillingMonth(activeLabel)}
+              style={{ cursor: "pointer" }}
+            >
               <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
               <XAxis dataKey="month" fontSize={10} />
               <YAxis fontSize={10} />
               <Tooltip formatter={(value) => eur(value)} />
+              <Legend />
               <Bar dataKey="total_net" fill="#002FA7" name="Faturado s/IVA">
                 <LabelList dataKey="total_net" position="top" formatter={(value) => eur(value)} fill="#111111" fontSize={10} />
               </Bar>
+              <Bar dataKey="billed_vab" fill="#00A859" name="VAB faturado">
+                <LabelList dataKey="billed_vab" position="top" formatter={(value) => eur(value)} fill="#111111" fontSize={10} />
+              </Bar>
             </BarChart>
           </ResponsiveContainer>
+        </section>
+
+        <section className="border border-neutral-200 bg-white p-5" data-testid="billing-month-detail-chart">
+          <div className="mb-1 text-[11px] uppercase tracking-[0.2em] text-neutral-500">
+            Composicao da faturacao {selectedBillingMonth ? `· ${selectedBillingMonth}` : "· selecione um mes"}
+          </div>
+          {selectedBilling?.items?.length ? (
+            <>
+              <div className="mb-3 flex flex-wrap gap-x-6 gap-y-1 text-xs text-neutral-600">
+                <span>Total faturado: <strong className="font-mono text-neutral-900">{eur(selectedBilling.total_net)}</strong></span>
+                <span>VAB faturado: <strong className="font-mono text-[#00A859]">{eur(selectedBilling.billed_vab)}</strong></span>
+                <span>{selectedBilling.items.length} item(ns)</span>
+              </div>
+              <div className="max-h-[420px] overflow-y-auto border border-neutral-200">
+                <div className="grid grid-cols-[120px_1fr_150px_130px_130px] gap-3 border-b border-neutral-200 bg-neutral-50 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                  <div>Fatura</div><div>Descricao</div><div>Cliente</div><div className="text-right">Faturado s/IVA</div><div className="text-right">VAB faturado</div>
+                </div>
+                {[...selectedBilling.items].sort((a, b) => b.amount - a.amount).map((item, index) => (
+                  <div key={`${item.invoice}-${index}`} className="grid grid-cols-[120px_1fr_150px_130px_130px] gap-3 border-b border-neutral-100 px-3 py-2 text-xs">
+                    <div className="font-mono text-[#002FA7]">{item.invoice}<div className="mt-0.5 text-[10px] text-neutral-500">{item.order}</div></div>
+                    <div className="truncate" title={item.item}>{item.item}</div>
+                    <div className="truncate" title={item.client}>{item.client || "-"}</div>
+                    <div className="text-right font-mono">{eur(item.amount)}</div>
+                    <div className="text-right font-mono text-[#00A859]">{eur(item.vab)}</div>
+                  </div>
+                ))}
+              </div>
+            <div className="hidden">
+              <ResponsiveContainer width="100%" height={Math.max(220, selectedBilling.items.length * 42)}>
+              <BarChart
+                layout="vertical"
+                data={selectedBilling.items.map((item) => ({ ...item, label: `${item.item} · ${item.invoice}` }))}
+                margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
+              >
+                <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
+                <XAxis type="number" fontSize={10} tickFormatter={(value) => eur(value)} />
+                <YAxis type="category" dataKey="label" width={260} fontSize={10} tick={{ fill: "#444" }} />
+                <Tooltip formatter={(value) => eur(value)} />
+                <Legend />
+                <Bar dataKey="amount" fill="#002FA7" name="Faturado s/IVA" />
+                <Bar dataKey="vab" fill="#00A859" name="VAB faturado" />
+              </BarChart>
+              </ResponsiveContainer>
+            </div>
+            </>
+          ) : (
+            <div className="py-8 text-sm text-neutral-500">Clique numa barra mensal para consultar os itens e o VAB faturado.</div>
+          )}
         </section>
 
         <section>

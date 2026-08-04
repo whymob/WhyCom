@@ -48,7 +48,10 @@ export default function OrderDetail() {
   const [payOpen, setPayOpen] = useState(null);
   const [cancelDialog, setCancelDialog] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
+  const [planChangeDialog, setPlanChangeDialog] = useState(false);
+  const [planChangeReason, setPlanChangeReason] = useState("");
   const [externalInvoiceDialog, setExternalInvoiceDialog] = useState(null);
+  const [vabDialog, setVabDialog] = useState(null);
   const [payForm, setPayForm] = useState({ amount: 0, method: "transferencia", reference: "", paid_at: todayInputValue() });
   const [invForm, setInvForm] = useState({ lines: [], vat_pct: 23, issued_at: "", external_invoice_number: "" });
   const [parcelForm, setParcelForm] = useState({
@@ -347,7 +350,7 @@ export default function OrderDetail() {
     setPlanLines(planLines.filter((_, idx) => idx !== index));
   };
 
-  const savePlan = async () => {
+  const savePlan = async (changeReason = "") => {
     if (isCancelled) {
       toast.error("Encomenda anulada: o plano nao pode ser alterado");
       return;
@@ -361,13 +364,40 @@ export default function OrderDetail() {
         expected_date: line.expected_date || null,
         value: Number(line.value) || 0,
       }));
-      const { data } = await api.put(`/orders/${id}/plan`, { lines: clean });
+      const { data } = await api.put(`/orders/${id}/plan`, { lines: clean, change_reason: changeReason });
       setPlanLines(data.lines);
       toast.success("Plano guardado");
       reload();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
+  };
+
+  const requestSavePlan = () => {
+    if (isCancelled) {
+      toast.error("Encomenda anulada: o plano nao pode ser alterado");
+      return;
+    }
+    const hasActiveInvoice = invoices.some((invoice) => invoice.status !== "anulada");
+    if (hasActiveInvoice) {
+      if (!isAdmin) {
+        toast.error("A alteração do plano com faturação ativa requer um administrador");
+        return;
+      }
+      setPlanChangeReason("");
+      setPlanChangeDialog(true);
+      return;
+    }
+    savePlan();
+  };
+
+  const confirmPlanChange = () => {
+    if (!planChangeReason.trim()) {
+      toast.error("Indique o motivo da alteração");
+      return;
+    }
+    setPlanChangeDialog(false);
+    savePlan(planChangeReason.trim());
   };
 
   const planTotal = planLines.filter((line) => line.status !== "cancelada").reduce((sum, line) => sum + (Number(line.value) || 0), 0);
@@ -379,6 +409,8 @@ export default function OrderDetail() {
   const activeTimelinePlanLines = planLines.filter((line) => line.status !== "cancelada");
   const activeTimelineInvoices = invoices.filter((invoice) => invoice.status !== "anulada");
   const activeTimelinePayments = payments.filter((payment) => payment.status !== "anulado");
+  const hasActiveInvoices = activeTimelineInvoices.length > 0;
+  const planEditDisabled = isCancelled || (hasActiveInvoices && !isAdmin);
   const invoiceTotal = activeTimelineInvoices.reduce((sum, invoice) => sum + (Number(invoice.total_net) || 0), 0);
   const paymentTotal = activeTimelinePayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
   const timelineEvents = [
@@ -568,6 +600,41 @@ export default function OrderDetail() {
       });
       toast.success("Número da fatura externa atualizado");
       setExternalInvoiceDialog(null);
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
+  const openVabCorrection = (invoice) => {
+    setVabDialog({
+      invoice,
+      lines: (invoice.lines || []).map((line, index) => ({
+        ...line,
+        index,
+        vab_amount: line.vab_amount ?? ((Number(order?.total_vab) || 0) * (Number(line.amount) || 0) / (Number(order?.total_net) || 1)),
+      })),
+      reason: "",
+    });
+  };
+
+  const saveVabCorrection = async () => {
+    if (!vabDialog?.invoice) return;
+    if (!vabDialog.reason.trim()) {
+      toast.error("Indique o motivo da correção do VAB");
+      return;
+    }
+    try {
+      await api.patch(`/invoices/${vabDialog.invoice.id}/vab`, {
+        reason: vabDialog.reason,
+        lines: vabDialog.lines.map((line) => ({
+          index: line.index,
+          plan_line_id: line.plan_line_id,
+          vab_amount: Number(line.vab_amount),
+        })),
+      });
+      toast.success("VAB da fatura atualizado");
+      setVabDialog(null);
       reload();
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
@@ -773,9 +840,9 @@ export default function OrderDetail() {
               </div>
             </div>
             <div className="flex gap-2">
-              <Button size="sm" onClick={openParcelModal} disabled={isCancelled} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
-              <Button size="sm" onClick={addPlanLine} disabled={isCancelled || totalRemainingToPlan <= 0.01} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
-              <Button size="sm" onClick={savePlan} disabled={isCancelled} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
+              <Button size="sm" onClick={openParcelModal} disabled={planEditDisabled} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
+              <Button size="sm" onClick={addPlanLine} disabled={planEditDisabled || totalRemainingToPlan <= 0.01} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
+              <Button size="sm" onClick={requestSavePlan} disabled={planEditDisabled} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
             </div>
           </div>
           <div className="border border-neutral-200">
@@ -791,17 +858,17 @@ export default function OrderDetail() {
             {planLines.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="plan-empty">Sem plano. Adicione linhas para começar.</div>}
             {planLines.map((line, index) => (
               <div key={line.id || index} className="grid grid-cols-12 px-3 py-2 border-b border-neutral-100 items-center gap-2" data-testid={`plan-line-${index}`}>
-                <Select value={line.type} disabled={isCancelled} onValueChange={(value) => updatePlanLine(index, { type: value })}>
+                <Select value={line.type} disabled={planEditDisabled || (line.invoiced_amount || 0) > 0} onValueChange={(value) => updatePlanLine(index, { type: value })}>
                   <SelectTrigger className="col-span-2 rounded-none h-8 text-xs"><SelectValue /></SelectTrigger>
                   <SelectContent>{PLAN_TYPES.map((type) => <SelectItem key={type} value={type}>{type}</SelectItem>)}</SelectContent>
                 </Select>
-                <Input value={line.description || ""} disabled={isCancelled} onChange={(e) => updatePlanLine(index, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
-                <Input type="date" value={(line.expected_date || "").slice(0, 10)} disabled={isCancelled} onChange={(e) => updatePlanLine(index, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
-                <Input type="number" value={line.value} disabled={isCancelled} onChange={(e) => updatePlanLine(index, { value: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${index}`} />
+                <Input value={line.description || ""} disabled={planEditDisabled || (line.invoiced_amount || 0) > 0} onChange={(e) => updatePlanLine(index, { description: e.target.value })} className="col-span-3 rounded-none h-8 text-xs" />
+                <Input type="date" value={(line.expected_date || "").slice(0, 10)} disabled={planEditDisabled || (line.invoiced_amount || 0) > 0} onChange={(e) => updatePlanLine(index, { expected_date: e.target.value })} className="col-span-2 rounded-none h-8 text-xs font-mono" />
+                <Input type="number" value={line.value} disabled={planEditDisabled || (Number(line.invoiced_amount) || 0) >= (Number(line.value) || 0)} min={line.invoiced_amount || 0} onChange={(e) => updatePlanLine(index, { value: e.target.value })} className="col-span-2 rounded-none h-8 text-right font-mono" data-testid={`plan-value-${index}`} />
                 <div className="col-span-1 text-right font-mono text-xs">{eur(line.invoiced_amount || 0)}</div>
                 <div className="col-span-1"><Badge className={`${PLAN_STATUS_STYLE[line.status] || ""} rounded-none font-normal text-[10px]`}>{line.status}</Badge></div>
                 <div className="col-span-1 text-right">
-                  <Button size="sm" variant="ghost" disabled={isCancelled} onClick={() => removePlanLine(index)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button>
+                  <Button size="sm" variant="ghost" disabled={planEditDisabled || (line.invoiced_amount || 0) > 0} onClick={() => removePlanLine(index)} className="rounded-none text-[#FF2A00] h-7"><Trash2 size={12} /></Button>
                 </div>
               </div>
             ))}
@@ -878,6 +945,17 @@ export default function OrderDetail() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      onClick={() => openVabCorrection(invoice)}
+                      data-testid={`edit-vab-invoice-${invoice.id}`}
+                      className="rounded-none text-[#002FA7] text-xs h-7"
+                    >
+                      VAB
+                    </Button>
+                  )}
+                  {!isCancelled && isAdmin && invoice.status !== "anulada" && (
+                    <Button
+                      size="sm"
+                      variant="ghost"
                       onClick={() => openCancellation("invoice", invoice.id)}
                       data-testid={`cancel-invoice-${invoice.id}`}
                       className="rounded-none text-[#FF2A00] text-xs h-7"
@@ -941,6 +1019,52 @@ export default function OrderDetail() {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={!!vabDialog} onOpenChange={(open) => !open && setVabDialog(null)}>
+        <DialogContent className="flex max-h-[90vh] max-w-2xl flex-col overflow-hidden rounded-none">
+          <DialogHeader className="shrink-0"><DialogTitle className="font-display">Corrigir VAB da fatura</DialogTitle></DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            <p className="text-sm text-neutral-600">Esta correção não altera o valor da fatura nem a encomenda. O motivo ficará registado na auditoria.</p>
+            <div className="border border-neutral-200">
+              <div className="grid grid-cols-12 gap-2 border-b border-neutral-200 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                <div className="col-span-8">Descrição</div>
+                <div className="col-span-4 text-right">VAB faturado</div>
+              </div>
+              {vabDialog?.lines.map((line, index) => (
+                <div key={`${line.plan_line_id || "line"}-${index}`} className="grid grid-cols-12 items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                  <div className="col-span-8 text-xs">{line.description || "Fatura"}</div>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={line.vab_amount}
+                    onChange={(event) => setVabDialog((current) => current ? {
+                      ...current,
+                      lines: current.lines.map((item, itemIndex) => itemIndex === index ? { ...item, vab_amount: event.target.value } : item),
+                    } : current)}
+                    className="col-span-4 h-8 rounded-none text-right font-mono text-xs"
+                    data-testid={`vab-correction-${index}`}
+                  />
+                </div>
+              ))}
+            </div>
+            <div>
+              <Label>Motivo da correção</Label>
+              <Textarea
+                rows={3}
+                value={vabDialog?.reason || ""}
+                onChange={(event) => setVabDialog((current) => current ? { ...current, reason: event.target.value } : current)}
+                placeholder="Descreva o motivo da correção"
+                className="mt-1 rounded-none"
+                data-testid="vab-correction-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter className="shrink-0">
+            <Button variant="ghost" onClick={() => setVabDialog(null)} className="rounded-none">Cancelar</Button>
+            <Button onClick={saveVabCorrection} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]" data-testid="save-vab-correction">Guardar correção</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       <Dialog open={!!cancelDialog} onOpenChange={(open) => !open && setCancelDialog(null)}>
         <DialogContent className="max-w-md rounded-none">
           <DialogHeader><DialogTitle className="font-display">{cancelDialog?.title || "Anular"}</DialogTitle></DialogHeader>
@@ -961,6 +1085,30 @@ export default function OrderDetail() {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setCancelDialog(null)} className="rounded-none">Cancelar</Button>
             <Button onClick={confirmCancellation} className="rounded-none bg-[#FF2A00] text-white hover:bg-[#D62200]" data-testid="confirm-cancellation">Confirmar anulação</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={planChangeDialog} onOpenChange={setPlanChangeDialog}>
+        <DialogContent className="max-w-md rounded-none">
+          <DialogHeader><DialogTitle className="font-display">Alterar plano com faturação ativa</DialogTitle></DialogHeader>
+          <div className="space-y-3 text-sm text-neutral-700">
+            <p>As linhas já faturadas permanecem protegidas. Apenas linhas ainda não faturadas poderão ser ajustadas.</p>
+            <div>
+              <Label>Motivo da alteração</Label>
+              <Textarea
+                rows={3}
+                value={planChangeReason}
+                onChange={(event) => setPlanChangeReason(event.target.value)}
+                placeholder="Descreva o motivo da alteração"
+                className="mt-1 rounded-none"
+                data-testid="plan-change-reason"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setPlanChangeDialog(false)} className="rounded-none">Cancelar</Button>
+            <Button onClick={confirmPlanChange} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]" data-testid="confirm-plan-change">Confirmar alteração</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

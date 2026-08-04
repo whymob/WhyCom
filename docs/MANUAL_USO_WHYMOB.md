@@ -440,6 +440,7 @@ Cada registo apresenta:
 - manter clientes, produtos e fabricantes atualizados antes de avançar no pipeline
 - registar sempre motivos de perda em leads e oportunidades
 - rever VAB estimado e valor estimado antes de converter oportunidades
+- corrigir VAB faturado apenas com perfil administrador e motivo registado
 - confirmar a PO do cliente nas encomendas
 - usar reporting para acompanhamento semanal e mensal
 - manter a timesheet atualizada diariamente
@@ -454,6 +455,21 @@ Cada registo apresenta:
 - abrir projeto quando existir componente técnica
 - planear, faturar e reconciliar recebimentos
 - acompanhar resultados em dashboard e reporting
+
+## 14. Regras de reporting e exportacao
+
+O seletor de ano do Dashboard e do Reporting e aplicado aos indicadores e aos graficos.
+
+- `Faturado no ano`: soma faturas ativas pela data real de emissao (`invoices.issued_at`), sem IVA.
+- `VAB faturado no ano`: calcula o VAB proporcional ao valor sem IVA efetivamente faturado no ano.
+- Faturas anuladas e encomendas canceladas/anuladas nao entram nos indicadores.
+- O grafico mensal usa a data real de emissao da fatura.
+- O PDF anual usa a data de emissao para os totais faturados. A data prevista do plano fica no detalhe e nao exclui uma fatura emitida no ano.
+- Planeado e por faturar continuam agrupados pela data prevista (`plan_lines.expected_date`).
+
+Os botoes `Faturacao anual PDF` e `Faturacao anual Excel/CSV` permitem exportar o ano completo ou um periodo de meses dentro do ano selecionado. O PDF e agrupado por mes e mostra planeado, faturado, VAB faturado, por faturar e VAB por faturar, incluindo o total mensal, sem a coluna de item/fatura. O CSV abre diretamente no Excel e contem uma linha por item/fatura, com valores em EUR, separador decimal por virgula e meses em formato portugues.
+
+Exportacoes principais: Dashboard PDF por ano; ordem de faturacao por mes; faturas CSV; reporting comercial CSV; encomendas com propostas; propostas CSV; e faturacao anual PDF/CSV.
 
 ## 19. Suporte interno
 

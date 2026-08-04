@@ -23,11 +23,19 @@ async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current
     if order.get("status") == "cancelada":
         raise HTTPException(400, "Encomenda anulada: o plano não pode ser alterado")
     active_invoice = await db.invoices.find_one({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0, "number": 1})
-    if active_invoice:
-        raise HTTPException(400, "Anule primeiro as faturas ativas, com motivo, antes de alterar o plano")
+    change_reason = str(payload.get("change_reason") or "").strip()
+    if active_invoice and user.get("role") != "admin":
+        raise HTTPException(403, "A alteração de um plano com faturação ativa requer um administrador")
+    if active_invoice and not change_reason:
+        raise HTTPException(400, "Indique o motivo da alteração do plano")
     lines_in = payload.get("lines", [])
     existing = await db.plan_lines.find({"order_id": oid}, {"_id": 0}).to_list(1000)
-    used_ids = {ln["id"] for ln in existing if ln.get("invoiced_amount", 0) > 0}
+    used_ids = {
+        ln["id"] for ln in existing
+        if float(ln.get("invoiced_amount") or 0) >= float(ln.get("value") or 0) - TOLERANCE
+        and float(ln.get("invoiced_amount") or 0) > TOLERANCE
+    }
+    existing_by_id = {ln["id"]: ln for ln in existing}
     existing_ids = {ln["id"] for ln in existing}
     existing_active_total = sum(float(ln.get("value") or 0) for ln in existing if ln.get("status") != "cancelada")
     requested_total = sum(float(ln.get("value") or 0) for ln in lines_in if ln.get("status") != "cancelada")
@@ -40,6 +48,20 @@ async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current
     for ln in lines_in:
         line_id = ln.get("id")
         if line_id and line_id in used_ids:
+            continue
+        current = existing_by_id.get(line_id)
+        if current and float(current.get("invoiced_amount") or 0) > TOLERANCE:
+            if any(ln.get(field) != current.get(field) for field in ("source_item_key", "type", "description", "expected_date")):
+                raise HTTPException(400, "Os dados de uma linha parcialmente faturada não podem ser alterados")
+            invoiced_amount = float(current.get("invoiced_amount") or 0)
+            requested_value = float(ln.get("value") or 0)
+            if requested_value + TOLERANCE < invoiced_amount:
+                raise HTTPException(400, "O valor da linha não pode ficar abaixo do valor já faturado")
+            new_lines.append({
+                **current,
+                "value": round(requested_value, 2),
+                "status": "faturada" if abs(requested_value - invoiced_amount) <= TOLERANCE else "parcialmente_faturada",
+            })
             continue
         new_lines.append({
             "id": new_id(),
@@ -56,6 +78,16 @@ async def replace_plan(oid: str, payload: dict, user: dict = Depends(get_current
     await db.plan_lines.delete_many({"order_id": oid, "id": {"$nin": list(used_ids)}})
     if new_lines:
         await db.plan_lines.insert_many(new_lines)
+    if active_invoice:
+        await audit_log(
+            "update",
+            "billing_plan",
+            oid,
+            {"active_invoice": active_invoice.get("number")},
+            {"line_count": len(new_lines) + len(used_ids)},
+            user,
+            change_reason,
+        )
     all_lines = await db.plan_lines.find({"order_id": oid}, {"_id": 0}).sort("expected_date", 1).to_list(1000)
     await recalc_order_status(oid)
     return {"order_id": oid, "lines": all_lines}
@@ -127,10 +159,13 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
             raise HTTPException(400, "Valor da linha deve ser > 0")
         if amt > remaining + TOLERANCE:
             raise HTTPException(400, f"Excede saldo por faturar da linha (restante {remaining:.2f}€)")
+        order_net = float(order.get("total_net") or 0)
+        order_vab = float(order.get("total_vab") or 0)
         inv_lines.append({
             "plan_line_id": pl["id"],
             "amount": round(amt, 2),
             "description": ln.get("description") or pl["description"],
+            "vab_amount": round(order_vab * amt / order_net, 2) if order_net else 0.0,
         })
         total_net += amt
 
@@ -164,6 +199,47 @@ async def create_invoice(payload: dict, user: dict = Depends(get_current_user)):
     await recalc_order_status(order_id)
     invoice.pop("_id", None)
     return invoice
+
+
+@router.patch("/invoices/{iid}/vab")
+async def correct_invoice_vab(iid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
+    """Correct line VAB with an admin-only, auditable reason."""
+    reason = str((payload or {}).get("reason") or "").strip()
+    if not reason:
+        raise HTTPException(400, "Motivo da correção do VAB obrigatório")
+    invoice = await db.invoices.find_one({"id": iid}, {"_id": 0})
+    if not invoice:
+        raise HTTPException(404, "Fatura não encontrada")
+    if invoice.get("status") == "anulada":
+        raise HTTPException(400, "Fatura anulada: o VAB não pode ser corrigido")
+    lines = invoice.get("lines") or []
+    corrections = (payload or {}).get("lines") or []
+    if not lines or not corrections:
+        raise HTTPException(400, "A fatura não possui linhas de VAB corrigíveis")
+    by_plan_line = {str(item.get("plan_line_id")): item for item in corrections if item.get("plan_line_id")}
+    by_index = {int(item["index"]): item for item in corrections if str(item.get("index", "")).isdigit()}
+    before_lines = [{**line} for line in lines]
+    updated_lines = []
+    changed = False
+    for index, line in enumerate(lines):
+        correction = by_plan_line.get(str(line.get("plan_line_id"))) or by_index.get(index)
+        if not correction:
+            updated_lines.append(line)
+            continue
+        try:
+            vab_amount = float(correction.get("vab_amount"))
+        except (TypeError, ValueError):
+            raise HTTPException(400, "Valor de VAB inválido")
+        if vab_amount != vab_amount or abs(vab_amount) == float("inf"):
+            raise HTTPException(400, "Valor de VAB inválido")
+        next_line = {**line, "vab_amount": round(vab_amount, 2)}
+        updated_lines.append(next_line)
+        changed = changed or next_line.get("vab_amount") != line.get("vab_amount")
+    if not changed:
+        raise HTTPException(400, "Nenhuma linha foi alterada")
+    await db.invoices.update_one({"id": iid}, {"$set": {"lines": updated_lines}})
+    await audit_log("vab_correction", "invoice", iid, {"lines": before_lines}, {"lines": updated_lines}, user, reason)
+    return await db.invoices.find_one({"id": iid}, {"_id": 0})
 
 
 @router.patch("/invoices/{iid}/external-reference")

@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 
 from deps import db, get_current_user, require_roles, now_iso, new_id, logger
 from models import Lead, Opportunity, Proposal, ProposalLine, Order, compute_proposal_totals
-from helpers import audit_log, notify_proposal_won
+from helpers import audit_log, notify_proposal_won, invoice_line_vab
 
 router = APIRouter()
 
@@ -325,6 +325,37 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
     won_vab = sum(p.get("total_vab", 0) for p in props_won)
     billed_net = sum(float(invoice.get("total_net") or 0) for invoice in invoices)
     billed_gross = sum(float(invoice.get("total_gross") or invoice.get("total_net") or 0) for invoice in invoices)
+    billed_vab = 0.0
+    billed_vab_by_month = {}
+    billing_items_by_month = {}
+    orders_by_id = {order.get("id"): order for order in active_orders}
+    clients_by_id = {client.get("id"): client.get("name", "") for client in await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(2000)}
+    for invoice in invoices:
+        order = orders_by_id.get(invoice.get("order_id"), {})
+        invoice_lines = invoice.get("lines") or []
+        if invoice_lines:
+            billed_amount = sum(float(line.get("amount") or 0) for line in invoice_lines)
+        else:
+            billed_amount = float(invoice.get("total_net") or 0)
+        # A fatura pode ocorrer num ano diferente da encomenda. O VAB é
+        # alocado proporcionalmente ao valor sem IVA efetivamente faturado.
+        invoice_vab = sum(invoice_line_vab(line, order) for line in invoice_lines) if invoice_lines else invoice_line_vab({"amount": billed_amount}, order)
+        billed_vab += invoice_vab
+        invoice_month = str(invoice.get("issued_at", ""))[:7]
+        billed_vab_by_month[invoice_month] = billed_vab_by_month.get(invoice_month, 0.0) + invoice_vab
+        month_items = billing_items_by_month.setdefault(invoice_month, [])
+        source_lines = invoice_lines or [{"amount": invoice.get("total_net") or 0, "description": "Fatura"}]
+        for line in source_lines:
+            line_amount = float(line.get("amount") or 0)
+            line_vab = invoice_line_vab(line, order, line_amount)
+            month_items.append({
+                "invoice": invoice.get("number", ""),
+                "order": order.get("number", ""),
+                "client": clients_by_id.get(invoice.get("client_id") or order.get("client_id"), ""),
+                "item": line.get("description") or "Fatura",
+                "amount": round(line_amount, 2),
+                "vab": round(line_vab, 2),
+            })
     weighted_pipeline = sum(o.get("estimated_value", 0) * (o.get("probability", 0) / 100) for o in opps_open)
     billing_monthly = []
     for month in range(1, 13):
@@ -334,6 +365,8 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
             "month": prefix,
             "total_net": round(sum(float(invoice.get("total_net") or 0) for invoice in month_invoices), 2),
             "total_gross": round(sum(float(invoice.get("total_gross") or invoice.get("total_net") or 0) for invoice in month_invoices), 2),
+            "billed_vab": round(billed_vab_by_month.get(prefix, 0.0), 2),
+            "items": billing_items_by_month.get(prefix, []),
             "count": len(month_invoices),
         })
 
@@ -353,6 +386,7 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
         "orders_vab": round(sum(o.get("total_vab", 0) for o in orders), 2),
         "billed_net": round(billed_net, 2),
         "billed_gross": round(billed_gross, 2),
+        "billed_vab": round(billed_vab, 2),
         "billed_invoice_count": len(invoices),
         "year": year,
         "billing_monthly": billing_monthly,

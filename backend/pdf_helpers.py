@@ -7,7 +7,7 @@ from datetime import datetime
 from xml.sax.saxutils import escape
 from fastapi.responses import Response
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4
+from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.units import mm
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -45,7 +45,7 @@ def _styles():
     }
 
 
-def _header(kicker: str, title: str, subtitle: str = ""):
+def _header(kicker: str, title: str, subtitle: str = "", width_mm: int = 170):
     """Bloco de cabeçalho azul WhyMob — devolve uma Table pronta a inserir."""
     st = _styles()
     inner = [
@@ -54,7 +54,7 @@ def _header(kicker: str, title: str, subtitle: str = ""):
     ]
     if subtitle:
         inner.append([Paragraph(f'<font color="#DDE3F4">{subtitle}</font>', st["small"])])
-    t = Table(inner, colWidths=[170 * mm])
+    t = Table(inner, colWidths=[width_mm * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, -1), NAVY),
         ("LEFTPADDING", (0, 0), (-1, -1), 16),
@@ -72,10 +72,10 @@ def _footer(text: str = ""):
     return Paragraph(f'<font color="#888888">{text}</font>', st["small"])
 
 
-def _pdf_response(story: list, filename: str) -> Response:
+def _pdf_response(story: list, filename: str, pagesize=A4) -> Response:
     buf = io.BytesIO()
     doc = SimpleDocTemplate(
-        buf, pagesize=A4,
+        buf, pagesize=pagesize,
         leftMargin=20 * mm, rightMargin=20 * mm,
         topMargin=15 * mm, bottomMargin=15 * mm,
         title=filename,
@@ -503,3 +503,100 @@ def build_dashboard_pdf(kpis: dict, forecast_receiving: dict, forecast_invoicing
     story.append(Spacer(1, 8 * mm))
     story.append(_footer())
     return _pdf_response(story, f"dashboard-{today.replace('/', '-')}.pdf")
+
+
+def build_annual_billing_pdf(year: int, summary: list, rows: list) -> Response:
+    """Exporta o detalhe anual do plano de faturação e das faturas emitidas."""
+    st = _styles()
+    story = [_header("Faturação anual", f"Plano e faturação {year}", "Valores sem IVA; VAB proporcional por item")]
+    story.append(Spacer(1, 6 * mm))
+
+    totals = {
+        key: sum(float(item.get(key) or 0) for item in summary)
+        for key in ("planned_value", "billed_value", "remaining_value", "vab_value")
+    }
+    summary_rows = [
+        ["Planeado", _eur(totals["planned_value"]), "Faturado", _eur(totals["billed_value"])],
+        ["Por faturar", _eur(totals["remaining_value"]), "VAB", _eur(totals["vab_value"])],
+    ]
+    summary_table = Table(summary_rows, colWidths=[35 * mm, 50 * mm, 35 * mm, 50 * mm])
+    summary_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), LIGHT),
+        ("TEXTCOLOR", (0, 0), (0, -1), GREY),
+        ("TEXTCOLOR", (2, 0), (2, -1), GREY),
+        ("FONTNAME", (1, 0), (1, -1), "Courier-Bold"),
+        ("FONTNAME", (3, 0), (3, -1), "Courier-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 7),
+    ]))
+    story.append(summary_table)
+    story.append(Paragraph("DETALHE POR ITEM", st["h2"]))
+
+    detail_rows = [["Mês", "Encomenda", "Cliente", "Item / fatura", "Planeado", "Faturado", "Por faturar", "VAB"]]
+    for row in rows:
+        detail_rows.append([
+            row.get("mes", ""), row.get("encomenda", ""), row.get("cliente", ""),
+            Paragraph(escape(row.get("item_fatura", "")), st["small"]),
+            _eur(row.get("planeado", 0)), _eur(row.get("faturado", 0)),
+            _eur(row.get("por_faturar", 0)), _eur(row.get("vab", 0)),
+        ])
+    detail_table = Table(
+        detail_rows,
+        colWidths=[15 * mm, 25 * mm, 30 * mm, 50 * mm, 12 * mm, 12 * mm, 13 * mm, 13 * mm],
+        repeatRows=1,
+    )
+    detail_table.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), LIGHT),
+        ("TEXTCOLOR", (0, 0), (-1, 0), NAVY),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 6.5),
+        ("FONTNAME", (4, 1), (-1, -1), "Courier"),
+        ("ALIGN", (4, 1), (-1, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LINEBELOW", (0, 0), (-1, 0), 0.5, NAVY),
+        ("LINEBELOW", (0, 1), (-1, -1), 0.2, colors.HexColor("#EEEEEE")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 3),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(detail_table)
+    story.append(Spacer(1, 6 * mm))
+    story.append(_footer(f"WhyMob CRM · Faturação anual {year}"))
+    return _pdf_response(story, f"faturacao-anual-{year}.pdf")
+
+
+def build_annual_billing_pdf_grouped(year: int, summary: list, rows: list) -> Response:
+    """Annual billing PDF grouped by month, with billed and remaining VAB."""
+    st = _styles()
+    story = [_header("Faturacao anual", f"Plano e faturacao {year}", "Valores sem IVA; VAB proporcional por item", width_mm=257)]
+    story.append(Spacer(1, 6 * mm))
+    totals = {key: sum(float(item.get(key) or 0) for item in summary) for key in ("planned_value", "billed_value", "remaining_value", "vab_billed_value", "vab_remaining_value")}
+    summary_rows = [
+        ["Planeado", _eur(totals["planned_value"]), "Faturado", _eur(totals["billed_value"])],
+        ["Por faturar", _eur(totals["remaining_value"]), "VAB faturado", _eur(totals["vab_billed_value"])],
+        ["VAB por faturar", _eur(totals["vab_remaining_value"]), "", ""],
+    ]
+    summary_table = Table(summary_rows, colWidths=[45 * mm, 83 * mm, 45 * mm, 84 * mm])
+    summary_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, -1), LIGHT), ("TEXTCOLOR", (0, 0), (0, -1), GREY), ("TEXTCOLOR", (2, 0), (2, -1), GREY), ("FONTNAME", (1, 0), (1, -1), "Courier-Bold"), ("FONTNAME", (3, 0), (3, -1), "Courier-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 9), ("BOTTOMPADDING", (0, 0), (-1, -1), 7), ("TOPPADDING", (0, 0), (-1, -1), 7)]))
+    story.append(summary_table)
+    month_names = ["Janeiro", "Fevereiro", "Marco", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"]
+    keys = ("planned_value", "billed_value", "remaining_value", "vab_billed_value", "vab_remaining_value")
+    for month_summary in summary:
+        month_rows = [row for row in rows if row.get("mes") == month_summary.get("month")]
+        if not month_rows and not any(float(month_summary.get(key) or 0) for key in keys):
+            continue
+        month_number = int(str(month_summary["month"])[5:7])
+        story.append(Paragraph(f"{month_names[month_number - 1].upper()} {year}", st["h2"]))
+        detail_rows = [["Encomenda", "Cliente", "Planeado", "Faturado", "VAB faturado", "Por faturar", "VAB por faturar"]]
+        for row in month_rows:
+            detail_rows.append([row.get("encomenda", ""), row.get("cliente", ""), _eur(row.get("planeado", 0)), _eur(row.get("faturado", 0)), _eur(row.get("vab_faturado", 0)), _eur(row.get("por_faturar", 0)), _eur(row.get("vab_por_faturar", 0))])
+        detail_rows.append(["TOTAL DO MES", "", _eur(month_summary.get("planned_value", 0)), _eur(month_summary.get("billed_value", 0)), _eur(month_summary.get("vab_billed_value", 0)), _eur(month_summary.get("remaining_value", 0)), _eur(month_summary.get("vab_remaining_value", 0))])
+        detail_table = Table(detail_rows, colWidths=[35 * mm, 60 * mm, 32 * mm, 32 * mm, 32 * mm, 32 * mm, 34 * mm], repeatRows=1)
+        detail_table.setStyle(TableStyle([("BACKGROUND", (0, 0), (-1, 0), LIGHT), ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E0E7FF")), ("TEXTCOLOR", (0, 0), (-1, 0), NAVY), ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"), ("FONTNAME", (0, -1), (-1, -1), "Courier-Bold"), ("FONTSIZE", (0, 0), (-1, -1), 7), ("FONTNAME", (3, 1), (-1, -1), "Courier"), ("ALIGN", (3, 1), (-1, -1), "RIGHT"), ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LINEBELOW", (0, 0), (-1, 0), 0.5, NAVY), ("LINEABOVE", (0, -1), (-1, -1), 0.5, NAVY), ("LINEBELOW", (0, 1), (-1, -2), 0.2, colors.HexColor("#EEEEEE")), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4), ("TOPPADDING", (0, 0), (-1, -1), 3), ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+        detail_table.setStyle(TableStyle([("FONTNAME", (2, 1), (-1, -1), "Courier"), ("ALIGN", (2, 1), (-1, -1), "RIGHT")]))
+        story.append(detail_table)
+    story.append(Spacer(1, 6 * mm))
+    story.append(_footer(f"WhyMob CRM - Faturacao anual {year}"))
+    return _pdf_response(story, f"faturacao-anual-{year}.pdf", pagesize=landscape(A4))
