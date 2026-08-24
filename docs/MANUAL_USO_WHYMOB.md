@@ -471,6 +471,10 @@ Os botoes `Faturacao anual PDF` e `Faturacao anual Excel/CSV` permitem exportar 
 
 Exportacoes principais: Dashboard PDF por ano; ordem de faturacao por mes; faturas CSV; reporting comercial CSV; encomendas com propostas; propostas CSV; e faturacao anual PDF/CSV.
 
+## 15. Importar recebimentos
+
+Administradores podem importar um ficheiro CSV ou Excel no Reporting. O sistema apresenta primeiro uma pre-conciliacao, sem gravar dados. Reveja as faturas encontradas, divergencias e linhas pendentes; selecione apenas as correspondencias pretendidas, indique o motivo e confirme. O valor importado e comparado com o saldo da fatura c/IVA. A operacao fica registada na auditoria.
+
 ## 19. Suporte interno
 
 Em caso de erro operacional ou dúvida de processo:

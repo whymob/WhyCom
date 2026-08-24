@@ -45,6 +45,8 @@ export default function OrderDetail() {
   const [manufs, setManufs] = useState([]);
   const [invOpen, setInvOpen] = useState(false);
   const [parcelOpen, setParcelOpen] = useState(false);
+  const [rescheduleOpen, setRescheduleOpen] = useState(false);
+  const [rescheduleAllocations, setRescheduleAllocations] = useState([]);
   const [payOpen, setPayOpen] = useState(null);
   const [cancelDialog, setCancelDialog] = useState(null);
   const [cancelReason, setCancelReason] = useState("");
@@ -338,6 +340,76 @@ export default function OrderDetail() {
   const updatePlanLine = (index, patch) => {
     if (isCancelled) return;
     setPlanLines(planLines.map((line, idx) => (idx === index ? { ...line, ...patch } : line)));
+  };
+
+  const nextMonthDate = () => {
+    const next = new Date();
+    next.setDate(1);
+    next.setMonth(next.getMonth() + 1);
+    return [next.getFullYear(), String(next.getMonth() + 1).padStart(2, "0"), "01"].join("-");
+  };
+
+  const today = todayInputValue();
+  const reschedulableLines = activePlanLines.filter((line) => {
+    const remaining = (Number(line.value) || 0) - (Number(line.invoiced_amount) || 0);
+    const expectedDate = String(line.expected_date || "").slice(0, 10);
+    const isDue = Boolean(expectedDate) && expectedDate <= today;
+    return remaining > 0.01 && (line.status === "parcialmente_faturada" || isDue);
+  });
+  const futurePlanLines = activePlanLines.filter((line) => {
+    const expectedDate = String(line.expected_date || "").slice(0, 10);
+    return Boolean(expectedDate) && expectedDate > today && line.status !== "cancelada";
+  });
+
+  const openRescheduleModal = () => {
+    if (isCancelled || planEditDisabled) return;
+    if (!reschedulableLines.length) {
+      toast.error("Não existem saldos disponíveis para reprogramar");
+      return;
+    }
+    if (!futurePlanLines.length) {
+      toast.error("Não existem linhas futuras planeadas para receber o saldo");
+      return;
+    }
+    setRescheduleAllocations(reschedulableLines.map((line) => ({
+      source_line_id: line.id,
+      target_line_id: futurePlanLines[0]?.id || "",
+      value: ((Number(line.value) || 0) - (Number(line.invoiced_amount) || 0)).toFixed(2),
+    })));
+    setRescheduleOpen(true);
+  };
+
+  const addRescheduleAllocation = () => {
+    setRescheduleAllocations([...rescheduleAllocations, { source_line_id: reschedulableLines[0]?.id || "", target_line_id: futurePlanLines[0]?.id || "", value: "0.00" }]);
+  };
+
+  const updateRescheduleAllocation = (index, patch) => {
+    setRescheduleAllocations((current) => current.map((row, rowIndex) => (rowIndex === index ? { ...row, ...patch } : row)));
+  };
+
+  const submitReschedule = async () => {
+    const totals = {};
+    rescheduleAllocations.forEach((row) => {
+      totals[row.source_line_id] = (totals[row.source_line_id] || 0) + (Number(row.value) || 0);
+    });
+    const invalid = reschedulableLines.find((line) => Math.abs(totals[line.id] - ((Number(line.value) || 0) - (Number(line.invoiced_amount) || 0))) > 0.01);
+    if (invalid) {
+      const remaining = (Number(invalid.value) || 0) - (Number(invalid.invoiced_amount) || 0);
+      toast.error(`Distribua exatamente ${eur(remaining)} da linha selecionada`);
+      return;
+    }
+    try {
+      const { data } = await api.post(`/orders/${id}/plan/reschedule`, {
+        allocations: rescheduleAllocations.map((row) => ({ ...row, value: Number(row.value) || 0 })),
+        reason: "Reprogramação de saldo por faturar",
+      });
+      setPlanLines(data.lines);
+      setRescheduleOpen(false);
+      toast.success("Saldo reprogramado");
+      reload();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
   };
 
   const removePlanLine = (index) => {
@@ -841,6 +913,7 @@ export default function OrderDetail() {
             </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={openParcelModal} disabled={planEditDisabled} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
+              <Button size="sm" onClick={openRescheduleModal} disabled={planEditDisabled || reschedulableLines.length === 0 || futurePlanLines.length === 0} data-testid="plan-reschedule-btn" className="rounded-none border border-[#B45309] bg-white text-[#B45309] hover:bg-[#FFF7ED]">Reprogramar saldo</Button>
               <Button size="sm" onClick={addPlanLine} disabled={planEditDisabled || totalRemainingToPlan <= 0.01} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
               <Button size="sm" onClick={requestSavePlan} disabled={planEditDisabled} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
             </div>
@@ -1109,6 +1182,41 @@ export default function OrderDetail() {
           <DialogFooter>
             <Button variant="ghost" onClick={() => setPlanChangeDialog(false)} className="rounded-none">Cancelar</Button>
             <Button onClick={confirmPlanChange} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]" data-testid="confirm-plan-change">Confirmar alteração</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+        <DialogContent className="flex max-h-[90vh] max-w-4xl flex-col overflow-hidden rounded-none">
+          <DialogHeader className="shrink-0"><DialogTitle className="font-display">Reprogramar saldo por faturar</DialogTitle></DialogHeader>
+          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+            <p className="text-sm text-neutral-600">Distribua cada saldo pelas linhas de meses futuros já planeadas. Nenhuma linha nova será criada e o total do plano não será alterado.</p>
+            <div className="border border-neutral-200">
+              <div className="grid grid-cols-12 gap-2 border-b border-neutral-200 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                <div className="col-span-6">Linha / saldo</div><div className="col-span-3">Mês futuro</div><div className="col-span-3 text-right">Valor</div>
+              </div>
+              {rescheduleAllocations.map((row, index) => {
+                const source = reschedulableLines.find((line) => line.id === row.source_line_id);
+                const target = futurePlanLines.find((line) => line.id === row.target_line_id);
+                return <div key={`${row.source_line_id}-${index}`} className="grid grid-cols-12 items-center gap-2 border-b border-neutral-100 px-3 py-2">
+                  <Select value={row.source_line_id} onValueChange={(value) => updateRescheduleAllocation(index, { source_line_id: value })}>
+                    <SelectTrigger className="col-span-6 h-8 rounded-none text-xs"><SelectValue placeholder="Selecionar linha" /></SelectTrigger>
+                    <SelectContent>{reschedulableLines.map((line) => <SelectItem key={line.id} value={line.id}>{line.description || line.type} · saldo {eur((Number(line.value) || 0) - (Number(line.invoiced_amount) || 0))}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Select value={row.target_line_id} onValueChange={(value) => updateRescheduleAllocation(index, { target_line_id: value })}>
+                    <SelectTrigger className="col-span-3 h-8 rounded-none text-xs"><SelectValue placeholder="Mês futuro" /></SelectTrigger>
+                    <SelectContent>{futurePlanLines.map((line) => <SelectItem key={line.id} value={line.id}>{(line.expected_date || "").slice(0, 10)} · {line.description || line.type} · {eur(line.value)}</SelectItem>)}</SelectContent>
+                  </Select>
+                  <Input type="number" min="0.01" step="0.01" value={row.value} onChange={(e) => updateRescheduleAllocation(index, { value: e.target.value })} className="col-span-3 h-8 rounded-none text-right font-mono text-xs" />
+                  {source && <div className="col-span-12 text-[10px] text-neutral-500">Saldo: {eur((Number(source.value) || 0) - (Number(source.invoiced_amount) || 0))}{target ? ` · Destino atual: ${eur(target.value)}` : ""}</div>}
+                </div>;
+              })}
+            </div>
+            <Button type="button" size="sm" variant="outline" onClick={addRescheduleAllocation} className="rounded-none"><Plus size={14} className="mr-1" /> Adicionar mês</Button>
+          </div>
+          <DialogFooter className="shrink-0">
+            <Button type="button" variant="outline" onClick={() => setRescheduleOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button type="button" onClick={submitReschedule} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Reprogramar saldo</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

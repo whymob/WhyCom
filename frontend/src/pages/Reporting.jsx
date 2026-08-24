@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line, Legend, Cell } from "recharts";
 
 const COLORS = { blue: "#002FA7", green: "#00A859", yellow: "#FFC800", red: "#FF2A00" };
@@ -80,6 +81,8 @@ function DetailLink({ children, onClick, testId, align = "left" }) {
 }
 
 export default function Reporting() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [tab, setTab] = useState("executive");
   const [reportingYear, setReportingYear] = useState(new Date().getFullYear());
   const [exec, setExec] = useState(null);
@@ -110,6 +113,10 @@ export default function Reporting() {
   const [annualBillingMode, setAnnualBillingMode] = useState("year");
   const [annualBillingStart, setAnnualBillingStart] = useState(`${new Date().getFullYear()}-01`);
   const [annualBillingEnd, setAnnualBillingEnd] = useState(`${new Date().getFullYear()}-12`);
+  const [paymentImportOpen, setPaymentImportOpen] = useState(false);
+  const [paymentImportPreview, setPaymentImportPreview] = useState(null);
+  const [paymentImportLoading, setPaymentImportLoading] = useState(false);
+  const [paymentImportReason, setPaymentImportReason] = useState("");
 
   useEffect(() => {
     setBillingMonth(`${reportingYear}-01`);
@@ -199,6 +206,52 @@ export default function Reporting() {
       toast.success(`Faturacao exportada (${suffix}, ${extension.toUpperCase()})`);
     } catch (error) {
       toast.error(error.message || "Nao foi possivel exportar a faturacao");
+    }
+  };
+
+  const importPayments = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    setPaymentImportLoading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", file);
+      const response = await api.post("/payments/import/preview", formData, { headers: { "Content-Type": "multipart/form-data" } });
+      setPaymentImportPreview({ ...response.data, rows: response.data.rows.map((row) => ({ ...row, _selected: row.status === "correspondencia_exata" })) });
+      setPaymentImportReason("");
+      setPaymentImportOpen(true);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Não foi possível ler o ficheiro");
+    } finally {
+      setPaymentImportLoading(false);
+    }
+  };
+
+  const confirmPaymentImport = async () => {
+    const selected = (paymentImportPreview?.rows || []).filter((row) => row._selected && row.invoice_id);
+    if (!selected.length) {
+      toast.error("Selecione pelo menos uma correspondência");
+      return;
+    }
+    if (!paymentImportReason.trim()) {
+      toast.error("Indique o motivo da importação");
+      return;
+    }
+    setPaymentImportLoading(true);
+    try {
+      const response = await api.post("/payments/import/confirm", {
+        filename: paymentImportPreview.filename,
+        reason: paymentImportReason,
+        rows: selected,
+      });
+      toast.success(`${response.data.created} recebimento(s) registado(s)`);
+      setPaymentImportOpen(false);
+      setPaymentImportPreview(null);
+    } catch (error) {
+      toast.error(error.response?.data?.detail || "Não foi possível confirmar a conciliação");
+    } finally {
+      setPaymentImportLoading(false);
     }
   };
 
@@ -454,6 +507,12 @@ export default function Reporting() {
                 {Array.from({ length: 7 }, (_, index) => new Date().getFullYear() - 3 + index).map((year) => <option key={year} value={year}>{year}</option>)}
               </select>
             </label>
+            {isAdmin && (
+              <label className="cursor-pointer border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">
+                {paymentImportLoading ? "A ler recebimentos..." : "Importar recebimentos"}
+                <input type="file" accept=".csv,.xlsx,.xls" onChange={importPayments} disabled={paymentImportLoading} className="hidden" data-testid="payment-import-input" />
+              </label>
+            )}
             <button onClick={() => download(`/exports/dashboard.pdf?year=${reportingYear}`, `dashboard-${reportingYear}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
             <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Ordem faturacao (por mes)</button>
             <button onClick={() => openAnnualBillingExport("pdf")} data-testid="export-annual-billing-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Faturação anual PDF</button>
@@ -753,6 +812,46 @@ export default function Reporting() {
             <Button variant="ghost" onClick={() => setBillingOpen(false)} className="rounded-none">Cancelar</Button>
             <Button variant="outline" onClick={submitCompetenceExport} data-testid="billing-competence-submit-btn" className="rounded-none">Competencias CSV</Button>
             <Button onClick={submitBillingExport} data-testid="billing-orders-submit-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Descarregar {billingFormat.toUpperCase()}</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={paymentImportOpen} onOpenChange={(open) => !open && setPaymentImportOpen(false)}>
+        <DialogContent className="flex max-h-[90vh] max-w-6xl flex-col overflow-hidden rounded-none" data-testid="payment-import-dialog">
+          <DialogHeader className="shrink-0"><DialogTitle className="font-display">Pre-conciliacao de recebimentos</DialogTitle></DialogHeader>
+          <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+            <div className="text-xs text-neutral-600">Ficheiro: <span className="font-mono">{paymentImportPreview?.filename}</span>. Nenhuma baixa foi efetuada.</div>
+            <div className="flex flex-wrap gap-3 text-xs text-neutral-600">
+              <span>Total: {paymentImportPreview?.summary?.total || 0}</span>
+              <span className="text-[#00A859]">Exatas: {paymentImportPreview?.summary?.matched || 0}</span>
+              <span className="text-[#9A6700]">Divergentes: {paymentImportPreview?.summary?.divergent || 0}</span>
+              <span className="text-[#B91C1C]">Pendentes: {paymentImportPreview?.summary?.unmatched || 0}</span>
+            </div>
+            <div className="overflow-x-auto border border-neutral-200">
+              <div className="grid min-w-[1050px] grid-cols-[40px_105px_150px_150px_150px_125px_125px_145px] gap-2 border-b border-neutral-200 px-3 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+                <div></div><div>Data</div><div>Fatura importada</div><div>Fatura encontrada</div><div>Cliente</div><div className="text-right">Valor recebido</div><div className="text-right">Saldo fatura</div><div>Resultado</div>
+              </div>
+              {(paymentImportPreview?.rows || []).map((row, index) => (
+                <div key={row.source_index} className="grid min-w-[1050px] grid-cols-[40px_105px_150px_150px_150px_125px_125px_145px] items-center gap-2 border-b border-neutral-100 px-3 py-2 text-xs">
+                  <input type="checkbox" checked={!!row._selected} disabled={!row.invoice_id || row.status === "erro" || row.status === "sem_correspondencia" || row.status === "conflito"} onChange={(event) => setPaymentImportPreview((current) => current ? { ...current, rows: current.rows.map((item, itemIndex) => itemIndex === index ? { ...item, _selected: event.target.checked } : item) } : current)} />
+                  <div className="font-mono">{row.paid_at || "-"}</div>
+                  <div className="truncate">{row.external_number || row.internal_number || "-"}</div>
+                  <div className="font-mono">{row.invoice_number || "-"}</div>
+                  <div className="truncate">{row.client_name || row.client || "-"}</div>
+                  <div className="text-right font-mono">{eur(row.amount)}</div>
+                  <div className="text-right font-mono">{row.invoice_open != null ? eur(row.invoice_open) : "-"}</div>
+                  <div className={row.status === "correspondencia_exata" ? "text-[#00A859]" : row.status === "divergencia_valor" ? "text-[#9A6700]" : "text-[#B91C1C]"}>{row.status === "correspondencia_exata" ? "Correspondencia exata" : row.status === "divergencia_valor" ? `Divergencia (${eur(row.difference)})` : row.error || "Pendente"}</div>
+                </div>
+              ))}
+            </div>
+            <div>
+              <Label>Motivo / referencia da importacao</Label>
+              <Input value={paymentImportReason} onChange={(event) => setPaymentImportReason(event.target.value)} placeholder="Ex.: Conciliacao bancaria de julho de 2026" className="mt-1 rounded-none" data-testid="payment-import-reason" />
+            </div>
+          </div>
+          <DialogFooter className="shrink-0">
+            <Button variant="ghost" onClick={() => setPaymentImportOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button onClick={confirmPaymentImport} disabled={paymentImportLoading} data-testid="confirm-payment-import" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Confirmar baixas selecionadas</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

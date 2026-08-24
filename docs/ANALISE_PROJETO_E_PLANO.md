@@ -231,3 +231,15 @@ Um administrador pode corrigir o VAB por linha em `PATCH /api/invoices/{id}/vab`
 - `GET /api/exports/proposals.csv`: propostas com oportunidade, notas, estado, valores e conversao.
 
 O PDF anual usa duas referencias: faturado e VAB faturado pela data de emissao; planeado e por faturar pela data prevista do plano. Linhas planeadas noutro ano, mas faturadas no ano selecionado, aparecem no mes de emissao com planeado zero, para que o total faturado coincida com o Dashboard.
+
+### 8.4 Importacao e conciliacao de recebimentos
+
+- O Reporting permite ao administrador importar CSV ou XLSX de recebimentos.
+- A primeira etapa e somente uma pre-conciliacao: nenhum recebimento e gravado.
+- A correspondencia prioriza numero de fatura externa, numero interno e depois cliente/valor em aberto.
+- Cada linha aparece como correspondencia exata, divergencia de valor, conflito ou sem correspondencia.
+- A confirmacao revalida o saldo c/IVA da fatura no backend antes de criar o recebimento.
+- Faturas anuladas e recebimentos anulados nao entram no saldo disponivel.
+- A confirmacao exige motivo e gera auditoria da importacao.
+
+Campos recomendados: `data_recebimento`, `numero_fatura_externa`, `numero_fatura_interna`, `cliente`, `valor_recebido`, `metodo` e `referencia`.
