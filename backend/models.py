@@ -20,6 +20,10 @@ class UserUpdate(BaseModel):
     active: Optional[bool] = None
 
 
+class UserPreferencesUpdate(BaseModel):
+    list_preferences: dict = Field(default_factory=dict)
+
+
 class UserOut(BaseModel):
     id: str
     email: EmailStr
@@ -27,6 +31,7 @@ class UserOut(BaseModel):
     role: str
     active: bool = True
     created_at: str
+    list_preferences: dict = Field(default_factory=dict)
 
 
 class LoginIn(BaseModel):
@@ -143,6 +148,8 @@ class Proposal(BaseModel):
     lines: List[ProposalLine] = []
     valid_until: Optional[str] = None
     notes: Optional[str] = ""
+    next_follow_up_date: Optional[str] = None
+    attachment: Optional[dict] = None
     owner_id: str
     status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada"] = "em_elaboracao"
     lost_reason: Optional[str] = ""

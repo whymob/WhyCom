@@ -1,11 +1,11 @@
 """Audit log + CSV/PDF Exports."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from deps import db, get_current_user
 from helpers import csv_response, csv_response_pt, invoice_line_vab
-from pdf_helpers import build_invoice_pdf, build_billing_orders_pdf, build_dashboard_pdf, build_annual_billing_pdf_grouped
+from pdf_helpers import build_invoice_pdf, build_billing_orders_pdf, build_dashboard_pdf, build_annual_billing_pdf_grouped, build_proposal_follow_up_pdf
 from routers.analytics import (
     by_commercial, by_client, by_manufacturer, _kpis_summary, _forecast_receiving,
     _forecast_invoicing, _vab_analysis, _active_orders,
@@ -459,4 +459,48 @@ async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, l
     # Filtrar "(sem fabricante)" para o snapshot
     bm = [r for r in bm if r.get("manufacturer_id")]
     return build_dashboard_pdf(kpis, fr, fi, vab, bc, bcli, bm)
+
+
+@router.get("/exports/proposals-follow-up.pdf")
+async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    """Exporta propostas com data prevista de fecho em tabelas por horizonte."""
+    proposals = await db.proposals.find({"next_follow_up_date": {"$exists": True, "$ne": None}}, {"_id": 0}).to_list(10000)
+    clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    opportunities = {o["id"]: o.get("description", "") for o in await db.opportunities.find({}, {"_id": 0}).to_list(10000)}
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    anchor = today if year == today.year else datetime(year, 1, 1)
+    thirty_days_end = anchor + timedelta(days=30)
+    next_quarter_month = ((anchor.month - 1) // 3 + 1) * 3 + 1
+    quarter_end = (datetime(year + 1, 1, 1) if next_quarter_month > 12 else datetime(year, next_quarter_month, 1)) - timedelta(days=1)
+    year_end = datetime(year, 12, 31)
+    status_labels = {
+        "em_elaboracao": "Em elaboração", "enviada": "Enviada", "em_negociacao": "Em negociação",
+        "ganha": "Ganha", "perdida": "Perdida", "expirada": "Expirada",
+    }
+    rows = []
+    for proposal in proposals:
+        follow_up = str(proposal.get("next_follow_up_date") or "")[:10]
+        try:
+            follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if follow_up_date < anchor or follow_up_date > year_end:
+            continue
+        rows.append({
+            "number": proposal.get("number", "-"),
+            "client": clients.get(proposal.get("client_id"), "-"),
+            "description": opportunities.get(proposal.get("opportunity_id"), "-"),
+            "value": proposal.get("total_net", 0),
+            "vab": proposal.get("total_vab", 0),
+            "status": status_labels.get(proposal.get("status"), proposal.get("status", "-")),
+            "follow_up": follow_up,
+            "date": follow_up_date,
+        })
+    rows.sort(key=lambda item: item["date"])
+    sections = [
+        ("PRÓXIMOS 30 DIAS", [row for row in rows if row["date"] <= min(thirty_days_end, year_end)]),
+        ("QUARTER", [row for row in rows if row["date"] <= quarter_end]),
+        ("ATÉ AO FINAL DO ANO", rows),
+    ]
+    return build_proposal_follow_up_pdf(year, sections)
 

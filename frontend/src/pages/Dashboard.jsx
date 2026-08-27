@@ -12,7 +12,7 @@ const LEVEL_STYLE = {
   danger: "border-l-[#FF2A00] bg-[#FEE2E2]",
 };
 
-function KPI({ label, value, sub, testid, icon: Icon, to }) {
+function KPI({ label, value, sub, valueExtra, testid, icon: Icon, to }) {
   return (
     <div className="border border-neutral-200 bg-white p-5" data-testid={testid}>
       <div className="flex items-center justify-between">
@@ -26,7 +26,7 @@ function KPI({ label, value, sub, testid, icon: Icon, to }) {
       ) : (
         <div className="mt-3 font-mono font-medium text-2xl tracking-tight">{value}</div>
       )}
-      {sub && <div className="mt-1 text-xs text-neutral-500">{sub}</div>}
+      {(sub || valueExtra) && <div className="mt-1 text-xs text-neutral-500">{valueExtra && <span>{valueExtra} · </span>}{sub}</div>}
     </div>
   );
 }
@@ -164,6 +164,7 @@ export default function Dashboard() {
               testid="kpi-props-sent"
               label="Propostas em Curso"
               value={kpis?.props_sent ?? "-"}
+              valueExtra={eur(kpis?.props_sent_value)}
               sub={`${kpis?.props_won ?? 0} ganhas · ${kpis?.props_lost ?? 0} perdidas`}
               icon={FileText}
               to="/propostas?status_scope=in_progress"

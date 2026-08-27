@@ -10,6 +10,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import { useListFilters } from "@/lib/listPreferences";
 
 function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
   const active = sort.key === sortKey;
@@ -27,7 +30,7 @@ function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [clients, setClients] = useState([]);
-  const [filters, setFilters] = useState({ search: "", status: "__all__" });
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("orders", { search: "", statuses: [] });
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
 
   const load = async () => {
@@ -70,7 +73,7 @@ export default function Orders() {
         ORDER_STATUS[order.status] || "",
         order.po_number || "",
       ].some((value) => String(value).toLowerCase().includes(search));
-      const matchesStatus = filters.status === "__all__" || order.status === filters.status;
+      const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(order.status);
       return matchesSearch && matchesStatus;
     });
 
@@ -98,11 +101,11 @@ export default function Orders() {
 
       return sort.direction === "asc" ? result : -result;
     });
-  }, [clientName, filters.search, filters.status, orders, sort]);
+  }, [clientName, filters.search, filters.statuses, orders, sort]);
 
   return (
     <div>
-      <PageHeader kicker="Fase 4" title="Encomendas" />
+      <PageHeader kicker="Fase 4" title="Encomendas" actions={<ListFilterSettings filters={filters} statusOptions={Object.entries(ORDER_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} />} />
       <div className="p-8">
         <div className="border border-neutral-200">
           <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
@@ -117,19 +120,9 @@ export default function Orders() {
             </div>
             <div className="w-[220px]">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
-                <SelectTrigger className="mt-1 rounded-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todos os estados</SelectItem>
-                  {Object.entries(ORDER_STATUS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1"><StatusMultiSelect options={Object.entries(ORDER_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="order-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", status: "__all__" })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
               Limpar filtros
             </Button>
           </div>

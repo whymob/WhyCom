@@ -1,14 +1,35 @@
 """Commercial pipeline: Leads, Opportunities, Proposals, Orders + Funnel/KPIs."""
 import asyncio
+import base64
+import hashlib
+import os
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
+from fastapi.responses import FileResponse
 
 from deps import db, get_current_user, require_roles, now_iso, new_id, logger
 from models import Lead, Opportunity, Proposal, ProposalLine, Order, compute_proposal_totals
 from helpers import audit_log, notify_proposal_won, invoice_line_vab
 
 router = APIRouter()
+PROPOSAL_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024
+PROPOSAL_ATTACHMENT_DIR = os.environ.get("PROPOSAL_ATTACHMENT_DIR", "/app/uploads")
+ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER = os.environ.get("ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER", "true").lower() in {"1", "true", "yes"}
+
+
+def _valid_proposal_attachment_signature(extension: str, header: bytes) -> bool:
+    if extension == ".pdf":
+        return header.startswith(b"%PDF-")
+    # OOXML files (.docx/.pptx) are ZIP containers; legacy Office files use OLE.
+    return header.startswith(b"PK\x03\x04") or header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1")
+ALLOWED_PROPOSAL_ATTACHMENT_TYPES = {
+    ".pdf": {"application/pdf"},
+    ".doc": {"application/msword"},
+    ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
+    ".ppt": {"application/vnd.ms-powerpoint"},
+    ".pptx": {"application/vnd.openxmlformats-officedocument.presentationml.presentation"},
+}
 
 
 def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
@@ -148,7 +169,7 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
         "opportunity_id": oid, "client_id": opp["client_id"],
         "lines": [],
         "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opp.get("description", ""), "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opp.get("description", ""), "next_follow_up_date": opp.get("next_follow_up_date"), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None,
         "total_net": 0.0, "total_vat": 0.0, "total_gross": 0.0, "total_vab": 0.0,
         "created_at": now_iso(), "updated_at": now_iso(),
@@ -295,6 +316,112 @@ async def update_order(oid: str, payload: dict, user: dict = Depends(get_current
     return doc
 
 
+@router.post("/proposals/{pid}/attachment", response_model=Proposal)
+async def upload_proposal_attachment(pid: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not proposal:
+        raise HTTPException(404, "Proposta não encontrada")
+    if proposal.get("converted_order_id") and not ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER:
+        raise HTTPException(400, "Proposta convertida em encomenda: o anexo não pode ser alterado")
+    filename = os.path.basename(file.filename or "anexo")
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in ALLOWED_PROPOSAL_ATTACHMENT_TYPES:
+        raise HTTPException(400, "Tipo de ficheiro não permitido. Use PDF, Word ou PowerPoint")
+    if file.content_type and file.content_type not in ALLOWED_PROPOSAL_ATTACHMENT_TYPES[extension]:
+        raise HTTPException(400, "O tipo do ficheiro não corresponde à extensão permitida")
+    os.makedirs(PROPOSAL_ATTACHMENT_DIR, exist_ok=True)
+    storage_key = os.path.join("proposals", pid, f"{new_id()}{extension}")
+    storage_path = os.path.join(PROPOSAL_ATTACHMENT_DIR, storage_key)
+    os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+    file_size = 0
+    digest = hashlib.sha256()
+    try:
+        file.file.seek(0)
+        header = file.file.read(16)
+        if not _valid_proposal_attachment_signature(extension, header):
+            raise HTTPException(400, "O conteúdo do ficheiro não corresponde a um documento válido")
+        file.file.seek(0)
+        with open(storage_path, "wb") as output:
+            while chunk := file.file.read(1024 * 1024):
+                file_size += len(chunk)
+                if file_size > PROPOSAL_ATTACHMENT_MAX_BYTES:
+                    raise HTTPException(400, "O ficheiro não pode ultrapassar 50 MB")
+                digest.update(chunk)
+                output.write(chunk)
+        if file_size == 0:
+            raise HTTPException(400, "O ficheiro está vazio")
+    except HTTPException:
+        if os.path.exists(storage_path):
+            os.remove(storage_path)
+        raise
+    except Exception:
+        if os.path.exists(storage_path):
+            os.remove(storage_path)
+        raise HTTPException(500, "Não foi possível guardar o ficheiro")
+    attachment = {
+        "filename": filename,
+        "content_type": file.content_type or "application/octet-stream",
+        "size": file_size,
+        "sha256": digest.hexdigest(),
+        "storage_key": storage_key,
+        "uploaded_at": now_iso(),
+    }
+    old_storage_key = (proposal.get("attachment") or {}).get("storage_key")
+    await db.proposals.update_one(
+        {"id": pid},
+        {"$set": {"attachment": attachment, "updated_at": now_iso()}, "$unset": {"_attachment_content": ""}},
+    )
+    if old_storage_key:
+        old_path = os.path.realpath(os.path.join(PROPOSAL_ATTACHMENT_DIR, old_storage_key))
+        upload_root = os.path.realpath(PROPOSAL_ATTACHMENT_DIR)
+        if old_path.startswith(upload_root + os.sep) and os.path.exists(old_path):
+            os.remove(old_path)
+    await audit_log("attachment_upload", "proposal", pid, {"attachment": proposal.get("attachment")}, {"attachment": attachment}, user)
+    doc = await db.proposals.find_one({"id": pid}, {"_id": 0, "_attachment_content": 0})
+    return doc
+
+
+@router.get("/proposals/{pid}/attachment")
+async def download_proposal_attachment(pid: str, user: dict = Depends(get_current_user)):
+    proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not proposal or not proposal.get("attachment"):
+        raise HTTPException(404, "A proposta não tem ficheiro associado")
+    filename = os.path.basename(proposal["attachment"].get("filename") or "anexo")
+    storage_key = proposal["attachment"].get("storage_key")
+    if storage_key:
+        storage_path = os.path.realpath(os.path.join(PROPOSAL_ATTACHMENT_DIR, storage_key))
+        upload_root = os.path.realpath(PROPOSAL_ATTACHMENT_DIR)
+        if not storage_path.startswith(upload_root + os.sep) or not os.path.isfile(storage_path):
+            raise HTTPException(404, "O ficheiro associado não está disponível")
+        return FileResponse(storage_path, media_type=proposal["attachment"].get("content_type") or "application/octet-stream", filename=filename)
+    if not proposal.get("_attachment_content"):
+        raise HTTPException(404, "O ficheiro associado não está disponível")
+    try:
+        content = base64.b64decode(proposal["_attachment_content"])
+    except (ValueError, TypeError):
+        raise HTTPException(500, "O ficheiro associado está inválido")
+    return Response(content=content, media_type=proposal["attachment"].get("content_type") or "application/octet-stream", headers={"Content-Disposition": f'attachment; filename="{filename}"'})
+
+
+@router.delete("/proposals/{pid}/attachment", response_model=Proposal)
+async def delete_proposal_attachment(pid: str, user: dict = Depends(get_current_user)):
+    proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    if not proposal:
+        raise HTTPException(404, "Proposta não encontrada")
+    if proposal.get("converted_order_id") and not ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER:
+        raise HTTPException(400, "Proposta convertida em encomenda: o anexo não pode ser alterado")
+    storage_key = (proposal.get("attachment") or {}).get("storage_key")
+    if storage_key:
+        storage_path = os.path.realpath(os.path.join(PROPOSAL_ATTACHMENT_DIR, storage_key))
+        upload_root = os.path.realpath(PROPOSAL_ATTACHMENT_DIR)
+        if storage_path.startswith(upload_root + os.sep) and os.path.isfile(storage_path):
+            os.remove(storage_path)
+    await db.proposals.update_one({"id": pid}, {"$unset": {"attachment": "", "_attachment_content": ""}, "$set": {"updated_at": now_iso()}})
+    await audit_log("attachment_delete", "proposal", pid, {"attachment": proposal.get("attachment")}, {}, user)
+    doc = await db.proposals.find_one({"id": pid}, {"_id": 0})
+    return doc
+
+
 # ------------- Dashboard: KPIs + Funnel -------------
 @router.get("/dashboard/kpis")
 async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
@@ -322,6 +449,7 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
     conv_rate = round((len(props_won) / total_props_closed) * 100, 1) if total_props_closed else 0.0
 
     won_value = sum(p.get("total_net", 0) for p in props_won)
+    props_sent_value = sum(p.get("total_net", 0) for p in props_sent)
     won_vab = sum(p.get("total_vab", 0) for p in props_won)
     billed_net = sum(float(invoice.get("total_net") or 0) for invoice in invoices)
     billed_gross = sum(float(invoice.get("total_gross") or invoice.get("total_net") or 0) for invoice in invoices)
@@ -376,6 +504,7 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
         "opps_open": len(opps_open),
         "opps_weighted_value": round(weighted_pipeline, 2),
         "props_sent": len(props_sent),
+        "props_sent_value": round(props_sent_value, 2),
         "props_won": len(props_won),
         "props_lost": len(props_lost),
         "conversion_rate": conv_rate,
@@ -394,11 +523,34 @@ async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: d
 
 
 @router.get("/dashboard/funnel")
-async def funnel(manufacturer_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+async def funnel(
+    manufacturer_id: Optional[str] = Query(None),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    user: dict = Depends(get_current_user),
+):
     leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
     props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
     orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+
+    available_years = sorted({
+        value
+        for records, fields in (
+            (leads, ("created_at",)),
+            (opps, ("created_at",)),
+            (props, ("updated_at", "created_at")),
+            (orders, ("order_date", "created_at")),
+        )
+        for item in records
+        for value in [record_year(item, fields)]
+        if value is not None
+    })
+
+    if year is not None:
+        leads = [item for item in leads if record_year(item, ("created_at",)) == year]
+        opps = [item for item in opps if record_year(item, ("created_at",)) == year]
+        props = [item for item in props if record_year(item, ("updated_at", "created_at")) == year]
+        orders = [item for item in orders if record_year(item, ("order_date", "created_at")) == year]
 
     if manufacturer_id:
         products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(5000)}
@@ -425,18 +577,28 @@ async def funnel(manufacturer_id: Optional[str] = Query(None), user: dict = Depe
         props = [p for p in props if p["id"] in matching_prop_ids]
         orders = [o for o in orders if o.get("proposal_id") in matching_prop_ids]
 
+    clients = {item["id"]: item.get("name", "") for item in await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
+    opportunity_descriptions = {item.get("id"): item.get("description", "") for item in opps}
+    proposal_by_id = {item.get("id"): item for item in props}
+    stage_items = {
+        "leads": [{"id": item.get("id"), "title": item.get("id", "-"), "client": clients.get(item.get("client_id")) or item.get("client_name_raw") or "-", "description": item.get("description", ""), "value": item.get("estimated_value", 0), "vab": 0, "status": item.get("status"), "date": item.get("created_at")} for item in leads],
+        "opportunities": [{"id": item.get("id"), "title": item.get("id", "-"), "client": clients.get(item.get("client_id"), "-"), "description": item.get("description", ""), "value": item.get("estimated_value", 0), "vab": item.get("estimated_vab", 0), "status": item.get("status"), "date": item.get("created_at")} for item in opps],
+        "proposals": [{"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": opportunity_descriptions.get(item.get("opportunity_id"), ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("created_at"), "follow_up_date": item.get("next_follow_up_date")} for item in props],
+        "orders": [{"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": opportunity_descriptions.get(proposal_by_id.get(item.get("proposal_id"), {}).get("opportunity_id"), ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("order_date") or item.get("created_at")} for item in orders],
+    }
+
     stages = [
         {"key": "leads", "label": "Leads", "count": len(leads),
-         "value": sum(ln.get("estimated_value", 0) for ln in leads), "vab": 0.0},
+         "value": sum(ln.get("estimated_value", 0) for ln in leads), "vab": 0.0, "items": stage_items["leads"]},
         {"key": "opportunities", "label": "Oportunidades", "count": len(opps),
          "value": sum(o.get("estimated_value", 0) for o in opps),
-         "vab": sum(o.get("estimated_vab", 0) for o in opps)},
+         "vab": sum(o.get("estimated_vab", 0) for o in opps), "items": stage_items["opportunities"]},
         {"key": "proposals", "label": "Propostas", "count": len(props),
          "value": sum(p.get("total_net", 0) for p in props),
-         "vab": sum(p.get("total_vab", 0) for p in props)},
+         "vab": sum(p.get("total_vab", 0) for p in props), "items": stage_items["proposals"]},
         {"key": "orders", "label": "Encomendas", "count": len(orders),
          "value": sum(o.get("total_net", 0) for o in orders),
-         "vab": sum(o.get("total_vab", 0) for o in orders)},
+         "vab": sum(o.get("total_vab", 0) for o in orders), "items": stage_items["orders"]},
     ]
     for i, s in enumerate(stages):
         if i == 0:
@@ -444,4 +606,4 @@ async def funnel(manufacturer_id: Optional[str] = Query(None), user: dict = Depe
         else:
             prev = stages[i - 1]["count"]
             s["conversion_pct"] = round((s["count"] / prev) * 100, 1) if prev else 0.0
-    return {"stages": stages}
+    return {"stages": stages, "available_years": available_years}

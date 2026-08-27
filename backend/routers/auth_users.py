@@ -14,7 +14,7 @@ from deps import (
     require_roles,
     verify_password,
 )
-from models import LoginIn, UserCreate, UserOut, UserUpdate
+from models import LoginIn, UserCreate, UserOut, UserUpdate, UserPreferencesUpdate
 
 router = APIRouter()
 
@@ -65,6 +65,17 @@ async def login(payload: LoginIn):
 @router.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+@router.patch("/auth/me/preferences", response_model=UserOut)
+async def update_my_preferences(payload: UserPreferencesUpdate, user: dict = Depends(get_current_user)):
+    """Store private list-filter preferences for the authenticated user."""
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"list_preferences": payload.list_preferences}},
+    )
+    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return updated
 
 
 @router.post("/auth/logout")

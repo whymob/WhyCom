@@ -2,6 +2,8 @@ services:
   backend:
     env_file:
       - ./backend/.env.production
+    environment:
+      ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
     depends_on:
       - mongo
 
@@ -12,6 +14,7 @@ services:
       PORT: 3000
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
+      REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
     ports:
       - "80:3000"
     depends_on:
@@ -30,3 +33,4 @@ services:
 
 volumes:
   mongo_data:
+  proposal_uploads:

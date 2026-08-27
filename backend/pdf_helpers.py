@@ -600,3 +600,54 @@ def build_annual_billing_pdf_grouped(year: int, summary: list, rows: list) -> Re
     story.append(Spacer(1, 6 * mm))
     story.append(_footer(f"WhyMob CRM - Faturacao anual {year}"))
     return _pdf_response(story, f"faturacao-anual-{year}.pdf", pagesize=landscape(A4))
+
+
+def build_proposal_follow_up_pdf(year: int, sections: list[tuple[str, list[dict]]]) -> Response:
+    """PDF horizontal com uma tabela independente por horizonte de fecho."""
+    st = _styles()
+    story = [_header("Previsões", f"Propostas com data prevista de fecho · {year}", "Valores sem IVA", width_mm=257)]
+    story.append(Spacer(1, 6 * mm))
+    for title, rows in sections:
+        story.append(Paragraph(title, st["h2"]))
+        table_rows = [["Proposta", "Cliente", "Descrição", "Valor", "VAB", "Estado", "Data prevista de fecho"]]
+        for row in rows:
+            table_rows.append([
+                row.get("number", "-"),
+                Paragraph(escape(row.get("client", "-")), st["small"]),
+                Paragraph(escape(row.get("description", "-")), st["small"]),
+                _eur(row.get("value", 0)),
+                _eur(row.get("vab", 0)),
+                row.get("status", "-"),
+                row.get("follow_up", "-"),
+            ])
+        if not rows:
+            table_rows.append(["Sem propostas neste período.", "", "", "", "", "", ""])
+        else:
+            table_rows.append([
+                "TOTAL", "", "",
+                _eur(sum(float(row.get("value") or 0) for row in rows)),
+                _eur(sum(float(row.get("vab") or 0) for row in rows)), "", "",
+            ])
+        table = Table(table_rows, colWidths=[32 * mm, 50 * mm, 68 * mm, 28 * mm, 28 * mm, 28 * mm, 23 * mm], repeatRows=1)
+        table.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), LIGHT),
+            ("TEXTCOLOR", (0, 0), (-1, 0), NAVY),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+            ("FONTNAME", (0, 1), (0, -1), "Courier"),
+            ("FONTNAME", (3, 1), (4, -1), "Courier"),
+            ("ALIGN", (3, 1), (4, -1), "RIGHT"),
+            ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#F6F6F6")),
+            ("FONTNAME", (0, -1), (-1, -1), "Courier-Bold"),
+            ("LINEBELOW", (0, 0), (-1, 0), 0.5, NAVY),
+            ("LINEBELOW", (0, 1), (-1, -1), 0.2, colors.HexColor("#EEEEEE")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ]))
+        story.append(table)
+    story.append(Spacer(1, 6 * mm))
+    story.append(_footer(f"WhyMob CRM · Propostas com data prevista de fecho · {year}"))
+    return _pdf_response(story, f"propostas-fecho-{year}.pdf", pagesize=landscape(A4))

@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api, API } from "@/lib/api";
 import { eur, pct, dateShort, LEAD_STATUS, OPP_STATUS, PROP_STATUS, ORDER_STATUS } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
@@ -39,15 +40,15 @@ function recordYear(item, fields) {
   return null;
 }
 
-function Table({ columns, rows, testid }) {
+function Table({ columns, rows, testid, footer }) {
   return (
     <div className="border border-neutral-200" data-testid={testid}>
-      <div className="grid border-b border-neutral-200 px-4 py-2 text-[10px] uppercase tracking-widest text-neutral-500" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
+      <div className="grid gap-3 border-b border-neutral-200 px-4 py-2 text-[10px] uppercase tracking-widest text-neutral-500" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
         {columns.map((column) => <div key={column.key} className={column.align === "right" ? "text-right" : ""}>{column.label}</div>)}
       </div>
       {rows.length === 0 && <div className="p-4 text-sm text-neutral-500">Sem dados.</div>}
       {rows.map((row, index) => (
-        <div key={index} className="grid border-b border-neutral-100 px-4 py-2.5 text-sm" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
+        <div key={index} className="grid gap-3 border-b border-neutral-100 px-4 py-2.5 text-sm" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
           {columns.map((column) => (
             <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""}`}>
               {column.render ? column.render(row) : row[column.key]}
@@ -55,6 +56,15 @@ function Table({ columns, rows, testid }) {
           ))}
         </div>
       ))}
+      {footer && (
+        <div className="grid gap-3 bg-neutral-50 px-4 py-2.5 text-sm font-medium" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
+          {columns.map((column) => (
+            <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""}`}>
+              {column.render ? column.render(footer) : footer[column.key] || ""}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -95,9 +105,12 @@ export default function Reporting() {
   const [leads, setLeads] = useState([]);
   const [opps, setOpps] = useState([]);
   const [propsList, setPropsList] = useState([]);
+  const [allProps, setAllProps] = useState([]);
+  const [allOpps, setAllOpps] = useState([]);
   const [orders, setOrders] = useState([]);
   const [clients, setClients] = useState([]);
   const [products, setProducts] = useState([]);
+  const [followUpScope, setFollowUpScope] = useState("30d");
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailConfig, setDetailConfig] = useState({ title: "", description: "", columns: [], rows: [] });
 
@@ -125,12 +138,56 @@ export default function Reporting() {
   }, [reportingYear]);
 
   const clientMap = useMemo(() => Object.fromEntries(clients.map((client) => [client.id, client])), [clients]);
+  const opportunityMap = useMemo(() => Object.fromEntries(allOpps.map((opportunity) => [opportunity.id, opportunity])), [allOpps]);
   const productMap = useMemo(() => Object.fromEntries(products.map((product) => [product.id, product])), [products]);
   const forecastTotals = useMemo(() => fi.reduce((totals, month) => ({
     planned: totals.planned + (Number(month.planned_value) || 0),
     billed: totals.billed + (Number(month.billed_value) || 0),
     remaining: totals.remaining + (Number(month.remaining_value) || 0),
   }), { planned: 0, billed: 0, remaining: 0 }), [fi]);
+
+  const proposalFollowUpRows = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const anchor = reportingYear === today.getFullYear() ? today : new Date(reportingYear, 0, 1);
+    const thirtyDaysEnd = new Date(anchor);
+    thirtyDaysEnd.setDate(thirtyDaysEnd.getDate() + 30);
+    const quarterEnd = new Date(anchor.getFullYear(), Math.floor(anchor.getMonth() / 3) * 3 + 3, 0);
+    const yearEnd = new Date(reportingYear, 11, 31);
+
+    return allProps
+      .map((proposal) => {
+        const followUp = proposal.next_follow_up_date;
+        if (!followUp) return null;
+        const date = new Date(`${String(followUp).slice(0, 10)}T00:00:00`);
+        if (Number.isNaN(date.getTime()) || date < anchor || date > yearEnd) return null;
+        const horizon = date <= thirtyDaysEnd
+          ? "Próximos 30 dias"
+          : date <= quarterEnd
+            ? "Trimestre atual"
+            : "Até ao fim do ano";
+        const client = clientMap[proposal.client_id]?.name || "-";
+        return {
+          id: proposal.id,
+          scope: date <= thirtyDaysEnd ? "30d" : date <= quarterEnd ? "quarter" : "year",
+          horizon,
+          number: proposal.number || "-",
+          client,
+          description: opportunityMap[proposal.opportunity_id]?.description || "-",
+          value: Number(proposal.total_net) || 0,
+          vab: Number(proposal.total_vab) || 0,
+          status: PROP_STATUS[proposal.status] || proposal.status || "-",
+          followUp,
+        };
+      })
+      .filter(Boolean)
+      .sort((left, right) => String(left.followUp).localeCompare(String(right.followUp)));
+  }, [allProps, clientMap, opportunityMap, reportingYear]);
+
+  const visibleProposalFollowUps = useMemo(() => {
+    const allowed = followUpScope === "30d" ? ["30d"] : followUpScope === "quarter" ? ["30d", "quarter"] : ["30d", "quarter", "year"];
+    return proposalFollowUpRows.filter((row) => allowed.includes(row.scope));
+  }, [followUpScope, proposalFollowUpRows]);
 
   const download = async (path, filename) => {
     const token = localStorage.getItem("whymob_token");
@@ -283,7 +340,9 @@ export default function Reporting() {
     ]) => {
       setLeads(leadsResponse.data.filter((item) => recordYear(item, ["created_at"]) === reportingYear));
       setOpps(oppsResponse.data.filter((item) => recordYear(item, ["created_at"]) === reportingYear));
+      setAllOpps(oppsResponse.data);
       setPropsList(propsResponse.data.filter((item) => recordYear(item, ["updated_at", "created_at"]) === reportingYear));
+      setAllProps(propsResponse.data);
       setOrders(ordersResponse.data.filter((item) => !["cancelada", "anulada"].includes(item.status) && recordYear(item, ["order_date", "created_at"]) === reportingYear));
       setClients(clientsResponse.data);
       setProducts(productsResponse.data);
@@ -513,7 +572,8 @@ export default function Reporting() {
                 <input type="file" accept=".csv,.xlsx,.xls" onChange={importPayments} disabled={paymentImportLoading} className="hidden" data-testid="payment-import-input" />
               </label>
             )}
-            <button onClick={() => download(`/exports/dashboard.pdf?year=${reportingYear}`, `dashboard-${reportingYear}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
+        <button onClick={() => download(`/exports/dashboard.pdf?year=${reportingYear}`, `dashboard-${reportingYear}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
+        <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}`, `propostas-fecho-${reportingYear}.pdf`)} data-testid="export-proposals-follow-up-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Fecho propostas PDF</button>
             <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Ordem faturacao (por mes)</button>
             <button onClick={() => openAnnualBillingExport("pdf")} data-testid="export-annual-billing-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Faturação anual PDF</button>
             <button onClick={() => openAnnualBillingExport("csv")} data-testid="export-annual-billing-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturação anual Excel/CSV</button>
@@ -701,6 +761,38 @@ export default function Reporting() {
                   </div>
                 )}
               </div>
+            </div>
+            <div className="mt-6 border border-neutral-200 p-4" data-testid="proposal-follow-up-panel">
+              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                <div className="text-[10px] uppercase tracking-widest text-neutral-500">Propostas com data prevista de fecho · {reportingYear}</div>
+                <div className="flex border border-neutral-200">
+                  {[['30d', '30 dias'], ['quarter', 'Quarter'], ['year', 'Até final do ano']].map(([value, label]) => (
+                    <button key={value} type="button" onClick={() => setFollowUpScope(value)} className={`px-3 py-1.5 text-xs ${followUpScope === value ? "bg-[#002FA7] text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`} data-testid={`proposal-follow-up-${value}`}>
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mb-3 text-xs text-neutral-500">A apresentar propostas com data prevista de fecho no período selecionado.</div>
+              <Table
+                testid="proposal-follow-up-table"
+                rows={visibleProposalFollowUps}
+                footer={{
+                  horizon: "TOTAL",
+                  value: visibleProposalFollowUps.reduce((total, row) => total + row.value, 0),
+                  vab: visibleProposalFollowUps.reduce((total, row) => total + row.vab, 0),
+                }}
+                columns={[
+                  { key: "horizon", label: "Horizonte", w: "170px" },
+                  { key: "number", label: "Proposta", w: "150px", mono: true, render: (row) => <Link to={`/propostas/${row.id}`} className="text-[#002FA7] hover:underline">{row.number}</Link> },
+                  { key: "client", label: "Cliente" },
+                  { key: "description", label: "Descrição", w: "260px" },
+                  { key: "value", label: "Valor", w: "130px", align: "right", render: (row) => eur(row.value) },
+                  { key: "vab", label: "VAB", w: "130px", align: "right", render: (row) => eur(row.vab) },
+                  { key: "status", label: "Estado", w: "140px" },
+                  { key: "followUp", label: "Data prevista de fecho", w: "170px", mono: true, render: (row) => dateShort(row.followUp) },
+                ]}
+              />
             </div>
           </TabsContent>
 

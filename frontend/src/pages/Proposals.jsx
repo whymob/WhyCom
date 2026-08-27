@@ -11,6 +11,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { toast } from "sonner";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import { useListFilters } from "@/lib/listPreferences";
 
 const STATUS_STYLE = {
   em_elaboracao: "bg-neutral-100 text-neutral-800",
@@ -40,9 +43,9 @@ export default function Proposals() {
   const [clients, setClients] = useState([]);
   const [opportunities, setOpportunities] = useState([]);
   const [convertOpen, setConvertOpen] = useState(null);
-  const [filters, setFilters] = useState({
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("proposals", {
     search: searchParams.get("search") || "",
-    status: searchParams.get("status_scope") === "in_progress" ? "__in_progress__" : (searchParams.get("status") || "__all__"),
+    statuses: searchParams.get("status_scope") === "in_progress" ? ["enviada", "em_negociacao"] : (searchParams.get("status") || "").split(",").filter(Boolean),
   });
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
 
@@ -64,8 +67,7 @@ export default function Proposals() {
   useEffect(() => {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
-    if (filters.status === "__in_progress__") next.set("status_scope", "in_progress");
-    else if (filters.status !== "__all__") next.set("status", filters.status);
+    if (filters.statuses.length) next.set("status", filters.statuses.join(","));
     setSearchParams(next, { replace: true });
   }, [filters, setSearchParams]);
 
@@ -119,9 +121,7 @@ export default function Proposals() {
         opportunityDescription(proposal.opportunity_id),
         PROP_STATUS[proposal.status] || "",
       ].some((value) => String(value).toLowerCase().includes(search));
-      const matchesStatus = filters.status === "__all__"
-        || (filters.status === "__in_progress__" && ["enviada", "em_negociacao"].includes(proposal.status))
-        || proposal.status === filters.status;
+      const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(proposal.status);
       return matchesSearch && matchesStatus;
     });
 
@@ -152,11 +152,11 @@ export default function Proposals() {
 
       return sort.direction === "asc" ? result : -result;
     });
-  }, [clientName, filters.search, filters.status, opportunityDescription, props, sort]);
+  }, [clientName, filters.search, filters.statuses, opportunityDescription, props, sort]);
 
   return (
     <div>
-      <PageHeader kicker="Fase 3" title="Propostas" />
+      <PageHeader kicker="Fase 3" title="Propostas" actions={<ListFilterSettings filters={filters} statusOptions={Object.entries(PROP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} />} />
       <div className="p-8">
         <div className="border border-neutral-200">
           <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
@@ -171,20 +171,9 @@ export default function Proposals() {
             </div>
             <div className="w-[220px]">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
-                <SelectTrigger className="mt-1 rounded-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todos os estados</SelectItem>
-                  <SelectItem value="__in_progress__">Em curso</SelectItem>
-                  {Object.entries(PROP_STATUS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1"><StatusMultiSelect options={Object.entries(PROP_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="proposal-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", status: "__all__" })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
               Limpar filtros
             </Button>
             <Button onClick={exportProposals} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">

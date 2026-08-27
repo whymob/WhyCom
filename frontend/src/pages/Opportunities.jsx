@@ -14,6 +14,9 @@ import { Label } from "@/components/ui/label";
 import SearchableSelect from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import { useListFilters } from "@/lib/listPreferences";
 
 const STATUS_STYLE = {
   aberta: "bg-neutral-100 text-neutral-800",
@@ -61,9 +64,9 @@ export default function Opportunities() {
   const [lostOpen, setLostOpen] = useState(null);
   const [lostReason, setLostReason] = useState("");
   const [convertOpen, setConvertOpen] = useState(null);
-  const [filters, setFilters] = useState({
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("opportunities", {
     search: searchParams.get("search") || "",
-    status: searchParams.get("status_scope") === "open" ? "__open__" : (searchParams.get("status") || "__all__"),
+    statuses: searchParams.get("status_scope") === "open" ? ["aberta", "em_analise"] : (searchParams.get("status") || "").split(",").filter(Boolean),
   });
   const [sort, setSort] = useState({ key: "value", direction: "desc" });
 
@@ -80,8 +83,7 @@ export default function Opportunities() {
   useEffect(() => {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
-    if (filters.status === "__open__") next.set("status_scope", "open");
-    else if (filters.status !== "__all__") next.set("status", filters.status);
+    if (filters.statuses.length) next.set("status", filters.statuses.join(","));
     setSearchParams(next, { replace: true });
   }, [filters, setSearchParams]);
 
@@ -181,9 +183,7 @@ export default function Opportunities() {
         opportunity.description || "",
         OPP_STATUS[opportunity.status] || "",
       ].some((value) => String(value).toLowerCase().includes(search));
-      const matchesStatus = filters.status === "__all__"
-        || (filters.status === "__open__" && ["aberta", "em_analise"].includes(opportunity.status))
-        || opportunity.status === filters.status;
+      const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(opportunity.status);
       return matchesSearch && matchesStatus;
     });
 
@@ -208,7 +208,7 @@ export default function Opportunities() {
 
       return sort.direction === "asc" ? result : -result;
     });
-  }, [clientName, filters.search, filters.status, opps, sort]);
+  }, [clientName, filters.search, filters.statuses, opps, sort]);
 
   const convertOpp = useMemo(
     () => opps.find((opportunity) => opportunity.id === convertOpen) || null,
@@ -220,7 +220,7 @@ export default function Opportunities() {
       <PageHeader
         kicker="Fase 2"
         title="Oportunidades"
-        actions={<Button onClick={openCreate} data-testid="new-opp-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]"><Plus size={16} className="mr-1" /> Nova oportunidade</Button>}
+        actions={<><ListFilterSettings filters={filters} statusOptions={Object.entries(OPP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button onClick={openCreate} data-testid="new-opp-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]"><Plus size={16} className="mr-1" /> Nova oportunidade</Button></>}
       />
       <div className="p-8">
         <div className="border border-neutral-200">
@@ -236,20 +236,9 @@ export default function Opportunities() {
             </div>
             <div className="w-[220px]">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
-                <SelectTrigger className="mt-1 rounded-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todos os estados</SelectItem>
-                  <SelectItem value="__open__">Abertas</SelectItem>
-                  {Object.entries(OPP_STATUS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1"><StatusMultiSelect options={Object.entries(OPP_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="opportunity-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", status: "__all__" })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
               Limpar filtros
             </Button>
           </div>
@@ -274,7 +263,9 @@ export default function Opportunities() {
           {visibleOpps.map((opportunity) => (
             <div key={opportunity.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`opp-row-${opportunity.id}`}>
               <div className="col-span-3 font-medium">{clientName(opportunity.client_id)}</div>
-              <div className="col-span-3 truncate text-neutral-700">{opportunity.description}</div>
+              <div className="col-span-3 truncate text-neutral-700">
+                {opportunity.description}
+              </div>
               <div className="col-span-2 pr-4 text-right font-mono">
                 {eur(opportunity.estimated_value)}
                 <div className="text-[10px] text-neutral-500">VAB {eur(opportunity.estimated_vab)}</div>

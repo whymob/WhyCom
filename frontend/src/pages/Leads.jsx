@@ -14,6 +14,9 @@ import { Label } from "@/components/ui/label";
 import SearchableSelect from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import { useListFilters } from "@/lib/listPreferences";
 
 const STATUS_STYLE = {
   nova: "bg-neutral-100 text-neutral-800",
@@ -49,9 +52,9 @@ export default function Leads() {
   const [lostOpen, setLostOpen] = useState(null);
   const [lostReason, setLostReason] = useState("");
   const [convertOpen, setConvertOpen] = useState(null);
-  const [filters, setFilters] = useState({
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("leads", {
     search: searchParams.get("search") || "",
-    status: searchParams.get("status_scope") === "open" ? "__open__" : (searchParams.get("status") || "__all__"),
+    statuses: searchParams.get("status_scope") === "open" ? ["nova", "em_qualificacao"] : (searchParams.get("status") || "").split(",").filter(Boolean),
   });
   const [sort, setSort] = useState({ key: "client", direction: "asc" });
 
@@ -68,8 +71,7 @@ export default function Leads() {
   useEffect(() => {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
-    if (filters.status === "__open__") next.set("status_scope", "open");
-    else if (filters.status !== "__all__") next.set("status", filters.status);
+    if (filters.statuses.length) next.set("status", filters.statuses.join(","));
     setSearchParams(next, { replace: true });
   }, [filters, setSearchParams]);
 
@@ -156,9 +158,7 @@ export default function Leads() {
         lead.description || "",
         LEAD_STATUS[lead.status] || "",
       ].some((value) => String(value).toLowerCase().includes(search));
-      const matchesStatus = filters.status === "__all__"
-        || (filters.status === "__open__" && ["nova", "em_qualificacao"].includes(lead.status))
-        || lead.status === filters.status;
+      const matchesStatus = filters.statuses.length === 0 || filters.statuses.includes(lead.status);
       return matchesSearch && matchesStatus;
     });
 
@@ -183,7 +183,7 @@ export default function Leads() {
 
       return sort.direction === "asc" ? result : -result;
     });
-  }, [clientName, filters.search, filters.status, leads, sort]);
+  }, [clientName, filters.search, filters.statuses, leads, sort]);
 
   const convertLead = useMemo(
     () => leads.find((lead) => lead.id === convertOpen) || null,
@@ -196,9 +196,9 @@ export default function Leads() {
         kicker="Fase 1"
         title="Leads"
         actions={(
-          <Button data-testid="new-lead-btn" onClick={openCreate} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
+          <><ListFilterSettings filters={filters} statusOptions={Object.entries(LEAD_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button data-testid="new-lead-btn" onClick={openCreate} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
             <Plus size={16} className="mr-1" /> Nova lead
-          </Button>
+          </Button></>
         )}
       />
       <div className="p-8">
@@ -215,20 +215,9 @@ export default function Leads() {
             </div>
             <div className="w-[220px]">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
-              <Select value={filters.status} onValueChange={(value) => setFilters((current) => ({ ...current, status: value }))}>
-                <SelectTrigger className="mt-1 rounded-none">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__all__">Todos os estados</SelectItem>
-                  <SelectItem value="__open__">Abertas</SelectItem>
-                  {Object.entries(LEAD_STATUS).map(([key, label]) => (
-                    <SelectItem key={key} value={key}>{label}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div className="mt-1"><StatusMultiSelect options={Object.entries(LEAD_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="lead-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", status: "__all__" })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
               Limpar filtros
             </Button>
           </div>

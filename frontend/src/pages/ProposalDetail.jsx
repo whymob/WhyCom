@@ -13,7 +13,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { Plus, Trash2, ChevronLeft } from "lucide-react";
+import { Plus, Trash2, ChevronLeft, Download, Eye, Trash2 as TrashIcon } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 
 function computeLine(line) {
@@ -39,6 +39,10 @@ export default function ProposalDetail() {
   const [payments, setPayments] = useState([]);
   const [lostReason, setLostReason] = useState("");
   const [pendingStatus, setPendingStatus] = useState(null);
+  const [attachmentLoading, setAttachmentLoading] = useState(false);
+  const [previewOpen, setPreviewOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState("");
+  const [previewLoading, setPreviewLoading] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -91,6 +95,8 @@ export default function ProposalDetail() {
   const clientName = clients.find((client) => client.id === proposal.client_id)?.name || "—";
   const manufName = (manufacturerId) => manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—";
   const isConverted = Boolean(proposal.converted_order_id);
+  const canEditAttachmentAfterConversion = process.env.REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER !== "false";
+  const attachmentLocked = isConverted && !canEditAttachmentAfterConversion;
   const isAdmin = user?.role === "admin";
   const lineManuf = (line) => {
     const prod = products.find((product) => product.id === line.product_id);
@@ -209,10 +215,79 @@ export default function ProposalDetail() {
         ...(isConverted ? {} : { lines: proposal.lines }),
         notes: proposal.notes,
         valid_until: proposal.valid_until,
+        next_follow_up_date: proposal.next_follow_up_date || null,
       };
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
       toast.success("Proposta guardada");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
+  const uploadAttachment = async (event) => {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    const formData = new FormData();
+    formData.append("file", file);
+    setAttachmentLoading(true);
+    try {
+      const { data } = await api.post(`/proposals/${id}/attachment`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+      setProposal(data);
+      toast.success("Ficheiro associado à proposta");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setAttachmentLoading(false);
+    }
+  };
+
+  const downloadAttachment = async () => {
+    try {
+      const response = await api.get(`/proposals/${id}/attachment`, { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = proposal.attachment?.filename || "anexo-proposta";
+      link.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
+  const previewAttachment = async () => {
+    if (!proposal.attachment?.filename?.toLowerCase().endsWith(".pdf")) return;
+    setPreviewLoading(true);
+    try {
+      const response = await api.get(`/proposals/${id}/attachment`, { responseType: "blob" });
+      const url = URL.createObjectURL(response.data);
+      setPreviewUrl((current) => {
+        if (current) URL.revokeObjectURL(current);
+        return url;
+      });
+      setPreviewOpen(true);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setPreviewLoading(false);
+    }
+  };
+
+  const closePreview = () => {
+    setPreviewOpen(false);
+    setPreviewUrl((current) => {
+      if (current) URL.revokeObjectURL(current);
+      return "";
+    });
+  };
+
+  const removeAttachment = async () => {
+    try {
+      const { data } = await api.delete(`/proposals/${id}/attachment`);
+      setProposal(data);
+      toast.success("Ficheiro removido");
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -376,7 +451,7 @@ export default function ProposalDetail() {
           </div>
         </div>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-3 gap-4">
           <div className="border border-neutral-200 p-4">
             <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Notas internas</Label>
             <Textarea rows={3} value={proposal.notes || ""} onChange={(e) => setProposal({ ...proposal, notes: e.target.value })} className="rounded-none mt-2" data-testid="prop-notes" />
@@ -385,7 +460,42 @@ export default function ProposalDetail() {
             <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Validade</Label>
             <Input type="date" value={(proposal.valid_until || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, valid_until: e.target.value })} className="rounded-none mt-2 font-mono" />
           </div>
+          <div className="border border-neutral-200 p-4">
+            <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Data prevista de fecho</Label>
+            <Input type="date" value={(proposal.next_follow_up_date || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, next_follow_up_date: e.target.value })} className="rounded-none mt-2 font-mono" data-testid="proposal-follow-up-date" />
+          </div>
         </div>
+
+        <div className="border border-neutral-200 p-4">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Ficheiro da proposta</div>
+          {proposal.attachment ? (
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="text-sm">
+                <div className="font-medium">{proposal.attachment.filename}</div>
+                <div className="text-xs text-neutral-500">{Math.ceil((proposal.attachment.size || 0) / 1024)} KB</div>
+              </div>
+              <div className="flex gap-2">
+                {proposal.attachment.filename?.toLowerCase().endsWith(".pdf") && <Button type="button" size="sm" variant="outline" onClick={previewAttachment} disabled={previewLoading} className="rounded-none"><Eye size={14} className="mr-1" /> Visualizar</Button>}
+                <Button type="button" size="sm" variant="outline" onClick={downloadAttachment} className="rounded-none"><Download size={14} className="mr-1" /> Descarregar</Button>
+                <Button type="button" size="sm" variant="ghost" onClick={removeAttachment} disabled={attachmentLocked || attachmentLoading} className="rounded-none text-[#FF2A00]"><TrashIcon size={14} className="mr-1" /> Remover</Button>
+              </div>
+            </div>
+          ) : <div className="text-sm text-neutral-500">Nenhum ficheiro associado.</div>}
+          <div className="mt-3">
+            <Input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation" onChange={uploadAttachment} disabled={attachmentLocked || attachmentLoading} data-testid="proposal-attachment-input" className="rounded-none" />
+            <div className="mt-1 text-[11px] text-neutral-500">Formatos permitidos: PDF, Word e PowerPoint · máximo 50 MB. Um novo ficheiro substitui o atual.</div>
+          </div>
+        </div>
+
+        <Dialog open={previewOpen} onOpenChange={(open) => !open && closePreview()}>
+          <DialogContent className="flex h-[90vh] max-w-5xl flex-col overflow-hidden rounded-none">
+            <DialogHeader className="shrink-0"><DialogTitle className="font-display">Visualizar PDF · {proposal.attachment?.filename}</DialogTitle></DialogHeader>
+            <div className="min-h-0 flex-1 bg-neutral-100">
+              {previewUrl && <iframe src={previewUrl} title={`Visualização de ${proposal.attachment?.filename || "PDF"}`} className="h-full w-full border-0" />}
+            </div>
+            <DialogFooter className="shrink-0"><Button type="button" variant="outline" onClick={closePreview} className="rounded-none">Fechar</Button></DialogFooter>
+          </DialogContent>
+        </Dialog>
 
         <div className="border border-neutral-200 p-4">
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Alterar estado</div>
