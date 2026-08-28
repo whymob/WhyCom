@@ -173,7 +173,7 @@ export default function Reporting() {
           horizon,
           number: proposal.number || "-",
           client,
-          description: opportunityMap[proposal.opportunity_id]?.description || "-",
+          description: proposal.description || opportunityMap[proposal.opportunity_id]?.description || "-",
           value: Number(proposal.total_net) || 0,
           vab: Number(proposal.total_vab) || 0,
           status: PROP_STATUS[proposal.status] || proposal.status || "-",

@@ -22,6 +22,7 @@ const STATUS_STYLE = {
   ganha: "bg-[#DCFCE7] text-[#00A859]",
   perdida: "bg-[#FEE2E2] text-[#B91C1C]",
   expirada: "bg-neutral-200 text-neutral-600",
+  substituida: "bg-neutral-200 text-neutral-600",
 };
 
 function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
@@ -212,7 +213,7 @@ export default function Proposals() {
                 <div className="text-[10px] text-neutral-500">v{proposal.version} · {dateShort(proposal.created_at)}</div>
               </div>
               <div className="col-span-2 font-medium">{clientName(proposal.client_id)}</div>
-              <div className="col-span-3 truncate" title={opportunityDescription(proposal.opportunity_id)}>{opportunityDescription(proposal.opportunity_id)}</div>
+              <div className="col-span-3 truncate" title={proposal.description || opportunityDescription(proposal.opportunity_id)}>{proposal.description || opportunityDescription(proposal.opportunity_id)}</div>
               <div className="col-span-1 text-right font-mono">{eur(proposal.total_net)}</div>
               <div className="col-span-1 pr-6 text-right font-mono">{eur(proposal.total_vab)}</div>
               <div className="col-span-2 flex justify-center">

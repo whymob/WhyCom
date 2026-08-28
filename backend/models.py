@@ -139,19 +139,27 @@ class ProposalLine(BaseModel):
         return round(self.net - (self.unit_cost * self.quantity), 2)
 
 
+class NewProposalFromOpportunity(BaseModel):
+    replacement_reason: str = Field(min_length=1)
+
+
 class Proposal(BaseModel):
     id: str = Field(default_factory=new_id)
     number: str = ""
     version: int = 1
     opportunity_id: str
     client_id: str
+    description: Optional[str] = ""
+    previous_proposal_id: Optional[str] = None
+    replacement_reason: Optional[str] = ""
+    replacement_proposal_id: Optional[str] = None
     lines: List[ProposalLine] = []
     valid_until: Optional[str] = None
     notes: Optional[str] = ""
     next_follow_up_date: Optional[str] = None
     attachment: Optional[dict] = None
     owner_id: str
-    status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada"] = "em_elaboracao"
+    status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada", "substituida"] = "em_elaboracao"
     lost_reason: Optional[str] = ""
     converted_order_id: Optional[str] = None
     total_net: float = 0.0

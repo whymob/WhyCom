@@ -33,6 +33,7 @@ export const PROP_STATUS = {
   ganha: "Ganha",
   perdida: "Perdida",
   expirada: "Expirada",
+  substituida: "Substituída",
 };
 
 export const ORDER_STATUS = {

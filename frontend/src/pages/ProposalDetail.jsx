@@ -94,9 +94,10 @@ export default function ProposalDetail() {
 
   const clientName = clients.find((client) => client.id === proposal.client_id)?.name || "—";
   const manufName = (manufacturerId) => manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—";
-  const isConverted = Boolean(proposal.converted_order_id);
+  const isSubstituted = proposal.status === "substituida";
+  const isConverted = Boolean(proposal.converted_order_id) || isSubstituted;
   const canEditAttachmentAfterConversion = process.env.REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER !== "false";
-  const attachmentLocked = isConverted && !canEditAttachmentAfterConversion;
+  const attachmentLocked = isSubstituted || (isConverted && !canEditAttachmentAfterConversion);
   const isAdmin = user?.role === "admin";
   const lineManuf = (line) => {
     const prod = products.find((product) => product.id === line.product_id);
@@ -356,8 +357,8 @@ export default function ProposalDetail() {
         actions={
           <div className="flex gap-2">
             <Link to="/propostas"><Button variant="ghost" className="rounded-none"><ChevronLeft size={14} className="mr-1" /> Voltar</Button></Link>
-            {isConverted && isAdmin && <Button onClick={reopenProposal} data-testid="reopen-proposal-btn" className="rounded-none bg-[#FF2A00] text-white hover:bg-[#D62200]">Reabrir proposta</Button>}
-            <Button onClick={save} data-testid="save-proposal-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar</Button>
+            {isConverted && !isSubstituted && isAdmin && <Button onClick={reopenProposal} data-testid="reopen-proposal-btn" className="rounded-none bg-[#FF2A00] text-white hover:bg-[#D62200]">Reabrir proposta</Button>}
+            <Button onClick={save} disabled={isSubstituted} data-testid="save-proposal-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar</Button>
           </div>
         }
       />
@@ -388,7 +389,8 @@ export default function ProposalDetail() {
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Linhas da proposta</div>
             <Button size="sm" onClick={addLine} disabled={isConverted} data-testid="add-line-btn" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
           </div>
-          {isConverted && <div className="mb-2 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Esta proposta ja foi convertida em encomenda. As linhas e o estado estao bloqueados.</div>}
+          {isConverted && !isSubstituted && <div className="mb-2 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Esta proposta ja foi convertida em encomenda. As linhas e o estado estao bloqueados.</div>}
+          {isSubstituted && <div className="mb-2 border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700"><div><span className="font-medium">Motivo da substituição:</span> {proposal.replacement_reason || "-"}</div>{proposal.replacement_proposal_id && <Link to={`/propostas/${proposal.replacement_proposal_id}`} className="mt-1 inline-block text-[#002FA7] hover:underline">Ver nova proposta que substitui esta</Link>}</div>}
           <div className="border border-neutral-200">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2 gap-2">
               <div className="col-span-3">Produto/Serviço</div>

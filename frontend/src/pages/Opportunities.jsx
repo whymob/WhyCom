@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Eye, Plus } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import PageHeader from "@/components/PageHeader";
@@ -64,6 +64,9 @@ export default function Opportunities() {
   const [lostOpen, setLostOpen] = useState(null);
   const [lostReason, setLostReason] = useState("");
   const [convertOpen, setConvertOpen] = useState(null);
+  const [newProposalOpen, setNewProposalOpen] = useState(false);
+  const [replacementReason, setReplacementReason] = useState("");
+  const navigate = useNavigate();
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("opportunities", {
     search: searchParams.get("search") || "",
     statuses: searchParams.get("status_scope") === "open" ? ["aberta", "em_analise"] : (searchParams.get("status") || "").split(",").filter(Boolean),
@@ -145,6 +148,24 @@ export default function Opportunities() {
       toast.success("Proposta criada a partir da oportunidade");
       setConvertOpen(null);
       load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
+  const createNewProposal = async () => {
+    if (!viewing || !replacementReason.trim()) {
+      toast.error("Indique o motivo da substituição");
+      return;
+    }
+    try {
+      const response = await api.post(`/opportunities/${viewing.id}/proposals`, { replacement_reason: replacementReason.trim() });
+      toast.success("Nova proposta criada; a anterior foi substituída");
+      setNewProposalOpen(false);
+      setViewOpen(false);
+      setReplacementReason("");
+      load();
+      navigate(`/propostas/${response.data.id}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -347,6 +368,7 @@ export default function Opportunities() {
               {viewing.converted_proposal_id && (
                 <div className="flex flex-wrap gap-3 border-t border-neutral-200 pt-3 text-xs">
                   {viewing.converted_proposal_id && <Link to={`/propostas/${viewing.converted_proposal_id}`} className="text-[#002FA7] hover:underline">Ver proposta gerada</Link>}
+                  <Button size="sm" variant="outline" onClick={() => { setReplacementReason(""); setNewProposalOpen(true); }} className="rounded-none text-xs">Criar nova proposta</Button>
                 </div>
               )}
             </div>
@@ -356,6 +378,23 @@ export default function Opportunities() {
             {viewing && viewing.status !== "convertida" && viewing.status !== "perdida" && (
               <Button onClick={() => { setViewOpen(false); openEdit(viewing); }} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Editar</Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={newProposalOpen} onOpenChange={setNewProposalOpen}>
+        <DialogContent className="max-w-lg rounded-none">
+          <DialogHeader><DialogTitle className="font-display">Criar nova proposta</DialogTitle></DialogHeader>
+          <div className="space-y-3">
+            <div className="text-sm text-neutral-600">A descrição será herdada da oportunidade. A proposta atual será marcada como Substituída e a nova ficará ligada à mesma oportunidade.</div>
+            <div>
+              <Label>Motivo da substituição</Label>
+              <Textarea rows={3} value={replacementReason} onChange={(e) => setReplacementReason(e.target.value)} placeholder="Indique por que motivo a proposta anterior será substituída" className="mt-1 rounded-none" data-testid="proposal-replacement-reason" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setNewProposalOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button onClick={createNewProposal} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]" data-testid="create-new-proposal-btn">Criar proposta</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

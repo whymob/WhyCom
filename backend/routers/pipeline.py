@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, Up
 from fastapi.responses import FileResponse
 
 from deps import db, get_current_user, require_roles, now_iso, new_id, logger
-from models import Lead, Opportunity, Proposal, ProposalLine, Order, compute_proposal_totals
+from models import Lead, Opportunity, Proposal, ProposalLine, Order, NewProposalFromOpportunity, compute_proposal_totals
 from helpers import audit_log, notify_proposal_won, invoice_line_vab
 
 router = APIRouter()
@@ -167,6 +167,7 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
     proposal = {
         "id": new_id(), "number": prop_number, "version": 1,
         "opportunity_id": oid, "client_id": opp["client_id"],
+        "description": opp.get("description", ""), "previous_proposal_id": None,
         "lines": [],
         "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
         "notes": opp.get("description", ""), "next_follow_up_date": opp.get("next_follow_up_date"), "owner_id": user["id"], "status": "em_elaboracao",
@@ -199,6 +200,8 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
     current = await db.proposals.find_one({"id": pid}, {"_id": 0})
     if not current:
         raise HTTPException(404, "Proposta não encontrada")
+    if current.get("status") == "substituida":
+        raise HTTPException(400, "Proposta substituída: os dados não podem ser alterados")
     if current.get("converted_order_id") and ("lines" in payload or "status" in payload):
         raise HTTPException(400, "Proposta convertida em encomenda: itens e estado não podem ser alterados")
 
@@ -284,6 +287,38 @@ async def reopen_proposal(pid: str, user: dict = Depends(require_roles("admin"))
     return proposal
 
 
+@router.post("/opportunities/{oid}/proposals", response_model=Proposal)
+async def create_new_proposal_from_opportunity(oid: str, payload: NewProposalFromOpportunity, user: dict = Depends(get_current_user)):
+    """Create a new proposal revision without duplicating the opportunity."""
+    opportunity = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not opportunity:
+        raise HTTPException(404, "Oportunidade nÃ£o encontrada")
+    previous_id = opportunity.get("converted_proposal_id")
+    previous = await db.proposals.find_one({"id": previous_id}, {"_id": 0}) if previous_id else None
+    if previous and previous.get("converted_order_id"):
+        raise HTTPException(400, "A proposta anterior jÃ¡ estÃ¡ associada a uma encomenda")
+
+    next_version = int(previous.get("version") or 1) + 1 if previous else 1
+    prop_number = f"PROP-{datetime.now().year}-{(await db.proposals.count_documents({})) + 1:04d}"
+    proposal = {
+        "id": new_id(), "number": prop_number, "version": next_version,
+        "opportunity_id": oid, "client_id": opportunity["client_id"],
+        "description": opportunity.get("description", ""), "previous_proposal_id": previous_id, "replacement_reason": "",
+        "lines": [], "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
+        "notes": opportunity.get("description", ""), "next_follow_up_date": None, "owner_id": user["id"], "status": "em_elaboracao",
+        "lost_reason": "", "converted_order_id": None, "total_net": 0.0, "total_vat": 0.0,
+        "total_gross": 0.0, "total_vab": 0.0, "created_at": now_iso(), "updated_at": now_iso(),
+    }
+    await db.proposals.insert_one(proposal)
+    if previous:
+        await db.proposals.update_one({"id": previous["id"]}, {"$set": {"status": "substituida", "replacement_reason": payload.replacement_reason.strip(), "replacement_proposal_id": proposal["id"], "updated_at": now_iso()}})
+        await audit_log("status_change", "proposal", previous["id"], {"status": previous.get("status")}, {"status": "substituida", "replacement_reason": payload.replacement_reason.strip(), "replacement_proposal_id": proposal["id"]}, user, "SubstituÃ­da por nova proposta")
+    await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "updated_at": now_iso()}})
+    await audit_log("create", "proposal", proposal["id"], {}, {"number": prop_number, "opportunity_id": oid, "previous_proposal_id": previous_id}, user, "Nova proposta criada a partir da oportunidade")
+    proposal.pop("_id", None)
+    return proposal
+
+
 # ------------- Orders (basic CRUD, financial ops live in finance.py) -------------
 @router.get("/orders", response_model=List[Order])
 async def list_orders(user: dict = Depends(get_current_user)):
@@ -321,6 +356,8 @@ async def upload_proposal_attachment(pid: str, file: UploadFile = File(...), use
     proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
     if not proposal:
         raise HTTPException(404, "Proposta não encontrada")
+    if proposal.get("status") == "substituida":
+        raise HTTPException(400, "Proposta substituída: o anexo não pode ser alterado")
     if proposal.get("converted_order_id") and not ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER:
         raise HTTPException(400, "Proposta convertida em encomenda: o anexo não pode ser alterado")
     filename = os.path.basename(file.filename or "anexo")
@@ -408,6 +445,8 @@ async def delete_proposal_attachment(pid: str, user: dict = Depends(get_current_
     proposal = await db.proposals.find_one({"id": pid}, {"_id": 0})
     if not proposal:
         raise HTTPException(404, "Proposta não encontrada")
+    if proposal.get("status") == "substituida":
+        raise HTTPException(400, "Proposta substituída: o anexo não pode ser alterado")
     if proposal.get("converted_order_id") and not ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER:
         raise HTTPException(400, "Proposta convertida em encomenda: o anexo não pode ser alterado")
     storage_key = (proposal.get("attachment") or {}).get("storage_key")
@@ -583,8 +622,8 @@ async def funnel(
     stage_items = {
         "leads": [{"id": item.get("id"), "title": item.get("id", "-"), "client": clients.get(item.get("client_id")) or item.get("client_name_raw") or "-", "description": item.get("description", ""), "value": item.get("estimated_value", 0), "vab": 0, "status": item.get("status"), "date": item.get("created_at")} for item in leads],
         "opportunities": [{"id": item.get("id"), "title": item.get("id", "-"), "client": clients.get(item.get("client_id"), "-"), "description": item.get("description", ""), "value": item.get("estimated_value", 0), "vab": item.get("estimated_vab", 0), "status": item.get("status"), "date": item.get("created_at")} for item in opps],
-        "proposals": [{"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": opportunity_descriptions.get(item.get("opportunity_id"), ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("created_at"), "follow_up_date": item.get("next_follow_up_date")} for item in props],
-        "orders": [{"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": opportunity_descriptions.get(proposal_by_id.get(item.get("proposal_id"), {}).get("opportunity_id"), ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("order_date") or item.get("created_at")} for item in orders],
+        "proposals": [{"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": item.get("description") or opportunity_descriptions.get(item.get("opportunity_id"), ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("created_at"), "follow_up_date": item.get("next_follow_up_date")} for item in props],
+        "orders": [{"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": (proposal_by_id.get(item.get("proposal_id"), {}).get("description") or opportunity_descriptions.get(proposal_by_id.get(item.get("proposal_id"), {}).get("opportunity_id"), "")), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("order_date") or item.get("created_at")} for item in orders],
     }
 
     stages = [
