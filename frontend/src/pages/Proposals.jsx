@@ -194,14 +194,17 @@ export default function Proposals() {
             <div className="col-span-2">
               <SortButton label="Cliente" sortKey="client" sort={sort} onClick={toggleSort} />
             </div>
-            <div className="col-span-3">
+            <div className="col-span-2">
               <SortButton label="Oportunidade" sortKey="opportunity" sort={sort} onClick={toggleSort} />
             </div>
             <div className="col-span-1 text-right">Total s/ IVA</div>
             <div className="col-span-1 pr-6 text-right">
               <SortButton label="VAB" sortKey="value" sort={sort} onClick={toggleSort} align="right" />
             </div>
-            <div className="col-span-2 text-center">
+            <div className="col-span-2 text-right">
+              <SortButton label="Fecho previsto" sortKey="next_follow_up_date" sort={sort} onClick={toggleSort} align="right" />
+            </div>
+            <div className="col-span-1 text-center">
               <SortButton label="Estado" sortKey="status" sort={sort} onClick={toggleSort} align="center" />
             </div>
             <div className="col-span-1 text-right">Acoes</div>
@@ -218,10 +221,11 @@ export default function Proposals() {
                 <div className="text-[10px] text-neutral-500">v{proposal.version} · {dateShort(proposal.created_at)}</div>
               </div>
               <div className="col-span-2 font-medium">{clientName(proposal.client_id)}</div>
-              <div className="col-span-3 truncate" title={proposal.description || opportunityDescription(proposal.opportunity_id)}>{proposal.description || opportunityDescription(proposal.opportunity_id)}</div>
+              <div className="col-span-2 truncate" title={proposal.description || opportunityDescription(proposal.opportunity_id)}>{proposal.description || opportunityDescription(proposal.opportunity_id)}</div>
               <div className="col-span-1 text-right font-mono">{eur(proposal.total_net)}</div>
               <div className="col-span-1 pr-6 text-right font-mono">{eur(proposal.total_vab)}</div>
-              <div className="col-span-2 flex justify-center">
+              <div className="col-span-2 text-right font-mono text-xs text-neutral-600">{proposal.next_follow_up_date ? dateShort(proposal.next_follow_up_date) : "-"}</div>
+              <div className="col-span-1 flex justify-center">
                 <Badge className={`${STATUS_STYLE[proposal.status]} rounded-none font-normal`}>{PROP_STATUS[proposal.status]}</Badge>
               </div>
               <div className="col-span-1 flex justify-end">

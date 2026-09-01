@@ -274,7 +274,7 @@ async def list_proposals(page: Optional[int] = Query(None, ge=1), page_size: Opt
     if statuses:
         query["status"] = {"$in": statuses}
     total = await db.proposals.count_documents(query)
-    sort_field = sort_by if sort_by in {"created_at", "updated_at", "number", "status", "total_net", "total_vab"} else "created_at"
+    sort_field = sort_by if sort_by in {"created_at", "updated_at", "number", "status", "total_net", "total_vab", "next_follow_up_date"} else "created_at"
     direction = -1 if sort_dir != "asc" else 1
     items = await db.proposals.find(query, {"_id": 0}).sort(sort_field, direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
     return _paged_response(items, page, page_size, total)
