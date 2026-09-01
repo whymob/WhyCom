@@ -6,6 +6,17 @@ async def seed_startup():
     await db.users.create_index("email", unique=True)
     await db.clients.create_index("id", unique=True)
 
+    # Índices das listagens e das relações mais consultadas. A criação é
+    # idempotente e ocorre também em instalações existentes.
+    for collection, fields in {
+        db.leads: [("id", True), ("status", False), ("created_at", False), ("client_id", False), ("owner_id", False)],
+        db.opportunities: [("id", True), ("status", False), ("created_at", False), ("client_id", False), ("owner_id", False)],
+        db.proposals: [("id", True), ("number", True), ("status", False), ("created_at", False), ("updated_at", False), ("client_id", False), ("opportunity_id", False)],
+        db.orders: [("id", True), ("number", True), ("status", False), ("order_date", False), ("created_at", False), ("client_id", False), ("proposal_id", False)],
+    }.items():
+        for field, unique in fields:
+            await collection.create_index(field, unique=unique)
+
     seeds = [
         ("admin@whymob.pt", "admin123", "Admin WhyMob", "admin"),
         ("comercial@whymob.pt", "comercial123", "João Silva", "comercial"),

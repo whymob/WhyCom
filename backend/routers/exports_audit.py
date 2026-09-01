@@ -447,6 +447,57 @@ async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current
     return build_billing_orders_pdf(month, invoices, clients_map, orders_map, plan_lines_map)
 
 
+@router.get("/exports/proposals-follow-up.csv")
+async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: str = Query("year", pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
+    """Exportação Excel/CSV da mesma listagem de fecho de propostas."""
+    proposals = await db.proposals.find({"next_follow_up_date": {"$exists": True, "$ne": None}}, {"_id": 0}).to_list(10000)
+    clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    opportunities = {o["id"]: o.get("description", "") for o in await db.opportunities.find({}, {"_id": 0}).to_list(10000)}
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    anchor = today if year == today.year else datetime(year, 1, 1)
+    thirty_days_end = anchor + timedelta(days=30)
+    next_quarter_month = ((anchor.month - 1) // 3 + 1) * 3 + 1
+    quarter_end = (datetime(year + 1, 1, 1) if next_quarter_month > 12 else datetime(year, next_quarter_month, 1)) - timedelta(days=1)
+    year_end = datetime(year, 12, 31)
+    status_labels = {
+        "em_elaboracao": "Em elaboração", "enviada": "Enviada", "em_negociacao": "Em negociação",
+        "ganha": "Ganha", "perdida": "Perdida", "expirada": "Expirada", "substituida": "Substituída",
+    }
+    rows = []
+    for proposal in proposals:
+        follow_up = str(proposal.get("next_follow_up_date") or "")[:10]
+        try:
+            follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if follow_up_date < anchor or follow_up_date > year_end:
+            continue
+        horizon = "Próximos 30 dias" if follow_up_date <= min(thirty_days_end, year_end) else ("Trimestre atual" if follow_up_date <= quarter_end else "Até final do ano")
+        rows.append({
+            "horizonte": horizon,
+            "proposta": proposal.get("number", "-"),
+            "cliente": clients.get(proposal.get("client_id"), "-"),
+            "descricao": proposal.get("description") or opportunities.get(proposal.get("opportunity_id"), "-"),
+            "valor_sem_iva": proposal.get("total_net", 0),
+            "vab": proposal.get("total_vab", 0),
+            "estado": status_labels.get(proposal.get("status"), proposal.get("status", "-")),
+            "data_prevista_fecho": follow_up,
+            "_date": follow_up_date,
+        })
+    allowed = {"30d": {"Próximos 30 dias"}, "quarter": {"Próximos 30 dias", "Trimestre atual"}, "year": {"Próximos 30 dias", "Trimestre atual", "Até final do ano"}}[scope]
+    rows = [row for row in rows if row["horizonte"] in allowed]
+    rows.sort(key=lambda row: row["_date"])
+    for row in rows:
+        row.pop("_date", None)
+    return csv_response_pt(
+        rows,
+        ["horizonte", "proposta", "cliente", "descricao", "valor_sem_iva", "vab", "estado", "data_prevista_fecho"],
+        f"propostas-fecho-{year}-{scope}.csv",
+        money_fields=("valor_sem_iva", "vab"),
+        date_fields=("data_prevista_fecho",),
+    )
+
+
 @router.get("/exports/dashboard.pdf")
 async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
     kpis = await _kpis_summary(year)
@@ -462,7 +513,7 @@ async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, l
 
 
 @router.get("/exports/proposals-follow-up.pdf")
-async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: Optional[str] = Query(None, pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
     """Exporta propostas com data prevista de fecho em tabelas por horizonte."""
     proposals = await db.proposals.find({"next_follow_up_date": {"$exists": True, "$ne": None}}, {"_id": 0}).to_list(10000)
     clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
@@ -497,6 +548,12 @@ async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, 
             "date": follow_up_date,
         })
     rows.sort(key=lambda item: item["date"])
+    for row in rows:
+        row["horizon"] = "Próximos 30 dias" if row["date"] <= min(thirty_days_end, year_end) else ("Trimestre atual" if row["date"] <= quarter_end else "Até final do ano")
+    if scope:
+        allowed = {"30d": {"Próximos 30 dias"}, "quarter": {"Próximos 30 dias", "Trimestre atual"}, "year": {"Próximos 30 dias", "Trimestre atual", "Até final do ano"}}[scope]
+        title = {"30d": "PRÓXIMOS 30 DIAS", "quarter": "QUARTER", "year": "ATÉ AO FINAL DO ANO"}[scope]
+        return build_proposal_follow_up_pdf(year, [(title, [row for row in rows if row["horizon"] in allowed])])
     sections = [
         ("PRÓXIMOS 30 DIAS", [row for row in rows if row["date"] <= min(thirty_days_end, year_end)]),
         ("QUARTER", [row for row in rows if row["date"] <= quarter_end]),

@@ -17,6 +17,7 @@ import { Textarea } from "@/components/ui/textarea";
 import StatusMultiSelect from "@/components/StatusMultiSelect";
 import ListFilterSettings from "@/components/ListFilterSettings";
 import { useListFilters } from "@/lib/listPreferences";
+import Pagination from "@/components/Pagination";
 
 const STATUS_STYLE = {
   nova: "bg-neutral-100 text-neutral-800",
@@ -52,21 +53,28 @@ export default function Leads() {
   const [lostOpen, setLostOpen] = useState(null);
   const [lostReason, setLostReason] = useState("");
   const [convertOpen, setConvertOpen] = useState(null);
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("leads", {
     search: searchParams.get("search") || "",
     statuses: searchParams.get("status_scope") === "open" ? ["nova", "em_qualificacao"] : (searchParams.get("status") || "").split(",").filter(Boolean),
+    pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "client", direction: "asc" });
 
-  const load = async () => {
-    const [leadResponse, clientResponse] = await Promise.all([api.get("/leads"), api.get("/clients")]);
-    setLeads(leadResponse.data);
+  const load = async (page = pagination.page) => {
+    const [leadResponse, clientResponse] = await Promise.all([
+      api.get("/leads", { params: { page, page_size: filters.pageSize || 30, search: filters.search, status: filters.statuses.join(","), sort_by: sort.key === "value" ? "estimated_value" : sort.key, sort_dir: sort.direction } }),
+      api.get("/clients"),
+    ]);
+    setLeads(leadResponse.data.items || []);
+    setPagination({ page: leadResponse.data.page, pages: leadResponse.data.pages, total: leadResponse.data.total, page_size: leadResponse.data.page_size });
     setClients(clientResponse.data);
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.statuses, filters.pageSize, sort]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -217,7 +225,7 @@ export default function Leads() {
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
               <div className="mt-1"><StatusMultiSelect options={Object.entries(LEAD_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="lead-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="rounded-none">
               Limpar filtros
             </Button>
           </div>
@@ -263,6 +271,7 @@ export default function Leads() {
               </div>
             </div>
           ))}
+          <Pagination {...pagination} onPageChange={(nextPage) => load(nextPage)} />
         </div>
       </div>
 

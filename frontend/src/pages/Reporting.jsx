@@ -338,12 +338,12 @@ export default function Reporting() {
       clientsResponse,
       productsResponse,
     ]) => {
-      setLeads(leadsResponse.data.filter((item) => recordYear(item, ["created_at"]) === reportingYear));
-      setOpps(oppsResponse.data.filter((item) => recordYear(item, ["created_at"]) === reportingYear));
+      setLeads((leadsResponse.data.items || leadsResponse.data).filter((item) => recordYear(item, ["created_at"]) === reportingYear));
+      setOpps((oppsResponse.data.items || oppsResponse.data).filter((item) => recordYear(item, ["created_at"]) === reportingYear));
       setAllOpps(oppsResponse.data);
-      setPropsList(propsResponse.data.filter((item) => recordYear(item, ["updated_at", "created_at"]) === reportingYear));
+      setPropsList((propsResponse.data.items || propsResponse.data).filter((item) => recordYear(item, ["updated_at", "created_at"]) === reportingYear));
       setAllProps(propsResponse.data);
-      setOrders(ordersResponse.data.filter((item) => !["cancelada", "anulada"].includes(item.status) && recordYear(item, ["order_date", "created_at"]) === reportingYear));
+      setOrders((ordersResponse.data.items || ordersResponse.data).filter((item) => !["cancelada", "anulada"].includes(item.status) && recordYear(item, ["order_date", "created_at"]) === reportingYear));
       setClients(clientsResponse.data);
       setProducts(productsResponse.data);
     });
@@ -765,7 +765,9 @@ export default function Reporting() {
             <div className="mt-6 border border-neutral-200 p-4" data-testid="proposal-follow-up-panel">
               <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
                 <div className="text-[10px] uppercase tracking-widest text-neutral-500">Propostas com data prevista de fecho · {reportingYear}</div>
-                <div className="flex border border-neutral-200">
+                <div className="flex flex-wrap items-center gap-2">
+                  <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}&scope=${followUpScope}`, `propostas-fecho-${reportingYear}-${followUpScope}.pdf`)} data-testid="export-proposal-follow-up-panel-pdf" className="border border-[#002FA7] px-3 py-1.5 text-xs text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ PDF</button>
+                  <button onClick={() => download(`/exports/proposals-follow-up.csv?year=${reportingYear}&scope=${followUpScope}`, `propostas-fecho-${reportingYear}-${followUpScope}.csv`)} data-testid="export-proposal-follow-up-panel-csv" className="border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50">↓ Excel/CSV</button>
                   {[['30d', '30 dias'], ['quarter', 'Quarter'], ['year', 'Até final do ano']].map(([value, label]) => (
                     <button key={value} type="button" onClick={() => setFollowUpScope(value)} className={`px-3 py-1.5 text-xs ${followUpScope === value ? "bg-[#002FA7] text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`} data-testid={`proposal-follow-up-${value}`}>
                       {label}

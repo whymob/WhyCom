@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import StatusMultiSelect from "@/components/StatusMultiSelect";
 import ListFilterSettings from "@/components/ListFilterSettings";
 import { useListFilters } from "@/lib/listPreferences";
+import Pagination from "@/components/Pagination";
 
 const STATUS_STYLE = {
   em_elaboracao: "bg-neutral-100 text-neutral-800",
@@ -47,23 +48,27 @@ export default function Proposals() {
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("proposals", {
     search: searchParams.get("search") || "",
     statuses: searchParams.get("status_scope") === "in_progress" ? ["enviada", "em_negociacao"] : (searchParams.get("status") || "").split(",").filter(Boolean),
+    pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
 
-  const load = async () => {
+  const load = async (page = pagination.page) => {
     const [proposalResponse, clientResponse, opportunityResponse] = await Promise.all([
-      api.get("/proposals"),
+      api.get("/proposals", { params: { page, page_size: filters.pageSize || 30, search: filters.search, status: filters.statuses.join(","), sort_by: sort.key === "value" ? "total_net" : sort.key, sort_dir: sort.direction } }),
       api.get("/clients"),
-      api.get("/opportunities"),
+      api.get("/opportunities", { params: { page: 1, page_size: 100 } }),
     ]);
-    setProps(proposalResponse.data);
+    setProps(proposalResponse.data.items || []);
+    setPagination({ page: proposalResponse.data.page, pages: proposalResponse.data.pages, total: proposalResponse.data.total, page_size: proposalResponse.data.page_size });
     setClients(clientResponse.data);
-    setOpportunities(opportunityResponse.data);
+    setOpportunities(opportunityResponse.data.items || opportunityResponse.data);
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.statuses, filters.pageSize, sort]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -174,7 +179,7 @@ export default function Proposals() {
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
               <div className="mt-1"><StatusMultiSelect options={Object.entries(PROP_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="proposal-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="rounded-none">
               Limpar filtros
             </Button>
             <Button onClick={exportProposals} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
@@ -226,6 +231,7 @@ export default function Proposals() {
               </div>
             </div>
           ))}
+          <Pagination {...pagination} onPageChange={(nextPage) => load(nextPage)} />
         </div>
       </div>
 

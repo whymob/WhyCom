@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import StatusMultiSelect from "@/components/StatusMultiSelect";
 import ListFilterSettings from "@/components/ListFilterSettings";
 import { useListFilters } from "@/lib/listPreferences";
+import Pagination from "@/components/Pagination";
 
 function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
   const active = sort.key === sortKey;
@@ -30,18 +31,24 @@ function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
 export default function Orders() {
   const [orders, setOrders] = useState([]);
   const [clients, setClients] = useState([]);
-  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("orders", { search: "", statuses: [] });
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("orders", { search: "", statuses: [], pageSize: 30 });
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
 
-  const load = async () => {
-    const [orderResponse, clientResponse] = await Promise.all([api.get("/orders"), api.get("/clients")]);
-    setOrders(orderResponse.data);
+  const load = async (page = pagination.page) => {
+    const [orderResponse, clientResponse] = await Promise.all([
+      api.get("/orders", { params: { page, page_size: filters.pageSize || 30, search: filters.search, status: filters.statuses.join(","), sort_by: sort.key === "value" ? "total_net" : sort.key, sort_dir: sort.direction } }),
+      api.get("/clients"),
+    ]);
+    setOrders(orderResponse.data.items || []);
+    setPagination({ page: orderResponse.data.page, pages: orderResponse.data.pages, total: orderResponse.data.total, page_size: orderResponse.data.page_size });
     setClients(clientResponse.data);
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.statuses, filters.pageSize, sort]);
 
   const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
 
@@ -122,7 +129,7 @@ export default function Orders() {
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
               <div className="mt-1"><StatusMultiSelect options={Object.entries(ORDER_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="order-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="rounded-none">
               Limpar filtros
             </Button>
           </div>
@@ -189,6 +196,7 @@ export default function Orders() {
               <div className="col-span-1 text-right font-mono text-xs text-neutral-500">{dateShort(order.order_date)}</div>
             </div>
           ))}
+          <Pagination {...pagination} onPageChange={(nextPage) => load(nextPage)} />
         </div>
       </div>
     </div>

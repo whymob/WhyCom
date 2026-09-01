@@ -3,6 +3,8 @@ import asyncio
 import base64
 import hashlib
 import os
+import re
+import math
 from datetime import datetime, timezone, timedelta
 from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile
@@ -43,10 +45,51 @@ def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
     return None
 
 
+LIST_PAGE_SIZE_MAX = 100
+
+
+def _list_pagination(page: int, page_size: int, total: int) -> dict:
+    pages = max(1, math.ceil(total / page_size))
+    return {"page": page, "page_size": page_size, "total": total, "pages": pages}
+
+
+def _search_regex(value: str) -> str:
+    return re.escape(value.strip())
+
+
+async def _related_search_ids(collection, field: str, search: str, projection: dict) -> list[str]:
+    if not search:
+        return []
+    rows = await collection.find({field: {"$regex": _search_regex(search), "$options": "i"}}, projection).to_list(5000)
+    return [row["id"] for row in rows if row.get("id")]
+
+
+def _paged_response(items: list[dict], page: int, page_size: int, total: int) -> dict:
+    return {"items": items, **_list_pagination(page, page_size, total)}
+
+
 # ------------- Leads -------------
-@router.get("/leads", response_model=List[Lead])
-async def list_leads(user: dict = Depends(get_current_user)):
-    return await db.leads.find({}, {"_id": 0}).to_list(1000)
+@router.get("/leads")
+async def list_leads(page: Optional[int] = Query(None, ge=1), page_size: Optional[int] = Query(None, ge=1, le=LIST_PAGE_SIZE_MAX), search: str = "", status: str = "", sort_by: str = "created_at", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    if page is None and page_size is None and not search and not status and sort_by == "created_at" and sort_dir == "desc":
+        return await db.leads.find({}, {"_id": 0}).to_list(1000)
+    page = page or 1
+    page_size = page_size or 25
+    query = {}
+    terms = []
+    if search.strip():
+        pattern = {"$regex": _search_regex(search), "$options": "i"}
+        terms.extend([{field: pattern} for field in ("id", "description", "client_name_raw", "status")])
+        terms.append({"client_id": {"$in": await _related_search_ids(db.clients, "name", search, {"_id": 0, "id": 1})}})
+        query["$or"] = terms
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    total = await db.leads.count_documents(query)
+    sort_field = sort_by if sort_by in {"created_at", "updated_at", "description", "status", "estimated_value"} else "created_at"
+    direction = -1 if sort_dir != "asc" else 1
+    items = await db.leads.find(query, {"_id": 0}).sort(sort_field, direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return _paged_response(items, page, page_size, total)
 
 
 @router.post("/leads", response_model=Lead)
@@ -119,9 +162,24 @@ async def convert_lead(lid: str, user: dict = Depends(get_current_user)):
 
 
 # ------------- Opportunities -------------
-@router.get("/opportunities", response_model=List[Opportunity])
-async def list_opps(user: dict = Depends(get_current_user)):
-    return await db.opportunities.find({}, {"_id": 0}).to_list(1000)
+@router.get("/opportunities")
+async def list_opps(page: Optional[int] = Query(None, ge=1), page_size: Optional[int] = Query(None, ge=1, le=LIST_PAGE_SIZE_MAX), search: str = "", status: str = "", sort_by: str = "created_at", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    if page is None and page_size is None and not search and not status and sort_by == "created_at" and sort_dir == "desc":
+        return await db.opportunities.find({}, {"_id": 0}).to_list(1000)
+    page = page or 1
+    page_size = page_size or 25
+    query = {}
+    if search.strip():
+        pattern = {"$regex": _search_regex(search), "$options": "i"}
+        query["$or"] = [{field: pattern} for field in ("id", "description", "status")] + [{"client_id": {"$in": await _related_search_ids(db.clients, "name", search, {"_id": 0, "id": 1})}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    total = await db.opportunities.count_documents(query)
+    sort_field = sort_by if sort_by in {"created_at", "updated_at", "description", "status", "estimated_value"} else "created_at"
+    direction = -1 if sort_dir != "asc" else 1
+    items = await db.opportunities.find(query, {"_id": 0}).sort(sort_field, direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return _paged_response(items, page, page_size, total)
 
 
 @router.post("/opportunities", response_model=Opportunity)
@@ -139,12 +197,30 @@ async def create_opp(payload: Opportunity, user: dict = Depends(get_current_user
 @router.patch("/opportunities/{oid}", response_model=Opportunity)
 async def update_opp(oid: str, payload: dict, user: dict = Depends(get_current_user)):
     payload.pop("id", None)
+    description_change_reason = str(payload.pop("description_change_reason", "")).strip()
+    before = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not before:
+        raise HTTPException(404, "Oportunidade não encontrada")
+    description_changed = "description" in payload and str(payload["description"]).strip() != str(before.get("description", "")).strip()
+    if description_changed:
+        if user.get("role") not in {"admin", "comercial"}:
+            raise HTTPException(403, "A alteração da descrição requer perfil admin ou comercial")
+        if not description_change_reason:
+            raise HTTPException(400, "Justificação obrigatória ao alterar a descrição")
     payload["updated_at"] = now_iso()
     if payload.get("status") == "perdida" and not payload.get("lost_reason"):
         raise HTTPException(400, "Motivo de perda obrigatório")
-    before = await db.opportunities.find_one({"id": oid}, {"_id": 0})
     await db.opportunities.update_one({"id": oid}, {"$set": payload})
     doc = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not doc:
+        raise HTTPException(404, "Oportunidade não encontrada")
+    if description_changed:
+        await audit_log(
+            "description_change", "opportunity", oid,
+            {"description": before.get("description", "")},
+            {"description": doc.get("description", "")},
+            user, description_change_reason,
+        )
     if not doc:
         raise HTTPException(404, "Oportunidade não encontrada")
     if before and before.get("status") != doc.get("status"):
@@ -182,9 +258,26 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
 
 
 # ------------- Proposals -------------
-@router.get("/proposals", response_model=List[Proposal])
-async def list_proposals(user: dict = Depends(get_current_user)):
-    return await db.proposals.find({}, {"_id": 0}).to_list(1000)
+@router.get("/proposals")
+async def list_proposals(page: Optional[int] = Query(None, ge=1), page_size: Optional[int] = Query(None, ge=1, le=LIST_PAGE_SIZE_MAX), search: str = "", status: str = "", sort_by: str = "created_at", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    if page is None and page_size is None and not search and not status and sort_by == "created_at" and sort_dir == "desc":
+        return await db.proposals.find({}, {"_id": 0}).to_list(1000)
+    page = page or 1
+    page_size = page_size or 25
+    query = {}
+    if search.strip():
+        pattern = {"$regex": _search_regex(search), "$options": "i"}
+        opportunity_ids = await _related_search_ids(db.opportunities, "description", search, {"_id": 0, "id": 1})
+        client_ids = await _related_search_ids(db.clients, "name", search, {"_id": 0, "id": 1})
+        query["$or"] = [{field: pattern} for field in ("id", "number", "description", "status")] + [{"opportunity_id": {"$in": opportunity_ids}}, {"client_id": {"$in": client_ids}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    total = await db.proposals.count_documents(query)
+    sort_field = sort_by if sort_by in {"created_at", "updated_at", "number", "status", "total_net", "total_vab"} else "created_at"
+    direction = -1 if sort_dir != "asc" else 1
+    items = await db.proposals.find(query, {"_id": 0}).sort(sort_field, direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return _paged_response(items, page, page_size, total)
 
 
 @router.get("/proposals/{pid}", response_model=Proposal)
@@ -320,9 +413,25 @@ async def create_new_proposal_from_opportunity(oid: str, payload: NewProposalFro
 
 
 # ------------- Orders (basic CRUD, financial ops live in finance.py) -------------
-@router.get("/orders", response_model=List[Order])
-async def list_orders(user: dict = Depends(get_current_user)):
-    return await db.orders.find({}, {"_id": 0}).to_list(1000)
+@router.get("/orders")
+async def list_orders(page: Optional[int] = Query(None, ge=1), page_size: Optional[int] = Query(None, ge=1, le=LIST_PAGE_SIZE_MAX), search: str = "", status: str = "", sort_by: str = "order_date", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    if page is None and page_size is None and not search and not status and sort_by == "order_date" and sort_dir == "desc":
+        return await db.orders.find({}, {"_id": 0}).to_list(1000)
+    page = page or 1
+    page_size = page_size or 25
+    query = {}
+    if search.strip():
+        pattern = {"$regex": _search_regex(search), "$options": "i"}
+        client_ids = await _related_search_ids(db.clients, "name", search, {"_id": 0, "id": 1})
+        query["$or"] = [{field: pattern} for field in ("id", "number", "po_number", "status")] + [{"client_id": {"$in": client_ids}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    total = await db.orders.count_documents(query)
+    sort_field = sort_by if sort_by in {"order_date", "created_at", "number", "status", "total_net", "total_vab"} else "order_date"
+    direction = -1 if sort_dir != "asc" else 1
+    items = await db.orders.find(query, {"_id": 0}).sort(sort_field, direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
+    return _paged_response(items, page, page_size, total)
 
 
 @router.patch("/orders/{oid}", response_model=Order)
@@ -462,6 +571,14 @@ async def delete_proposal_attachment(pid: str, user: dict = Depends(get_current_
 
 
 # ------------- Dashboard: KPIs + Funnel -------------
+FUNNEL_EXCLUDED_STATUSES = {
+    "leads": {"descartada"},
+    "opportunities": {"perdida"},
+    "proposals": {"perdida", "expirada", "substituida"},
+    "orders": {"cancelada", "anulada"},
+}
+
+
 @router.get("/dashboard/kpis")
 async def kpis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
     leads = [item for item in await db.leads.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
@@ -571,6 +688,13 @@ async def funnel(
     opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
     props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
     orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+
+    # O funil representa apenas o pipeline comercial ativo; os registos
+    # encerrados sem conversão/anulados não entram nas contagens nem nos totais.
+    leads = [item for item in leads if item.get("status") not in FUNNEL_EXCLUDED_STATUSES["leads"]]
+    opps = [item for item in opps if item.get("status") not in FUNNEL_EXCLUDED_STATUSES["opportunities"]]
+    props = [item for item in props if item.get("status") not in FUNNEL_EXCLUDED_STATUSES["proposals"]]
+    orders = [item for item in orders if item.get("status") not in FUNNEL_EXCLUDED_STATUSES["orders"]]
 
     available_years = sorted({
         value

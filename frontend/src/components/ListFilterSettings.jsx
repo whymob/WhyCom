@@ -50,6 +50,16 @@ export default function ListFilterSettings({ filters, statusOptions, onSave, onC
               <Label>Estados predefinidos</Label>
               <div className="mt-1"><StatusMultiSelect options={statusOptions} value={draft.statuses || []} onChange={(statuses) => setDraft((current) => ({ ...current, statuses }))} /></div>
             </div>
+            <div>
+              <Label>Itens por página</Label>
+              <select
+                value={draft.pageSize || 30}
+                onChange={(e) => setDraft((current) => ({ ...current, pageSize: Number(e.target.value) }))}
+                className="mt-1 h-10 w-full rounded-none border border-neutral-300 bg-white px-3 text-sm"
+              >
+                {[10, 30, 50, 100].map((size) => <option key={size} value={size}>{size} itens</option>)}
+              </select>
+            </div>
           </div>
           <DialogFooter>
             <Button variant="ghost" className="rounded-none" onClick={clear}>Listar todos</Button>

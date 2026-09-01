@@ -17,6 +17,8 @@ import { Textarea } from "@/components/ui/textarea";
 import StatusMultiSelect from "@/components/StatusMultiSelect";
 import ListFilterSettings from "@/components/ListFilterSettings";
 import { useListFilters } from "@/lib/listPreferences";
+import Pagination from "@/components/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 const STATUS_STYLE = {
   aberta: "bg-neutral-100 text-neutral-800",
@@ -53,6 +55,7 @@ function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
 }
 
 export default function Opportunities() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [opps, setOpps] = useState([]);
   const [clients, setClients] = useState([]);
@@ -66,22 +69,34 @@ export default function Opportunities() {
   const [convertOpen, setConvertOpen] = useState(null);
   const [newProposalOpen, setNewProposalOpen] = useState(false);
   const [replacementReason, setReplacementReason] = useState("");
+  const [descriptionChangeReason, setDescriptionChangeReason] = useState("");
+  const [descriptionEditOpen, setDescriptionEditOpen] = useState(false);
+  const [descriptionEditValue, setDescriptionEditValue] = useState("");
+  const [descriptionEditReason, setDescriptionEditReason] = useState("");
+  const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
   const navigate = useNavigate();
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("opportunities", {
     search: searchParams.get("search") || "",
     statuses: searchParams.get("status_scope") === "open" ? ["aberta", "em_analise"] : (searchParams.get("status") || "").split(",").filter(Boolean),
+    pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "value", direction: "desc" });
+  const canEditDescription = ["admin", "comercial"].includes(user?.role);
 
-  const load = async () => {
-    const [opportunityResponse, clientResponse] = await Promise.all([api.get("/opportunities"), api.get("/clients")]);
-    setOpps(opportunityResponse.data);
+  const load = async (page = pagination.page) => {
+    const [opportunityResponse, clientResponse] = await Promise.all([
+      api.get("/opportunities", { params: { page, page_size: filters.pageSize || 30, search: filters.search, status: filters.statuses.join(","), sort_by: sort.key === "value" ? "estimated_value" : sort.key, sort_dir: sort.direction } }),
+      api.get("/clients"),
+    ]);
+    setOpps(opportunityResponse.data.items || []);
+    setPagination({ page: opportunityResponse.data.page, pages: opportunityResponse.data.pages, total: opportunityResponse.data.total, page_size: opportunityResponse.data.page_size });
     setClients(clientResponse.data);
   };
 
   useEffect(() => {
-    load();
-  }, []);
+    load(1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters.search, filters.statuses, filters.pageSize, sort]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -95,11 +110,13 @@ export default function Opportunities() {
   const openCreate = () => {
     setEditing(null);
     setForm(defaultForm());
+    setDescriptionChangeReason("");
     setOpen(true);
   };
 
   const openEdit = (opportunity) => {
     setEditing(opportunity);
+    setDescriptionChangeReason("");
     setForm({
       client_id: opportunity.client_id,
       description: opportunity.description,
@@ -119,7 +136,47 @@ export default function Opportunities() {
     setViewOpen(true);
   };
 
+  const openDescriptionEdit = () => {
+    if (!viewing) return;
+    setDescriptionEditValue(viewing.description || "");
+    setDescriptionEditReason("");
+    setDescriptionEditOpen(true);
+  };
+
+  const saveDescriptionEdit = async () => {
+    if (!viewing) return;
+    if (descriptionEditValue.trim() === (viewing.description || "").trim()) {
+      toast.error("Altere a descrição antes de guardar");
+      return;
+    }
+    if (!descriptionEditReason.trim()) {
+      toast.error("Indique a justificação para alterar a descrição");
+      return;
+    }
+    try {
+      const response = await api.patch(`/opportunities/${viewing.id}`, {
+        description: descriptionEditValue,
+        description_change_reason: descriptionEditReason.trim(),
+      });
+      setViewing(response.data);
+      setDescriptionEditOpen(false);
+      toast.success("Descrição da oportunidade atualizada");
+      load();
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
   const submit = async () => {
+    const descriptionChanged = editing && form.description.trim() !== (editing.description || "").trim();
+    if (descriptionChanged && !canEditDescription) {
+      toast.error("A descrição só pode ser alterada por admin ou comercial");
+      return;
+    }
+    if (descriptionChanged && !descriptionChangeReason.trim()) {
+      toast.error("Indique a justificação para alterar a descrição");
+      return;
+    }
     try {
       const payload = {
         ...form,
@@ -127,6 +184,7 @@ export default function Opportunities() {
         estimated_vab: Number(form.estimated_vab) || 0,
         probability: Number(form.probability) || 0,
       };
+      if (descriptionChanged) payload.description_change_reason = descriptionChangeReason.trim();
       if (editing) {
         await api.patch(`/opportunities/${editing.id}`, payload);
         toast.success("Oportunidade atualizada");
@@ -259,7 +317,7 @@ export default function Opportunities() {
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label>
               <div className="mt-1"><StatusMultiSelect options={Object.entries(OPP_STATUS).map(([value, label]) => ({ value, label }))} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="opportunity-status-filter" /></div>
             </div>
-            <Button variant="ghost" onClick={() => setFilters({ search: "", statuses: [] })} className="rounded-none">
+            <Button variant="ghost" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="rounded-none">
               Limpar filtros
             </Button>
           </div>
@@ -317,6 +375,7 @@ export default function Opportunities() {
               </div>
             </div>
           ))}
+          <Pagination {...pagination} onPageChange={(nextPage) => load(nextPage)} />
         </div>
       </div>
 
@@ -375,9 +434,30 @@ export default function Opportunities() {
           )}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setViewOpen(false)} className="rounded-none">Fechar</Button>
+            {viewing && canEditDescription && <Button variant="outline" onClick={openDescriptionEdit} className="rounded-none">Alterar descrição</Button>}
             {viewing && viewing.status !== "convertida" && viewing.status !== "perdida" && (
               <Button onClick={() => { setViewOpen(false); openEdit(viewing); }} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Editar</Button>
             )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={descriptionEditOpen} onOpenChange={setDescriptionEditOpen}>
+        <DialogContent className="max-w-lg rounded-none">
+          <DialogHeader><DialogTitle className="font-display">Alterar descrição</DialogTitle></DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label>Nova descrição</Label>
+              <Textarea rows={3} value={descriptionEditValue} onChange={(e) => setDescriptionEditValue(e.target.value)} className="mt-1 rounded-none" data-testid="converted-opp-description-input" />
+            </div>
+            <div>
+              <Label>Justificação da alteração</Label>
+              <Textarea rows={3} value={descriptionEditReason} onChange={(e) => setDescriptionEditReason(e.target.value)} placeholder="Indique o motivo desta alteração" className="mt-1 rounded-none" data-testid="converted-opp-description-reason" />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setDescriptionEditOpen(false)} className="rounded-none">Cancelar</Button>
+            <Button onClick={saveDescriptionEdit} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Guardar descrição</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -422,8 +502,15 @@ export default function Opportunities() {
             </div>
             <div className="col-span-2">
               <Label>Descricao</Label>
-              <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} data-testid="opp-description-input" className="rounded-none" />
+              <Textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} disabled={Boolean(editing) && !canEditDescription} data-testid="opp-description-input" className="rounded-none" />
+              {editing && !canEditDescription && <div className="mt-1 text-xs text-neutral-500">A descrição só pode ser alterada por admin ou comercial.</div>}
             </div>
+            {editing && canEditDescription && form.description.trim() !== (editing.description || "").trim() && (
+              <div className="col-span-2">
+                <Label>Justificação da alteração da descrição</Label>
+                <Textarea rows={2} value={descriptionChangeReason} onChange={(e) => setDescriptionChangeReason(e.target.value)} placeholder="Indique o motivo desta alteração" data-testid="opp-description-change-reason" className="mt-1 rounded-none" />
+              </div>
+            )}
             <div>
               <Label>Valor estimado</Label>
               <Input type="number" value={form.estimated_value} onChange={(e) => setForm({ ...form, estimated_value: e.target.value })} data-testid="opp-value-input" className="rounded-none font-mono" />

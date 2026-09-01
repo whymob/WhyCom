@@ -14,7 +14,7 @@ export function useListFilters(pageKey, initialFilters) {
 
   useEffect(() => {
     const saved = preferences[pageKey];
-    const hasUrlFilters = Object.values(initialRef.current).some((value) => Array.isArray(value) ? value.length > 0 : Boolean(value));
+    const hasUrlFilters = Boolean(initialRef.current.search) || (initialRef.current.statuses || []).length > 0;
     if (!hasUrlFilters && saved) setFilters({ ...initialRef.current, ...saved });
   }, [pageKey, preferences]);
 
