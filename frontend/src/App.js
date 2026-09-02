@@ -5,9 +5,13 @@ import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Layout from "@/components/Layout";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
+import Workday from "@/pages/Workday";
+import Workboard from "@/pages/Workboard";
 import Funnel from "@/pages/Funnel";
 import Leads from "@/pages/Leads";
+import LeadDetail from "@/pages/LeadDetail";
 import Opportunities from "@/pages/Opportunities";
+import OpportunityDetail from "@/pages/OpportunityDetail";
 import Proposals from "@/pages/Proposals";
 import ProposalDetail from "@/pages/ProposalDetail";
 import Orders from "@/pages/Orders";
@@ -45,9 +49,13 @@ function App() {
               }
             >
               <Route index element={<Dashboard />} />
+              <Route path="meu-dia" element={<Workday />} />
+              <Route path="quadro-comercial" element={<Workboard />} />
               <Route path="funil" element={<Funnel />} />
               <Route path="leads" element={<Leads />} />
+              <Route path="leads/:id" element={<LeadDetail />} />
               <Route path="oportunidades" element={<Opportunities />} />
+              <Route path="oportunidades/:id" element={<OpportunityDetail />} />
               <Route path="propostas" element={<Proposals />} />
               <Route path="propostas/:id" element={<ProposalDetail />} />
               <Route path="encomendas" element={<Orders />} />

@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Eye, Plus } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import PageHeader from "@/components/PageHeader";
 import { api, formatApiErrorDetail } from "@/lib/api";
-import { eur, OPP_STATUS } from "@/lib/fmt";
+import { dateShort, eur, OPP_STATUS } from "@/lib/fmt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -34,6 +34,7 @@ function defaultForm() {
     estimated_value: 0,
     estimated_vab: 0,
     probability: 50,
+    expected_close_date: "",
     priority: "media",
     competitor: "",
     notes: "",
@@ -81,6 +82,7 @@ export default function Opportunities() {
     pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "value", direction: "desc" });
+  const handledOpenId = useRef("");
   const canEditDescription = ["admin", "comercial"].includes(user?.role);
 
   const load = async (page = pagination.page) => {
@@ -102,7 +104,9 @@ export default function Opportunities() {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
     if (filters.statuses.length) next.set("status", filters.statuses.join(","));
+    if (searchParams.get("open")) next.set("open", searchParams.get("open"));
     setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, setSearchParams]);
 
   const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
@@ -123,6 +127,7 @@ export default function Opportunities() {
       estimated_value: opportunity.estimated_value,
       estimated_vab: opportunity.estimated_vab,
       probability: opportunity.probability,
+      expected_close_date: (opportunity.expected_close_date || "").slice(0, 10),
       priority: opportunity.priority,
       competitor: opportunity.competitor || "",
       notes: opportunity.notes || "",
@@ -135,6 +140,21 @@ export default function Opportunities() {
     setViewing(opportunity);
     setViewOpen(true);
   };
+
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || handledOpenId.current === openId) return;
+    handledOpenId.current = openId;
+    api.get("/opportunities", { params: { page: 1, page_size: 1, search: openId } }).then((response) => {
+      const opportunity = (response.data.items || []).find((item) => item.id === openId);
+      if (opportunity) openView(opportunity);
+      else toast.error("Oportunidade não encontrada.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams]);
 
   const openDescriptionEdit = () => {
     if (!viewing) return;
@@ -408,6 +428,10 @@ export default function Opportunities() {
                   <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{viewing.probability}%</div>
                 </div>
                 <div>
+                  <Label>Data prevista de fecho</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{dateShort(viewing.expected_close_date)}</div>
+                </div>
+                <div>
                   <Label>Prioridade</Label>
                   <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.priority || "-"}</div>
                 </div>
@@ -522,6 +546,10 @@ export default function Opportunities() {
             <div>
               <Label>Probabilidade (%)</Label>
               <Input type="number" min="0" max="100" value={form.probability} onChange={(e) => setForm({ ...form, probability: e.target.value })} data-testid="opp-prob-input" className="rounded-none font-mono" />
+            </div>
+            <div>
+              <Label>Data prevista de fecho</Label>
+              <Input type="date" value={form.expected_close_date} onChange={(e) => setForm({ ...form, expected_close_date: e.target.value })} data-testid="opp-expected-close-date-input" className="rounded-none font-mono" />
             </div>
             <div>
               <Label>Prioridade</Label>

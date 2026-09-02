@@ -5,6 +5,8 @@ import { LOGOUT } from "@/constants/testIds";
 import { ROLE_LABEL } from "@/lib/fmt";
 import {
   LayoutDashboard,
+  ListTodo,
+  Columns3,
   Filter,
   Sparkles,
   Target,
@@ -23,7 +25,9 @@ import {
 
 const NAV = [
   { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, testid: "nav-dashboard" },
+  { to: "/meu-dia", label: "O meu dia", icon: ListTodo, testid: "nav-workday" },
   { to: "/funil", label: "Funil de Vendas", icon: Filter, testid: "nav-funnel" },
+  { to: "/quadro-comercial", label: "Quadro comercial", icon: Columns3, testid: "nav-workboard" },
   { to: "/leads", label: "Leads", icon: Sparkles, testid: "nav-leads" },
   { to: "/oportunidades", label: "Oportunidades", icon: Target, testid: "nav-opportunities" },
   { to: "/propostas", label: "Propostas", icon: FileText, testid: "nav-proposals" },

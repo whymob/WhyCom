@@ -38,6 +38,10 @@ export default function ProposalDetail() {
   const [invoices, setInvoices] = useState([]);
   const [payments, setPayments] = useState([]);
   const [lostReason, setLostReason] = useState("");
+  const [statusChangeReason, setStatusChangeReason] = useState("");
+  const [sendFile, setSendFile] = useState(null);
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  const [replacementReason, setReplacementReason] = useState("");
   const [pendingStatus, setPendingStatus] = useState(null);
   const [attachmentLoading, setAttachmentLoading] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -216,6 +220,8 @@ export default function ProposalDetail() {
         ...(isConverted ? {} : { lines: proposal.lines }),
         notes: proposal.notes,
         valid_until: proposal.valid_until,
+        sent_at: proposal.sent_at || null,
+        sent_to: proposal.sent_to || "",
         next_follow_up_date: proposal.next_follow_up_date || null,
       };
       const { data } = await api.patch(`/proposals/${id}`, payload);
@@ -309,6 +315,8 @@ export default function ProposalDetail() {
       return;
     }
 
+    setStatusChangeReason("");
+    setSendFile(null);
     setPendingStatus(status);
   };
 
@@ -320,10 +328,40 @@ export default function ProposalDetail() {
       if (pendingStatus === "perdida") {
         payload.lost_reason = lostReason;
       }
+      if (pendingStatus === "expirada") {
+        if (!statusChangeReason.trim()) { toast.error("Indique a justificação de expiração"); return; }
+        payload.status_change_reason = statusChangeReason.trim();
+      }
+      const flow = ["em_elaboracao", "enviada", "em_negociacao", "ganha"];
+      if (flow.includes(pendingStatus) && flow.indexOf(pendingStatus) < flow.indexOf(proposal.status)) {
+        if (!statusChangeReason.trim()) { toast.error("Indique a justificação para retroceder"); return; }
+        payload.status_change_reason = statusChangeReason.trim();
+      }
+      if (pendingStatus === "enviada" && proposal.status === "em_elaboracao") {
+        if (!sendFile) { toast.error("Anexe o ficheiro da proposta"); return; }
+        if (!proposal.sent_at || !proposal.sent_to?.trim() || !proposal.next_follow_up_date) { toast.error("Preencha a data, destinatário e fecho previsto"); return; }
+        const formData = new FormData();
+        formData.append("file", sendFile);
+        await api.post(`/proposals/${id}/attachment`, formData, { headers: { "Content-Type": "multipart/form-data" } });
+        payload.sent_at = proposal.sent_at;
+        payload.sent_to = proposal.sent_to.trim();
+        payload.next_follow_up_date = proposal.next_follow_up_date;
+      }
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
       setPendingStatus(null);
       toast.success(`Estado: ${PROP_STATUS[pendingStatus]}`);
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    }
+  };
+
+  const replaceProposal = async () => {
+    if (!replacementReason.trim()) { toast.error("Indique a justificação da substituição"); return; }
+    try {
+      const { data } = await api.post(`/opportunities/${proposal.opportunity_id}/proposals`, { replacement_reason: replacementReason.trim() });
+      toast.success(`Nova proposta ${data.number} criada`);
+      nav(`/propostas/${data.id}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -468,6 +506,11 @@ export default function ProposalDetail() {
           </div>
         </div>
 
+        <div className="grid grid-cols-3 gap-4">
+          <div className="border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Enviada em</Label><Input type="date" value={(proposal.sent_at || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, sent_at: e.target.value })} className="mt-2 rounded-none font-mono" /></div>
+          <div className="col-span-2 border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Enviada para</Label><Input value={proposal.sent_to || ""} onChange={(e) => setProposal({ ...proposal, sent_to: e.target.value })} placeholder="Nome ou endereço de email do destinatário" className="mt-2 rounded-none" /></div>
+        </div>
+
         <div className="border border-neutral-200 p-4">
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Ficheiro da proposta</div>
           {proposal.attachment ? (
@@ -511,6 +554,8 @@ export default function ProposalDetail() {
               <Input placeholder="Motivo de perda" value={lostReason} disabled={isConverted} onChange={(e) => setLostReason(e.target.value)} className="rounded-none h-9 w-56" data-testid="prop-lost-reason-input" />
               <Button size="sm" onClick={() => changeStatus("perdida")} disabled={isConverted} data-testid="status-perdida-btn" className="rounded-none bg-[#FF2A00] hover:bg-[#D62200] text-white text-xs">Perdida</Button>
             </div>
+            <Button size="sm" onClick={() => changeStatus("expirada")} disabled={isConverted} className="rounded-none border border-neutral-500 bg-white text-xs text-neutral-700 hover:bg-neutral-50">Expirar</Button>
+            <Button size="sm" onClick={() => { setReplacementReason(""); setReplaceOpen(true); }} disabled={isConverted} className="rounded-none border border-neutral-500 bg-white text-xs text-neutral-700 hover:bg-neutral-50">Substituir</Button>
             {proposal.status === "ganha" && !proposal.converted_order_id && (
               <Button size="sm" onClick={convertToOrder} data-testid="convert-to-order-btn" className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white text-xs ml-2">Gerar encomenda →</Button>
             )}
@@ -518,6 +563,10 @@ export default function ProposalDetail() {
           {proposal.lost_reason && <div className="mt-2 text-xs text-[#B91C1C]">Motivo: {proposal.lost_reason}</div>}
         </div>
       </div>
+
+      <Dialog open={replaceOpen} onOpenChange={setReplaceOpen}>
+        <DialogContent className="max-w-md rounded-none"><DialogHeader><DialogTitle>Substituir proposta</DialogTitle></DialogHeader><p className="text-sm text-neutral-600">Será criada uma nova versão. A proposta atual ficará substituída e deixará de ser exibida no quadro comercial.</p><Textarea value={replacementReason} onChange={(event) => setReplacementReason(event.target.value)} rows={3} placeholder="Justificação da substituição" className="rounded-none" /><DialogFooter><Button variant="outline" onClick={() => setReplaceOpen(false)} className="rounded-none">Cancelar</Button><Button onClick={replaceProposal} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Criar nova versão</Button></DialogFooter></DialogContent>
+      </Dialog>
 
       <Dialog open={!!pendingStatus} onOpenChange={(nextOpen) => !nextOpen && setPendingStatus(null)}>
         <DialogContent className="max-w-md rounded-none">
@@ -528,6 +577,8 @@ export default function ProposalDetail() {
             A proposta sera alterada para <span className="font-medium">{pendingStatus ? PROP_STATUS[pendingStatus] : ""}</span>.
             Pode cancelar agora caso precise rever os dados antes de continuar.
           </div>
+          {pendingStatus === "enviada" && proposal.status === "em_elaboracao" && <div className="space-y-3 border border-neutral-200 bg-neutral-50 p-3"><div className="text-xs text-neutral-600">Para enviar, associe o ficheiro final e confirme os dados comerciais.</div><Input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx" onChange={(event) => setSendFile(event.target.files?.[0] || null)} className="rounded-none" /><div className="text-xs text-neutral-500">{sendFile?.name || "Nenhum ficheiro selecionado"}</div></div>}
+          {(pendingStatus === "expirada" || (["em_elaboracao", "enviada", "em_negociacao", "ganha"].includes(pendingStatus) && ["em_elaboracao", "enviada", "em_negociacao", "ganha"].indexOf(pendingStatus) < ["em_elaboracao", "enviada", "em_negociacao", "ganha"].indexOf(proposal.status))) && <Textarea value={statusChangeReason} onChange={(event) => setStatusChangeReason(event.target.value)} rows={3} placeholder="Justificação obrigatória" className="rounded-none" />}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setPendingStatus(null)} className="rounded-none">Cancelar</Button>
             <Button onClick={confirmStatusChange} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Confirmar</Button>

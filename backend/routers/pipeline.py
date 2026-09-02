@@ -18,6 +18,9 @@ router = APIRouter()
 PROPOSAL_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024
 PROPOSAL_ATTACHMENT_DIR = os.environ.get("PROPOSAL_ATTACHMENT_DIR", "/app/uploads")
 ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER = os.environ.get("ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER", "true").lower() in {"1", "true", "yes"}
+PROPOSAL_ACTIVE_STATUS_FLOW = ["em_elaboracao", "enviada", "em_negociacao", "ganha"]
+PROPOSAL_TERMINAL_STATUSES = {"perdida", "expirada", "substituida"}
+ORDER_BOARD_STATUS_FLOW = ["aberta", "em_planeamento"]
 
 
 def _valid_proposal_attachment_signature(extension: str, header: bytes) -> bool:
@@ -119,7 +122,7 @@ async def update_lead(lid: str, payload: dict, user: dict = Depends(get_current_
         await audit_log("status_change", "lead", lid,
                         {"status": before.get("status")},
                         {"status": doc.get("status")},
-                        user, payload.get("lost_reason", ""))
+                        user, payload.get("lost_reason") or payload.get("status_change_reason", ""))
     return doc
 
 
@@ -128,8 +131,8 @@ async def convert_lead(lid: str, user: dict = Depends(get_current_user)):
     lead = await db.leads.find_one({"id": lid}, {"_id": 0})
     if not lead:
         raise HTTPException(404, "Lead não encontrada")
-    if lead["status"] in ("convertida", "descartada"):
-        raise HTTPException(400, "Lead não pode ser convertida")
+    if lead["status"] != "em_qualificacao":
+        raise HTTPException(400, "A lead deve estar Em qualificação para avançar para oportunidade")
     client_id = lead.get("client_id")
     if not client_id:
         client_doc = {
@@ -236,8 +239,8 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
     opp = await db.opportunities.find_one({"id": oid}, {"_id": 0})
     if not opp:
         raise HTTPException(404, "Oportunidade não encontrada")
-    if opp["status"] not in ("aberta", "em_analise"):
-        raise HTTPException(400, "Oportunidade deve estar aberta ou em análise")
+    if opp["status"] != "em_analise":
+        raise HTTPException(400, "A oportunidade deve estar Em análise para avançar para proposta")
 
     prop_number = f"PROP-{datetime.now().year}-{(await db.proposals.count_documents({})) + 1:04d}"
     proposal = {
@@ -246,7 +249,7 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
         "description": opp.get("description", ""), "previous_proposal_id": None,
         "lines": [],
         "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opp.get("description", ""), "next_follow_up_date": opp.get("next_follow_up_date"), "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opp.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": opp.get("next_follow_up_date"), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None,
         "total_net": 0.0, "total_vat": 0.0, "total_gross": 0.0, "total_vab": 0.0,
         "created_at": now_iso(), "updated_at": now_iso(),
@@ -299,7 +302,45 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
         raise HTTPException(400, "Proposta convertida em encomenda: itens e estado não podem ser alterados")
 
     payload.pop("id", None)
+    target_status = payload.get("status")
+    current_status = current.get("status")
+    if target_status and target_status != current_status:
+        if target_status == "substituida":
+            raise HTTPException(400, "Para substituir, crie uma nova proposta a partir da acao Substituir")
+        if target_status in PROPOSAL_TERMINAL_STATUSES:
+            if target_status == "perdida" and not str(payload.get("lost_reason") or "").strip():
+                raise HTTPException(400, "Motivo de perda obrigatorio")
+            if target_status == "expirada" and not str(payload.get("status_change_reason") or "").strip():
+                raise HTTPException(400, "Justificacao de expiracao obrigatoria")
+        elif target_status in PROPOSAL_ACTIVE_STATUS_FLOW and current_status in PROPOSAL_ACTIVE_STATUS_FLOW:
+            current_index = PROPOSAL_ACTIVE_STATUS_FLOW.index(current_status)
+            target_index = PROPOSAL_ACTIVE_STATUS_FLOW.index(target_status)
+            if target_index > current_index + 1:
+                raise HTTPException(400, "A proposta deve avancar uma etapa de cada vez")
+            if target_index < current_index and not str(payload.get("status_change_reason") or "").strip():
+                raise HTTPException(400, "Indique a justificacao para retroceder a proposta")
+            if target_status == "enviada":
+                candidate_lines = payload.get("lines", current.get("lines", []))
+                has_valid_line = any(
+                    (line.get("product_id") or str(line.get("description") or "").strip())
+                    and float(line.get("quantity") or 0) > 0
+                    for line in candidate_lines
+                )
+                if not has_valid_line:
+                    raise HTTPException(400, "Adicione pelo menos uma linha antes de enviar a proposta")
+                if not current.get("attachment"):
+                    raise HTTPException(400, "Anexe o ficheiro da proposta antes de enviar")
+                if not str(payload.get("sent_at") or current.get("sent_at") or "").strip():
+                    raise HTTPException(400, "Indique a data de envio")
+                if not str(payload.get("sent_to") or current.get("sent_to") or "").strip():
+                    raise HTTPException(400, "Indique para quem a proposta foi enviada")
+                if not str(payload.get("next_follow_up_date") or current.get("next_follow_up_date") or "").strip():
+                    raise HTTPException(400, "Indique a data prevista de fecho")
+        else:
+            raise HTTPException(400, "Transicao de estado invalida para a proposta")
     payload["updated_at"] = now_iso()
+    if payload.get("status") == "ganha" and current.get("status") != "em_negociacao":
+        raise HTTPException(400, "A proposta deve estar Em negociação para ser marcada como ganha")
     if payload.get("status") == "perdida" and not payload.get("lost_reason"):
         raise HTTPException(400, "Motivo de perda obrigatório")
     before = current
@@ -348,7 +389,7 @@ async def convert_proposal(pid: str, user: dict = Depends(get_current_user)):
         "total_net": proposal["total_net"], "total_vat": proposal["total_vat"],
         "total_gross": proposal["total_gross"], "total_vab": proposal["total_vab"],
         "commercial_terms": "", "owner_id": user["id"],
-        "status": "aberta", "cancel_reason": "", "created_at": now_iso(),
+        "status": "aberta", "cancel_reason": "", "status_change_reason": "", "created_at": now_iso(),
     }
     await db.orders.insert_one(order)
     await db.proposals.update_one({"id": pid}, {"$set": {"converted_order_id": order["id"], "updated_at": now_iso()}})
@@ -398,7 +439,7 @@ async def create_new_proposal_from_opportunity(oid: str, payload: NewProposalFro
         "opportunity_id": oid, "client_id": opportunity["client_id"],
         "description": opportunity.get("description", ""), "previous_proposal_id": previous_id, "replacement_reason": "",
         "lines": [], "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opportunity.get("description", ""), "next_follow_up_date": None, "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opportunity.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": None, "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None, "total_net": 0.0, "total_vat": 0.0,
         "total_gross": 0.0, "total_vab": 0.0, "created_at": now_iso(), "updated_at": now_iso(),
     }
@@ -442,6 +483,11 @@ async def update_order(oid: str, payload: dict, user: dict = Depends(get_current
     if current.get("status") == "cancelada":
         raise HTTPException(400, "Encomenda anulada: não pode ser alterada")
     payload.pop("id", None)
+    target_status = payload.get("status")
+    current_status = current.get("status")
+    if target_status and target_status != current_status and target_status in ORDER_BOARD_STATUS_FLOW and current_status in ORDER_BOARD_STATUS_FLOW:
+        if target_status == "aberta" and current_status == "em_planeamento" and not str(payload.get("status_change_reason") or "").strip():
+            raise HTTPException(400, "Indique a justificacao para retroceder a encomenda")
     if payload.get("status") == "cancelada" and not payload.get("cancel_reason"):
         raise HTTPException(400, "Motivo de cancelamento obrigatório")
     if payload.get("status") == "cancelada":
@@ -457,6 +503,8 @@ async def update_order(oid: str, payload: dict, user: dict = Depends(get_current
         raise HTTPException(404, "Encomenda não encontrada")
     if payload.get("status") == "cancelada":
         await audit_log("cancel", "order", oid, {"status": current.get("status")}, {"status": "cancelada"}, user, payload.get("cancel_reason", ""))
+    elif target_status and target_status != current_status:
+        await audit_log("status_change", "order", oid, {"status": current_status}, {"status": target_status}, user, payload.get("status_change_reason", ""))
     return doc
 
 
@@ -568,6 +616,144 @@ async def delete_proposal_attachment(pid: str, user: dict = Depends(get_current_
     await audit_log("attachment_delete", "proposal", pid, {"attachment": proposal.get("attachment")}, {}, user)
     doc = await db.proposals.find_one({"id": pid}, {"_id": 0})
     return doc
+
+
+# ------------- Trabalho comercial: O meu dia + Kanban -------------
+WORKDAY_PROPOSAL_STATUSES = {"em_elaboracao", "enviada", "em_negociacao"}
+WORKDAY_OPPORTUNITY_STATUSES = {"aberta", "em_analise"}
+WORKDAY_ORDER_STATUSES = {"aberta", "em_planeamento", "em_faturacao", "parcialmente_faturada"}
+
+
+def _work_scope(user: dict, owner_id: Optional[str]) -> dict:
+    """Comerciais veem apenas a sua carteira; admins/CEO podem filtrar a equipa."""
+    if user.get("role") in {"admin", "ceo"} and owner_id:
+        return {"owner_id": owner_id}
+    if user.get("role") in {"admin", "ceo"}:
+        return {}
+    return {"owner_id": user["id"]}
+
+
+def _work_date(value: object) -> str:
+    return str(value or "")[:10]
+
+
+@router.get("/workday")
+async def workday(owner_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+    """Fila diária de trabalho, construída a partir dos prazos comerciais existentes."""
+    today = datetime.now(timezone.utc).date()
+    today_key = today.isoformat()
+    next_week_key = (today + timedelta(days=7)).isoformat()
+    scope = _work_scope(user, owner_id)
+
+    proposal_query = {**scope, "status": {"$in": list(WORKDAY_PROPOSAL_STATUSES)}, "next_follow_up_date": {"$exists": True, "$ne": None}}
+    opportunity_query = {**scope, "status": {"$in": list(WORKDAY_OPPORTUNITY_STATUSES)}, "expected_close_date": {"$exists": True, "$ne": None}}
+    proposals, opportunities = await asyncio.gather(
+        db.proposals.find(proposal_query, {"_id": 0}).to_list(500),
+        db.opportunities.find(opportunity_query, {"_id": 0}).to_list(500),
+    )
+    client_ids = {item.get("client_id") for item in proposals + opportunities if item.get("client_id")}
+    owner_ids = {item.get("owner_id") for item in proposals + opportunities if item.get("owner_id")}
+    clients, owners = await asyncio.gather(
+        db.clients.find({"id": {"$in": list(client_ids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(client_ids) or 1),
+        db.users.find({"id": {"$in": list(owner_ids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(owner_ids) or 1),
+    )
+    client_names = {item["id"]: item.get("name", "-") for item in clients}
+    owner_names = {item["id"]: item.get("name", "-") for item in owners}
+
+    items = []
+    for proposal in proposals:
+        due_date = _work_date(proposal.get("next_follow_up_date"))
+        if not due_date:
+            continue
+        items.append({
+            "id": proposal["id"], "kind": "proposal", "kind_label": "Proposta",
+            "title": proposal.get("number") or "Proposta", "description": proposal.get("description") or "",
+            "client": client_names.get(proposal.get("client_id"), "-"), "owner": owner_names.get(proposal.get("owner_id"), "-"),
+            "status": proposal.get("status"), "due_date": due_date, "href": f"/propostas/{proposal['id']}",
+            "value": proposal.get("total_net", 0),
+        })
+    for opportunity in opportunities:
+        due_date = _work_date(opportunity.get("expected_close_date"))
+        if not due_date:
+            continue
+        items.append({
+            "id": opportunity["id"], "kind": "opportunity", "kind_label": "Negociação",
+            "title": opportunity.get("description") or "Oportunidade", "description": "",
+            "client": client_names.get(opportunity.get("client_id"), "-"), "owner": owner_names.get(opportunity.get("owner_id"), "-"),
+            "status": opportunity.get("status"), "due_date": due_date, "href": "/oportunidades",
+            "value": opportunity.get("estimated_value", 0),
+        })
+
+    overdue = sorted((item for item in items if item["due_date"] < today_key), key=lambda item: item["due_date"])
+    due_today = sorted((item for item in items if item["due_date"] == today_key), key=lambda item: item["kind"])
+    upcoming = sorted((item for item in items if today_key < item["due_date"] <= next_week_key), key=lambda item: item["due_date"])
+    return {
+        "date": today_key,
+        "scope": "team" if not scope else "owner",
+        "summary": {"overdue": len(overdue), "today": len(due_today), "upcoming": len(upcoming)},
+        "sections": [
+            {"key": "overdue", "label": "Em atraso", "items": overdue},
+            {"key": "today", "label": "Para hoje", "items": due_today},
+            {"key": "upcoming", "label": "Próximos 7 dias", "items": upcoming},
+        ],
+    }
+
+
+@router.get("/workboard")
+async def workboard(owner_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
+    """Vista operacional do funil. É apenas de leitura nesta primeira versão."""
+    scope = _work_scope(user, owner_id)
+    # O quadro mostra todos os momentos relevantes de cada entidade. Estados
+    # "convertida" não aparecem porque são representados pelo registo criado
+    # na etapa seguinte, evitando duplicação visual.
+    leads_query = {**scope, "status": {"$in": ["nova", "em_qualificacao"]}}
+    opportunities_query = {**scope, "status": {"$in": ["aberta", "em_analise"]}}
+    proposals_query = {
+        **scope,
+        "$or": [
+            {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}},
+            {"status": "ganha", "$or": [{"converted_order_id": None}, {"converted_order_id": {"$exists": False}}]},
+        ],
+    }
+    # Após a primeira fatura, a encomenda sai do quadro comercial e passa
+    # para acompanhamento de gestão/financeiro.
+    orders_query = {**scope, "status": {"$in": ["aberta", "em_planeamento"]}}
+    leads, opportunities, proposals, orders = await asyncio.gather(
+        db.leads.find(leads_query, {"_id": 0}).sort("updated_at", -1).to_list(100),
+        db.opportunities.find(opportunities_query, {"_id": 0}).sort("updated_at", -1).to_list(100),
+        db.proposals.find(proposals_query, {"_id": 0}).sort("next_follow_up_date", 1).to_list(100),
+        db.orders.find(orders_query, {"_id": 0}).sort("created_at", -1).to_list(100),
+    )
+    all_records = leads + opportunities + proposals + orders
+    client_ids = {item.get("client_id") for item in all_records if item.get("client_id")}
+    clients = await db.clients.find({"id": {"$in": list(client_ids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(client_ids) or 1)
+    client_names = {item["id"]: item.get("name", "-") for item in clients}
+
+    def card(item: dict, kind: str, href: str, title: str, due_date: object = None) -> dict:
+        has_valid_proposal_line = any(
+            (line.get("product_id") or str(line.get("description") or "").strip())
+            and float(line.get("quantity") or 0) > 0
+            for line in item.get("lines", [])
+        ) if kind == "proposal" else False
+        return {
+            "id": item["id"], "kind": kind, "title": title, "description": item.get("description") or "",
+            "client": client_names.get(item.get("client_id"), item.get("client_name_raw") or "-"),
+            "status": item.get("status"), "value": item.get("total_net", item.get("estimated_value", 0)),
+            "due_date": _work_date(due_date), "href": href,
+            "opportunity_id": item.get("opportunity_id"), "has_attachment": bool(item.get("attachment")),
+            "has_valid_lines": has_valid_proposal_line,
+        }
+
+    columns = [
+        {"key": "leads", "label": "Leads", "items": [card(item, "lead", f"/leads/{item['id']}", item.get("description") or item.get("id", "Lead")) for item in leads]},
+        {"key": "opportunities", "label": "Oportunidades", "items": [card(item, "opportunity", f"/oportunidades/{item['id']}", item.get("description") or "Oportunidade", item.get("expected_close_date")) for item in opportunities]},
+        {"key": "proposals", "label": "Propostas", "items": [card(item, "proposal", f"/propostas/{item['id']}", item.get("number") or "Proposta", item.get("next_follow_up_date")) for item in proposals]},
+        {"key": "orders", "label": "Encomendas", "items": [card(item, "order", f"/encomendas/{item['id']}", item.get("number") or "Encomenda") for item in orders]},
+    ]
+    for column in columns:
+        column["count"] = len(column["items"])
+        column["value"] = round(sum(float(item.get("value") or 0) for item in column["items"]), 2)
+    return {"columns": columns}
 
 
 # ------------- Dashboard: KPIs + Funnel -------------

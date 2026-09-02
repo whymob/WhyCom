@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -60,6 +60,7 @@ export default function Leads() {
     pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "client", direction: "asc" });
+  const handledOpenId = useRef("");
 
   const load = async (page = pagination.page) => {
     const [leadResponse, clientResponse] = await Promise.all([
@@ -80,7 +81,9 @@ export default function Leads() {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
     if (filters.statuses.length) next.set("status", filters.statuses.join(","));
+    if (searchParams.get("open")) next.set("open", searchParams.get("open"));
     setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, setSearchParams]);
 
   const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
@@ -102,6 +105,21 @@ export default function Leads() {
     });
     setOpen(true);
   };
+
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || handledOpenId.current === openId) return;
+    handledOpenId.current = openId;
+    api.get("/leads", { params: { page: 1, page_size: 1, search: openId } }).then((response) => {
+      const lead = (response.data.items || []).find((item) => item.id === openId);
+      if (lead) openEdit(lead);
+      else toast.error("Lead não encontrada.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams]);
 
   const submit = async () => {
     try {
