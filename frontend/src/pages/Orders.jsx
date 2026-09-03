@@ -114,8 +114,8 @@ export default function Orders() {
     <div>
       <PageHeader kicker="Fase 4" title="Encomendas" actions={<ListFilterSettings filters={filters} statusOptions={Object.entries(ORDER_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} />} />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+        <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">
             <div className="min-w-[260px] flex-1">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label>
               <Input
@@ -155,7 +155,7 @@ export default function Orders() {
           {visibleOrders.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="orders-empty">Sem encomendas para os filtros atuais.</div>}
 
           {visibleOrders.map((order) => (
-            <div key={order.id} className={`grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50 ${order.status === "cancelada" ? "bg-[#FFF7F7]" : ""}`} data-testid={`order-row-${order.id}`}>
+            <div key={order.id} className={`wc-table-row grid grid-cols-12 items-center border-b px-4 py-3 text-sm ${order.status === "cancelada" ? "bg-[#FFF7F7]" : ""}`} data-testid={`order-row-${order.id}`}>
               <div className="col-span-2 font-mono">
                 <Link to={`/encomendas/${order.id}`} className="text-[#002FA7] hover:underline" data-testid={`order-link-${order.id}`}>{order.number}</Link>
               </div>

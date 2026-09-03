@@ -42,13 +42,13 @@ function recordYear(item, fields) {
 
 function Table({ columns, rows, testid, footer }) {
   return (
-    <div className="border border-neutral-200" data-testid={testid}>
-      <div className="grid gap-3 border-b border-neutral-200 px-4 py-2 text-[10px] uppercase tracking-widest text-neutral-500" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
+    <div className="wc-list-panel" data-testid={testid}>
+      <div className="wc-table-head grid gap-3 border-b border-[var(--wc-border)] px-4 py-2 text-[10px] uppercase tracking-widest" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
         {columns.map((column) => <div key={column.key} className={column.align === "right" ? "text-right" : ""}>{column.label}</div>)}
       </div>
       {rows.length === 0 && <div className="p-4 text-sm text-neutral-500">Sem dados.</div>}
       {rows.map((row, index) => (
-        <div key={index} className="grid gap-3 border-b border-neutral-100 px-4 py-2.5 text-sm" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
+        <div key={index} className="wc-table-row grid gap-3 border-b px-4 py-2.5 text-sm" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
           {columns.map((column) => (
             <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""}`}>
               {column.render ? column.render(row) : row[column.key]}
@@ -71,8 +71,8 @@ function Table({ columns, rows, testid, footer }) {
 
 function KPI({ label, value, sub, testid }) {
   return (
-    <div className="border border-neutral-200 p-4" data-testid={testid}>
-      <div className="text-[10px] uppercase tracking-[0.2em] text-neutral-500">{label}</div>
+    <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm" data-testid={testid}>
+      <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</div>
       <div className="mt-2 font-mono text-2xl">{value}</div>
       {sub && <div className="mt-1 text-xs text-neutral-500">{sub}</div>}
     </div>

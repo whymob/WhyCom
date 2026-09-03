@@ -3,53 +3,30 @@ import { Link } from "react-router-dom";
 import { api } from "@/lib/api";
 import { eur, pct } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
-import { TrendingUp, Sparkles, Target, FileText, Package, Percent, AlertTriangle, Factory } from "lucide-react";
+import { TrendingUp, Sparkles, Target, FileText, Package, Percent, Factory } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, LabelList, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-
-const LEVEL_STYLE = {
-  info: "border-l-[#002FA7] bg-[#E0E7FF]/40",
-  warning: "border-l-[#FFC800] bg-[#FEF9C3]",
-  danger: "border-l-[#FF2A00] bg-[#FEE2E2]",
-};
 
 function KPI({ label, value, sub, valueExtra, testid, icon: Icon, to }) {
   return (
-    <div className="border border-neutral-200 bg-white p-5" data-testid={testid}>
+    <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-5 shadow-sm transition-all hover:-translate-y-0.5 hover:border-slate-300 hover:shadow-md" data-testid={testid}>
       <div className="flex items-center justify-between">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-neutral-500">{label}</div>
-        {Icon && <Icon size={14} strokeWidth={1.5} className="text-neutral-400" />}
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{label}</div>
+        {Icon && <div className="rounded-lg bg-[var(--wc-cyan-50)] p-2 text-[var(--wc-cyan-700)]"><Icon size={15} strokeWidth={1.7} /></div>}
       </div>
       {to ? (
-        <Link to={to} className="mt-3 inline-block font-mono font-medium text-2xl tracking-tight text-[#002FA7] hover:underline">
+        <Link to={to} className="mt-3 inline-block font-mono font-semibold text-2xl tracking-tight text-[var(--wc-cyan-700)] hover:underline">
           {value}
         </Link>
       ) : (
-        <div className="mt-3 font-mono font-medium text-2xl tracking-tight">{value}</div>
+        <div className="mt-3 font-mono font-semibold text-2xl tracking-tight">{value}</div>
       )}
       {(sub || valueExtra) && <div className="mt-1 text-xs text-neutral-500">{valueExtra && <span>{valueExtra} · </span>}{sub}</div>}
     </div>
   );
 }
 
-function getAlertHref(alert) {
-  if (alert.type === "proposta_sem_encomenda") return `/propostas/${alert.ref_id}`;
-  if (alert.type === "fatura_atraso" && alert.order_id) return `/encomendas/${alert.order_id}#faturas`;
-  if (["encomenda_sem_plano", "desvio_plano", "plano_atraso"].includes(alert.type)) return `/encomendas/${alert.ref_id}`;
-  return null;
-}
-
-function getAlertTypeLabel(type) {
-  if (type === "proposta_sem_encomenda") return "Proposta";
-  if (type === "encomenda_sem_plano") return "Encomenda sem plano";
-  if (type === "desvio_plano") return "Desvio no plano";
-  if (type === "plano_atraso") return "Plano em atraso";
-  if (type === "fatura_atraso") return "Recebimento em atraso";
-  return type;
-}
-
 export default function Dashboard() {
   const [kpis, setKpis] = useState(null);
-  const [alerts, setAlerts] = useState([]);
   const [topManuf, setTopManuf] = useState([]);
   const [dashboardYear, setDashboardYear] = useState(new Date().getFullYear());
   const [selectedBillingMonth, setSelectedBillingMonth] = useState(null);
@@ -57,7 +34,6 @@ export default function Dashboard() {
   useEffect(() => {
     setSelectedBillingMonth(null);
     api.get(`/dashboard/kpis?year=${dashboardYear}`).then((response) => setKpis(response.data));
-    api.get("/dashboard/alerts").then((response) => setAlerts(response.data.alerts));
     api.get(`/analytics/by-manufacturer?year=${dashboardYear}`).then((response) => {
       const rows = (response.data.rows || [])
         .filter((row) => row.manufacturer_id && row.won_vab > 0)
@@ -69,8 +45,6 @@ export default function Dashboard() {
 
   const maxVab = Math.max(1, ...topManuf.map((row) => row.won_vab));
   const selectedBilling = (kpis?.billing_monthly || []).find((month) => month.month === selectedBillingMonth);
-  const criticalAlerts = alerts.filter((alert) => alert.level === "danger");
-  const visibleAlerts = alerts;
 
   return (
     <div>
@@ -94,55 +68,9 @@ export default function Dashboard() {
           </div>
         )}
       />
-      <div className="space-y-8 p-8">
-        <section className="border border-neutral-200 bg-white" data-testid="alerts-highlight">
-          <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center border border-[#FFC800] bg-[#FEF9C3] text-[#7C5A00]">
-                <AlertTriangle size={16} />
-              </div>
-              <div>
-                <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Alertas & Desvios</div>
-                <div className="mt-1 text-sm text-neutral-700">
-                  {alerts.length === 0
-                    ? "Sem alertas ativos."
-                    : `${alerts.length} alerta(s) ativo(s)${criticalAlerts.length ? ` · ${criticalAlerts.length} crítico(s)` : ""}`}
-                </div>
-              </div>
-            </div>
-            {visibleAlerts.length > 5 && <div className="text-xs text-neutral-500">Deslize para consultar todos os alertas</div>}
-          </div>
-          <div data-testid="alerts-list" className="max-h-80 overflow-y-auto">
-            {alerts.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="alerts-empty">Sem alertas ativos.</div>}
-            {visibleAlerts.map((alert, index) => {
-              const href = getAlertHref(alert);
-              const content = (
-                <div
-                  className={`border-b border-neutral-100 border-l-4 px-4 py-3 text-sm transition-colors ${LEVEL_STYLE[alert.level] || ""} ${href ? "hover:bg-neutral-50" : ""}`}
-                  data-testid={`alert-${index}`}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="font-medium text-neutral-900">{alert.message}</div>
-                      {href && <div className="mt-1 text-xs text-[#002FA7]">Abrir documento relacionado</div>}
-                    </div>
-                    <span className="whitespace-nowrap text-[10px] uppercase tracking-widest text-neutral-500">{getAlertTypeLabel(alert.type)}</span>
-                  </div>
-                </div>
-              );
-
-              if (!href) return <div key={`${alert.type}-${index}`}>{content}</div>;
-              return (
-                <Link key={`${alert.type}-${index}`} to={href} className="block">
-                  {content}
-                </Link>
-              );
-            })}
-          </div>
-        </section>
-
+      <div className="space-y-8 p-7">
         <section>
-          <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Pipeline</div>
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Pipeline</div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-3 lg:grid-cols-4">
             <KPI
               testid="kpi-leads-open"
@@ -174,7 +102,7 @@ export default function Dashboard() {
         </section>
 
         <section>
-          <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Resultado</div>
+          <div className="mb-3 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-400">Resultado</div>
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-5">
             <KPI testid="kpi-won-value" label="Valor Ganho" value={eur(kpis?.won_value)} sub="Propostas ganhas · sem IVA" icon={TrendingUp} />
             <KPI testid="kpi-won-vab" label="VAB Ganho" value={eur(kpis?.won_vab)} sub="Margem bruta ganha" icon={TrendingUp} />
@@ -184,7 +112,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="border border-neutral-200 bg-white p-5" data-testid="billing-monthly-chart">
+        <section className="rounded-[14px] border border-[var(--wc-border)] bg-white p-5 shadow-sm" data-testid="billing-monthly-chart">
           <div className="mb-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturação mensal s/IVA · {dashboardYear}</div>
           <ResponsiveContainer width="100%" height={250}>
             <BarChart
@@ -193,22 +121,22 @@ export default function Dashboard() {
               onClick={({ activeLabel }) => activeLabel && setSelectedBillingMonth(activeLabel)}
               style={{ cursor: "pointer" }}
             >
-              <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
-              <XAxis dataKey="month" fontSize={10} />
-              <YAxis fontSize={10} />
+              <CartesianGrid stroke="#E5E9F0" strokeDasharray="3 3" />
+              <XAxis dataKey="month" fontSize={10} tick={{ fill: "#64748B" }} axisLine={false} tickLine={false} />
+              <YAxis fontSize={10} tick={{ fill: "#64748B" }} axisLine={false} tickLine={false} />
               <Tooltip formatter={(value) => eur(value)} />
               <Legend />
-              <Bar dataKey="total_net" fill="#002FA7" name="Faturado s/IVA">
-                <LabelList dataKey="total_net" position="top" formatter={(value) => eur(value)} fill="#111111" fontSize={10} />
+              <Bar dataKey="total_net" fill="#14E0E0" radius={[5, 5, 0, 0]} name="Faturado s/IVA">
+                <LabelList dataKey="total_net" position="top" formatter={(value) => eur(value)} fill="#475569" fontSize={10} />
               </Bar>
-              <Bar dataKey="billed_vab" fill="#00A859" name="VAB faturado">
-                <LabelList dataKey="billed_vab" position="top" formatter={(value) => eur(value)} fill="#111111" fontSize={10} />
+              <Bar dataKey="billed_vab" fill="#0B8E8E" radius={[5, 5, 0, 0]} name="VAB faturado">
+                <LabelList dataKey="billed_vab" position="top" formatter={(value) => eur(value)} fill="#475569" fontSize={10} />
               </Bar>
             </BarChart>
           </ResponsiveContainer>
         </section>
 
-        <section className="border border-neutral-200 bg-white p-5" data-testid="billing-month-detail-chart">
+        <section className="rounded-[14px] border border-[var(--wc-border)] bg-white p-5 shadow-sm" data-testid="billing-month-detail-chart">
           <div className="mb-1 text-[11px] uppercase tracking-[0.2em] text-neutral-500">
             Composicao da faturacao {selectedBillingMonth ? `· ${selectedBillingMonth}` : "· selecione um mes"}
           </div>
@@ -240,13 +168,13 @@ export default function Dashboard() {
                 data={selectedBilling.items.map((item) => ({ ...item, label: `${item.item} · ${item.invoice}` }))}
                 margin={{ top: 5, right: 30, left: 10, bottom: 5 }}
               >
-                <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
+                <CartesianGrid stroke="#E5E9F0" strokeDasharray="3 3" />
                 <XAxis type="number" fontSize={10} tickFormatter={(value) => eur(value)} />
                 <YAxis type="category" dataKey="label" width={260} fontSize={10} tick={{ fill: "#444" }} />
                 <Tooltip formatter={(value) => eur(value)} />
                 <Legend />
-                <Bar dataKey="amount" fill="#002FA7" name="Faturado s/IVA" />
-                <Bar dataKey="vab" fill="#00A859" name="VAB faturado" />
+                <Bar dataKey="amount" fill="#14E0E0" name="Faturado s/IVA" />
+                <Bar dataKey="vab" fill="#0B8E8E" name="VAB faturado" />
               </BarChart>
               </ResponsiveContainer>
             </div>
@@ -258,7 +186,7 @@ export default function Dashboard() {
 
         <section>
           <div className="mb-3 flex items-center gap-2 text-[11px] uppercase tracking-[0.2em] text-neutral-500"><Factory size={12} /> Top 5 Fabricantes por VAB · {dashboardYear}</div>
-          <div className="border border-neutral-200 bg-white" data-testid="top-manufacturers">
+          <div className="overflow-hidden rounded-[14px] border border-[var(--wc-border)] bg-white shadow-sm" data-testid="top-manufacturers">
             {topManuf.length === 0 && (
               <div className="p-4 text-sm text-neutral-500" data-testid="top-manufacturers-empty">
                 Sem VAB por fabricante - associe fabricantes aos produtos e ganhe propostas para comecar.
@@ -275,8 +203,8 @@ export default function Dashboard() {
                 >
                   <div className="col-span-3 truncate text-sm font-medium">{manufacturer.name}</div>
                   <div className="col-span-6">
-                    <div className="relative h-6 overflow-hidden bg-neutral-100">
-                      <div className="flex h-full items-center bg-[#002FA7] px-2 text-[11px] text-white font-mono" style={{ width: `${width}%` }}>
+                  <div className="relative h-6 overflow-hidden rounded-md bg-slate-100">
+                      <div className="flex h-full items-center bg-[var(--wc-cyan-700)] px-2 text-[11px] text-white font-mono" style={{ width: `${width}%` }}>
                         {eur(manufacturer.won_vab)}
                       </div>
                     </div>
@@ -289,7 +217,7 @@ export default function Dashboard() {
           </div>
         </section>
 
-        <section className="border border-neutral-200 p-6">
+        <section className="rounded-[14px] border border-[var(--wc-border)] bg-white p-6 shadow-sm">
           <div className="mb-2 text-[11px] uppercase tracking-[0.2em] text-neutral-500">Regra Fulfilled</div>
           <div className="font-display text-xl tracking-tight">
             Valor Encomenda = Valor Planeado = Valor Faturado = Valor Recebido

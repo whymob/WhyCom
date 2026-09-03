@@ -126,8 +126,8 @@ export default function Users() {
       <div className="p-8">
         {!isAdmin && <div className="mb-4 text-sm text-neutral-500">Apenas Admin pode criar ou editar utilizadores.</div>}
 
-        <div className="border border-neutral-200">
-          <div className="grid grid-cols-12 border-b border-neutral-200 px-4 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
+        <div className="wc-list-panel">
+          <div className="wc-table-head grid grid-cols-12 border-b border-[var(--wc-border)] px-4 py-2 text-[10px] uppercase tracking-widest">
             <div className="col-span-3">Nome</div>
             <div className="col-span-3">Email</div>
             <div className="col-span-3">Cargo</div>
@@ -139,7 +139,7 @@ export default function Users() {
             const isSelf = item.id === me?.id;
 
             return (
-              <div key={item.id} className="grid grid-cols-12 items-center gap-2 border-b border-neutral-100 px-4 py-3 text-sm" data-testid={`user-row-${item.id}`}>
+              <div key={item.id} className="wc-table-row grid grid-cols-12 items-center gap-2 border-b px-4 py-3 text-sm" data-testid={`user-row-${item.id}`}>
                 <div className="col-span-3 font-medium">
                   {item.name}
                   {isSelf && <span className="ml-2 text-[10px] uppercase tracking-widest text-neutral-400">(voce)</span>}

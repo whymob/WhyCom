@@ -67,10 +67,10 @@ export default function LeadDetail() {
   if (!lead || !form) return <div className="p-8 text-sm text-neutral-500">A carregar lead…</div>;
 
   return <div>
-    <PageHeader kicker="Ciclo comercial" title="Lead" actions={<Link to="/leads" className="border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50">Voltar a Leads</Link>} />
-    <div className="max-w-4xl p-8">
-      <div className="border border-neutral-200 bg-white p-6">
-        <div className="mb-6 flex items-start justify-between gap-4 border-b border-neutral-200 pb-5"><div><div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">{LEAD_STATUS[lead.status]}</div><h2 className="mt-1 text-xl font-semibold">{lead.description}</h2></div><div className="font-mono text-lg">{eur(lead.estimated_value)}</div></div>
+    <PageHeader kicker="Ciclo comercial" title="Lead" actions={<Link to="/leads" className="rounded-lg border border-[var(--wc-border)] px-3 py-2 text-xs text-slate-600 hover:bg-[#ECFEFF]">Voltar a Leads</Link>} />
+    <div className="max-w-4xl p-7">
+      <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-6 shadow-sm">
+        <div className="mb-6 flex items-start justify-between gap-4 border-b border-[var(--wc-border)] pb-5"><div><div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">{LEAD_STATUS[lead.status]}</div><h2 className="mt-1 text-xl font-semibold">{lead.description}</h2></div><div className="font-mono text-lg text-[var(--wc-cyan-700)]">{eur(lead.estimated_value)}</div></div>
         <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
           <div><Label>Cliente</Label><select value={form.client_id} onChange={(event) => setForm({ ...form, client_id: event.target.value, client_name_raw: "" })} className="mt-1 h-10 w-full border border-neutral-300 bg-white px-3 text-sm"><option value="">Cliente por identificar</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.name}</option>)}</select></div>
           {!form.client_id && <div><Label>Nome do potencial cliente</Label><Input value={form.client_name_raw} onChange={(event) => setForm({ ...form, client_name_raw: event.target.value })} className="mt-1 rounded-none" /></div>}

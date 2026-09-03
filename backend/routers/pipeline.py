@@ -17,6 +17,7 @@ from helpers import audit_log, notify_proposal_won, invoice_line_vab
 router = APIRouter()
 PROPOSAL_ATTACHMENT_MAX_BYTES = 50 * 1024 * 1024
 PROPOSAL_ATTACHMENT_DIR = os.environ.get("PROPOSAL_ATTACHMENT_DIR", "/app/uploads")
+OPPORTUNITY_ATTACHMENT_DIR = os.environ.get("OPPORTUNITY_ATTACHMENT_DIR", PROPOSAL_ATTACHMENT_DIR)
 ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER = os.environ.get("ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER", "true").lower() in {"1", "true", "yes"}
 PROPOSAL_ACTIVE_STATUS_FLOW = ["em_elaboracao", "enviada", "em_negociacao", "ganha"]
 PROPOSAL_TERMINAL_STATUSES = {"perdida", "expirada", "substituida"}
@@ -34,6 +35,11 @@ ALLOWED_PROPOSAL_ATTACHMENT_TYPES = {
     ".docx": {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"},
     ".ppt": {"application/vnd.ms-powerpoint"},
     ".pptx": {"application/vnd.openxmlformats-officedocument.presentationml.presentation"},
+}
+OPPORTUNITY_ATTACHMENT_TYPES = {
+    **ALLOWED_PROPOSAL_ATTACHMENT_TYPES,
+    ".xls": {"application/vnd.ms-excel"},
+    ".xlsx": {"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"},
 }
 
 
@@ -258,6 +264,82 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
     await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "updated_at": now_iso()}})
     proposal.pop("_id", None)
     return proposal
+
+
+@router.post("/opportunities/{oid}/attachments", response_model=Opportunity)
+async def upload_opportunity_attachment(oid: str, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    opportunity = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not opportunity:
+        raise HTTPException(404, "Oportunidade não encontrada")
+    if opportunity.get("status") == "convertida" or opportunity.get("converted_proposal_id"):
+        raise HTTPException(400, "Oportunidade convertida: não é possível adicionar ficheiros")
+    filename = os.path.basename(file.filename or "anexo")
+    extension = os.path.splitext(filename)[1].lower()
+    if extension not in OPPORTUNITY_ATTACHMENT_TYPES:
+        raise HTTPException(400, "Tipo de ficheiro não permitido. Use PDF, Excel, Word ou PowerPoint")
+    if file.content_type and file.content_type not in OPPORTUNITY_ATTACHMENT_TYPES[extension]:
+        raise HTTPException(400, "O tipo do ficheiro não corresponde à extensão permitida")
+    attachment_id = new_id()
+    storage_key = os.path.join("opportunities", oid, f"{attachment_id}{extension}")
+    storage_path = os.path.join(OPPORTUNITY_ATTACHMENT_DIR, storage_key)
+    os.makedirs(os.path.dirname(storage_path), exist_ok=True)
+    size, digest = 0, hashlib.sha256()
+    try:
+        file.file.seek(0)
+        header = file.file.read(16)
+        if not _valid_proposal_attachment_signature(extension, header):
+            raise HTTPException(400, "O conteúdo do ficheiro não corresponde a um documento válido")
+        file.file.seek(0)
+        with open(storage_path, "wb") as output:
+            while chunk := file.file.read(1024 * 1024):
+                size += len(chunk)
+                if size > PROPOSAL_ATTACHMENT_MAX_BYTES:
+                    raise HTTPException(400, "Cada ficheiro não pode ultrapassar 50 MB")
+                digest.update(chunk)
+                output.write(chunk)
+        if size == 0:
+            raise HTTPException(400, "O ficheiro está vazio")
+    except HTTPException:
+        if os.path.exists(storage_path): os.remove(storage_path)
+        raise
+    except Exception:
+        if os.path.exists(storage_path): os.remove(storage_path)
+        raise HTTPException(500, "Não foi possível guardar o ficheiro")
+    attachment = {"id": attachment_id, "filename": filename, "content_type": file.content_type or "application/octet-stream", "size": size, "sha256": digest.hexdigest(), "storage_key": storage_key, "uploaded_at": now_iso()}
+    await db.opportunities.update_one({"id": oid}, {"$push": {"attachments": attachment}, "$set": {"updated_at": now_iso()}})
+    await audit_log("attachment_upload", "opportunity", oid, {}, {"attachment": attachment}, user)
+    return await db.opportunities.find_one({"id": oid}, {"_id": 0})
+
+
+@router.get("/opportunities/{oid}/attachments/{aid}")
+async def download_opportunity_attachment(oid: str, aid: str, user: dict = Depends(get_current_user)):
+    opportunity = await db.opportunities.find_one({"id": oid}, {"_id": 0, "attachments": 1})
+    attachment = next((item for item in (opportunity or {}).get("attachments", []) if item.get("id") == aid), None)
+    if not attachment:
+        raise HTTPException(404, "Ficheiro não encontrado")
+    storage_path = os.path.realpath(os.path.join(OPPORTUNITY_ATTACHMENT_DIR, attachment.get("storage_key", "")))
+    upload_root = os.path.realpath(OPPORTUNITY_ATTACHMENT_DIR)
+    if not storage_path.startswith(upload_root + os.sep) or not os.path.isfile(storage_path):
+        raise HTTPException(404, "O ficheiro associado não está disponível")
+    return FileResponse(storage_path, media_type=attachment.get("content_type") or "application/octet-stream", filename=os.path.basename(attachment.get("filename") or "anexo"))
+
+
+@router.delete("/opportunities/{oid}/attachments/{aid}", response_model=Opportunity)
+async def delete_opportunity_attachment(oid: str, aid: str, user: dict = Depends(get_current_user)):
+    opportunity = await db.opportunities.find_one({"id": oid}, {"_id": 0})
+    if not opportunity:
+        raise HTTPException(404, "Oportunidade não encontrada")
+    if opportunity.get("status") == "convertida" or opportunity.get("converted_proposal_id"):
+        raise HTTPException(400, "Oportunidade convertida: os ficheiros estão bloqueados")
+    attachment = next((item for item in opportunity.get("attachments", []) if item.get("id") == aid), None)
+    if not attachment:
+        raise HTTPException(404, "Ficheiro não encontrado")
+    storage_path = os.path.realpath(os.path.join(OPPORTUNITY_ATTACHMENT_DIR, attachment.get("storage_key", "")))
+    upload_root = os.path.realpath(OPPORTUNITY_ATTACHMENT_DIR)
+    if storage_path.startswith(upload_root + os.sep) and os.path.isfile(storage_path): os.remove(storage_path)
+    await db.opportunities.update_one({"id": oid}, {"$pull": {"attachments": {"id": aid}}, "$set": {"updated_at": now_iso()}})
+    await audit_log("attachment_delete", "opportunity", oid, {"attachment": attachment}, {}, user)
+    return await db.opportunities.find_one({"id": oid}, {"_id": 0})
 
 
 # ------------- Proposals -------------
@@ -680,7 +762,7 @@ async def workday(owner_id: Optional[str] = Query(None), user: dict = Depends(ge
             "id": opportunity["id"], "kind": "opportunity", "kind_label": "Negociação",
             "title": opportunity.get("description") or "Oportunidade", "description": "",
             "client": client_names.get(opportunity.get("client_id"), "-"), "owner": owner_names.get(opportunity.get("owner_id"), "-"),
-            "status": opportunity.get("status"), "due_date": due_date, "href": "/oportunidades",
+            "status": opportunity.get("status"), "due_date": due_date, "href": f"/oportunidades/{opportunity['id']}",
             "value": opportunity.get("estimated_value", 0),
         })
 

@@ -36,12 +36,12 @@ export default function Clients() {
         actions={<Button onClick={openCreate} data-testid="new-client-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo cliente</Button>}
       />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
+        <div className="wc-list-panel">
+          <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
             <div className="col-span-3">Nome</div><div className="col-span-2">NIF</div><div className="col-span-3">Contacto</div><div className="col-span-2">Segmento</div><div className="col-span-2 text-right">Ações</div>
           </div>
           {items.map((c) => (
-            <div key={c.id} className="grid grid-cols-12 items-center px-4 py-3 border-b border-neutral-100 text-sm">
+            <div key={c.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-3 border-b text-sm">
               <div className="col-span-3 font-medium">{c.name}</div>
               <div className="col-span-2 font-mono text-xs">{c.nif}</div>
               <div className="col-span-3 text-neutral-700 text-xs">{c.contact_person} · {c.contact_email}</div>

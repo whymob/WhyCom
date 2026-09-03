@@ -400,23 +400,23 @@ export default function ProposalDetail() {
           </div>
         }
       />
-      <div className="p-8 space-y-6">
+      <div className="p-7 space-y-6">
         <DocumentTimeline events={timelineEvents} />
 
         <div className="grid grid-cols-4 gap-4">
-          <div className="border border-neutral-200 p-4">
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm">
             <div className="text-[10px] uppercase tracking-widest text-neutral-500">Cliente</div>
             <div className="mt-1 font-medium">{clientName}</div>
           </div>
-          <div className="border border-neutral-200 p-4">
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm">
             <div className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</div>
             <div className="mt-1"><Badge className="rounded-none">{PROP_STATUS[proposal.status]}</Badge></div>
           </div>
-          <div className="border border-neutral-200 p-4">
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm">
             <div className="text-[10px] uppercase tracking-widest text-neutral-500">Total (s/ IVA)</div>
             <div className="mt-1 font-mono text-lg">{eur(totals.net)}</div>
           </div>
-          <div className="border border-neutral-200 p-4">
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm">
             <div className="text-[10px] uppercase tracking-widest text-neutral-500">VAB</div>
             <div className="mt-1 font-mono text-lg">{eur(totals.vab)}</div>
           </div>
@@ -429,7 +429,7 @@ export default function ProposalDetail() {
           </div>
           {isConverted && !isSubstituted && <div className="mb-2 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">Esta proposta ja foi convertida em encomenda. As linhas e o estado estao bloqueados.</div>}
           {isSubstituted && <div className="mb-2 border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs text-neutral-700"><div><span className="font-medium">Motivo da substituição:</span> {proposal.replacement_reason || "-"}</div>{proposal.replacement_proposal_id && <Link to={`/propostas/${proposal.replacement_proposal_id}`} className="mt-1 inline-block text-[#002FA7] hover:underline">Ver nova proposta que substitui esta</Link>}</div>}
-          <div className="border border-neutral-200">
+          <div className="wc-list-panel">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2 gap-2">
               <div className="col-span-3">Produto/Serviço</div>
               <div className="col-span-1 text-right">Qtd</div>

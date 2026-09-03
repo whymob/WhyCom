@@ -108,6 +108,7 @@ class Opportunity(BaseModel):
     status: Literal["aberta", "em_analise", "convertida", "perdida"] = "aberta"
     lost_reason: Optional[str] = ""
     converted_proposal_id: Optional[str] = None
+    attachments: List[dict] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 

@@ -19,14 +19,14 @@ export default function StatusMultiSelect({ options, value, onChange, testId }) 
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button type="button" variant="outline" className="h-9 w-full justify-between rounded-none font-normal" data-testid={testId}>
+        <Button type="button" variant="outline" className="h-10 w-full justify-between font-normal" data-testid={testId}>
           <span className="truncate">{label}</span><ChevronDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="start" className="w-64 rounded-none p-2">
-        <button type="button" onClick={() => onChange([])} className="mb-1 w-full px-2 py-1.5 text-left text-xs text-neutral-500 hover:bg-neutral-100">Todos os estados</button>
+      <PopoverContent align="start" className="w-64 rounded-xl border-[var(--wc-border)] p-2 shadow-lg">
+        <button type="button" onClick={() => onChange([])} className="mb-1 w-full rounded-md px-2 py-1.5 text-left text-xs text-slate-500 hover:bg-[#ECFEFF]">Todos os estados</button>
         {options.map((option) => (
-          <label key={option.value} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-sm hover:bg-neutral-100">
+          <label key={option.value} className="flex cursor-pointer items-center gap-2 rounded-md px-2 py-1.5 text-sm hover:bg-[#ECFEFF]">
             <Checkbox checked={selected.includes(option.value)} onCheckedChange={() => toggle(option.value)} />
             <span>{option.label}</span>
           </label>

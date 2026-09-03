@@ -25,6 +25,7 @@ import Clients from "@/pages/Clients";
 import Manufacturers from "@/pages/Manufacturers";
 import Products from "@/pages/Products";
 import Users from "@/pages/Users";
+import Invoices from "@/pages/Invoices";
 
 function Protected({ children }) {
   const { user } = useAuth();
@@ -60,6 +61,7 @@ function App() {
               <Route path="propostas/:id" element={<ProposalDetail />} />
               <Route path="encomendas" element={<Orders />} />
               <Route path="encomendas/:id" element={<OrderDetail />} />
+              <Route path="faturas" element={<Invoices />} />
               <Route path="reporting" element={<Reporting />} />
               <Route path="projetos" element={<Projects />} />
               <Route path="projetos/:id" element={<ProjectDetail />} />

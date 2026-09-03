@@ -34,12 +34,12 @@ export default function Manufacturers() {
       <PageHeader kicker="Master Data" title="Fabricantes"
         actions={<Button onClick={openCreate} data-testid="new-manuf-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo fabricante</Button>} />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
+        <div className="wc-list-panel">
+          <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
             <div className="col-span-6">Nome</div><div className="col-span-4">Tipo de parceria</div><div className="col-span-2 text-right">Ações</div>
           </div>
           {items.map((m) => (
-            <div key={m.id} className="grid grid-cols-12 items-center px-4 py-3 border-b border-neutral-100 text-sm">
+            <div key={m.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-3 border-b text-sm">
               <div className="col-span-6 font-medium">{m.name}</div>
               <div className="col-span-4 text-xs text-neutral-700">{m.partnership_type}</div>
               <div className="col-span-2 text-right"><Button size="sm" variant="ghost" onClick={() => openEdit(m)} className="rounded-none text-xs">Editar</Button></div>

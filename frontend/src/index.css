@@ -1,49 +1,66 @@
-@import url('https://api.fontshare.com/v2/css?f[]=cabinet-grotesk@400,500,700,800,900&display=swap');
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@300;400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=IBM+Plex+Mono:wght@400;500;600&display=swap');
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 :root {
-    --background: 0 0% 100%;
-    --foreground: 0 0% 6.7%;
+    --wc-ink: #14181f;
+    --wc-bg: #f4f6fa;
+    --wc-surface: #ffffff;
+    --wc-surface-2: #f8fafc;
+    --wc-text: #0f172a;
+    --wc-text-mid: #475569;
+    --wc-text-soft: #64748b;
+    --wc-text-faint: #94a3b8;
+    --wc-border: #e5e9f0;
+    --wc-border-soft: #eef1f6;
+    --wc-cyan: #14e0e0;
+    --wc-cyan-700: #0b8e8e;
+    --wc-cyan-50: #ecfeff;
+    --wc-danger-bg: #fef2f2;
+    --wc-warning-bg: #fffbeb;
+    --wc-success-bg: #ecfdf5;
+    --wc-font: 'Inter', system-ui, sans-serif;
+    --wc-font-mono: 'IBM Plex Mono', ui-monospace, monospace;
+    --background: 220 25% 97%;
+    --foreground: 222 47% 11%;
     --card: 0 0% 100%;
-    --card-foreground: 0 0% 6.7%;
+    --card-foreground: 222 47% 11%;
     --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 6.7%;
-    --primary: 226 100% 33%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 96%;
-    --secondary-foreground: 0 0% 6.7%;
-    --muted: 0 0% 96%;
-    --muted-foreground: 0 0% 30%;
-    --accent: 0 0% 96%;
-    --accent-foreground: 0 0% 6.7%;
-    --destructive: 12 100% 50%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 180 83% 48%;
+    --primary-foreground: 210 22% 10%;
+    --secondary: 210 40% 98%;
+    --secondary-foreground: 215 25% 27%;
+    --muted: 210 40% 98%;
+    --muted-foreground: 215 16% 47%;
+    --accent: 180 100% 96%;
+    --accent-foreground: 184 80% 25%;
+    --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 100%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 226 100% 33%;
-    --radius: 0.125rem;
+    --border: 215 25% 91%;
+    --input: 215 25% 91%;
+    --ring: 180 83% 48%;
+    --radius: 0.625rem;
 }
 
 body {
     margin: 0;
-    font-family: 'IBM Plex Sans', system-ui, sans-serif;
+    font-family: var(--wc-font);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
-    background: #ffffff;
-    color: #111111;
+    background: var(--wc-bg);
+    color: var(--wc-text);
 }
 
 h1, h2, h3, h4, h5, h6, .font-display {
-    font-family: 'Cabinet Grotesk', 'IBM Plex Sans', sans-serif;
+    font-family: var(--wc-font);
     letter-spacing: -0.02em;
 }
 
 .font-mono, code, .num {
-    font-family: 'IBM Plex Mono', ui-monospace, monospace !important;
+    font-family: var(--wc-font-mono) !important;
 }
 
 @layer base {
@@ -60,4 +77,61 @@ h1, h2, h3, h4, h5, h6, .font-display {
     background-image: linear-gradient(to right, rgba(0,0,0,0.04) 1px, transparent 1px),
                       linear-gradient(to bottom, rgba(0,0,0,0.04) 1px, transparent 1px);
     background-size: 40px 40px;
+}
+
+/* Superfícies partilhadas para as páginas que ainda usam utilitários legados. */
+.wc-page-card { border: 1px solid var(--wc-border); border-radius: 14px; background: var(--wc-surface); }
+.wc-page-card:hover { border-color: #cbd5e1; }
+.wc-list-panel { overflow: hidden; border: 1px solid var(--wc-border); border-radius: 14px; background: var(--wc-surface); box-shadow: 0 1px 2px rgba(15, 23, 42, .04); }
+.wc-filter-bar { border-bottom: 1px solid var(--wc-border); background: var(--wc-surface-2); }
+.wc-table-head { background: var(--wc-surface-2); color: var(--wc-text-faint); font-weight: 600; }
+.wc-table-row { border-color: var(--wc-border-soft); transition: background-color .15s ease; }
+.wc-table-row:hover { background: var(--wc-cyan-50); }
+
+/* Navegação lateral — contorno e brilho discretos no item sob foco ou ativo. */
+.wc-sidebar .wc-nav-link {
+    border: 1px solid transparent;
+    background: transparent;
+    box-shadow: none;
+    transition: color .16s ease, background-color .16s ease, border-color .16s ease, box-shadow .16s ease;
+}
+.wc-sidebar .wc-nav-link:hover,
+.wc-sidebar .wc-nav-link:focus-visible {
+    color: #f8fafc;
+    background: linear-gradient(90deg, rgba(31, 53, 61, .92), rgba(20, 24, 31, .38));
+    border-color: rgba(112, 226, 226, .28);
+    box-shadow: inset 0 0 0 1px rgba(20, 224, 224, .05), 0 5px 14px rgba(0, 0, 0, .16);
+    outline: none;
+}
+.wc-sidebar .wc-nav-link:hover svg,
+.wc-sidebar .wc-nav-link:focus-visible svg { color: var(--wc-cyan); }
+.wc-sidebar .wc-nav-link-active {
+    color: var(--wc-cyan);
+    background: linear-gradient(90deg, rgba(20, 224, 224, .15), rgba(20, 224, 224, .035));
+    border-color: rgba(112, 226, 226, .52);
+    box-shadow: inset 0 0 0 1px rgba(20, 224, 224, .08), 0 5px 16px rgba(0, 0, 0, .18);
+}
+.wc-sidebar .wc-nav-link-active svg { color: var(--wc-cyan); }
+
+/* Lista de notificações: altura reservada para manter o cabeçalho visível e
+   permitir consultar alertas adicionais. */
+[class~="max-h-[60vh]"][class~="overflow-y-auto"] { height: 60vh; overflow-y: scroll !important; }
+
+/* Ponte temporária para as páginas existentes: substitui os acentos antigos
+   sem alterar a semântica de sucesso, aviso ou erro. */
+[class~="text-[#002FA7]"] { color: var(--wc-cyan-700) !important; }
+[class~="bg-[#002FA7]"] { background-color: var(--wc-cyan) !important; }
+[class~="border-[#002FA7]"] { border-color: var(--wc-cyan) !important; }
+[class~="hover:bg-[#002FA7]"]:hover { background-color: var(--wc-cyan-700) !important; }
+[class~="hover:bg-[#002277]"]:hover { background-color: var(--wc-cyan-700) !important; }
+[class~="bg-[#E0E7FF]"] { background-color: var(--wc-cyan-50) !important; }
+[class~="border-l-[#002FA7]"] { border-left-color: var(--wc-cyan) !important; }
+[class~="text-[#00A859]"] { color: #047857 !important; }
+[class~="bg-[#00A859]"] { background-color: #059669 !important; }
+[class~="rounded-none"] { border-radius: 10px !important; }
+
+@media (max-width: 900px) {
+    .wc-sidebar { width: 72px; }
+    .wc-sidebar .wc-nav-label, .wc-sidebar .wc-nav-section, .wc-sidebar .wc-user-info { display: none; }
+    .wc-sidebar .wc-nav-link { justify-content: center; padding-left: 0; padding-right: 0; }
 }

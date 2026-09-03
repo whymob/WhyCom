@@ -228,8 +228,8 @@ export default function Leads() {
         )}
       />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+        <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">
             <div className="min-w-[260px] flex-1">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label>
               <Input
@@ -267,7 +267,7 @@ export default function Leads() {
           )}
 
           {visibleLeads.map((lead) => (
-            <div key={lead.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`lead-row-${lead.id}`}>
+            <div key={lead.id} className="wc-table-row grid grid-cols-12 items-center border-b px-4 py-3 text-sm" data-testid={`lead-row-${lead.id}`}>
               <div className="col-span-3 font-medium">{lead.client_id ? clientName(lead.client_id) : (lead.client_name_raw || "-")}</div>
               <div className="col-span-4 truncate text-neutral-700">{lead.description}</div>
               <div className="col-span-2 pr-4 text-right font-mono">{eur(lead.estimated_value)}</div>

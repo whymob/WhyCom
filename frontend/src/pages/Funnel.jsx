@@ -8,10 +8,10 @@ import { api } from "@/lib/api";
 import { eur, pct, dateShort } from "@/lib/fmt";
 
 const COLORS = {
-  leads: "#111111",
-  opportunities: "#002FA7",
-  proposals: "#FFC800",
-  orders: "#00A859",
+  leads: "#475569",
+  opportunities: "#0B8E8E",
+  proposals: "#14E0E0",
+  orders: "#047857",
 };
 
 export default function Funnel() {
@@ -70,14 +70,14 @@ export default function Funnel() {
   return (
     <div>
       <PageHeader kicker="Ciclo Comercial" title="Funil de Vendas" />
-      <div className="p-8 space-y-8">
-        <div className="border border-neutral-200 p-4 flex flex-wrap items-center gap-4">
-          <div className="text-[10px] uppercase tracking-[0.2em] text-neutral-500">Filtros do funil</div>
+      <div className="p-7 space-y-8">
+        <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm flex flex-wrap items-center gap-4">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Filtros do funil</div>
           <div className="w-40">
             <select
               value={funnelYear}
               onChange={(event) => setFunnelYear(event.target.value)}
-              className="h-10 w-full rounded-none border border-neutral-300 bg-white px-2 font-mono text-xs"
+              className="h-10 w-full rounded-lg border border-[var(--wc-border)] bg-white px-3 font-mono text-xs outline-none focus:border-[#14E0E0] focus:ring-4 focus:ring-[#14E0E0]/15"
               data-testid="funnel-year-select"
             >
               <option value="__all__">Todos os anos</option>
@@ -107,16 +107,16 @@ export default function Funnel() {
           <div className="ml-auto text-xs text-neutral-500 font-mono" data-testid="funnel-active-filter">{activeYear} · {activeName}</div>
         </div>
 
-        <div className="border border-neutral-200 p-8">
+        <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-7 shadow-sm">
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-6">Lead → Oportunidade → Proposta → Encomenda</div>
           <div className="space-y-3">
             {stages.map((stage) => {
               const width = Math.max(8, (stage.count / maxCount) * 100);
               return (
-                <div key={stage.key} data-testid={`funnel-stage-${stage.key}`} role="button" tabIndex={0} onClick={() => toggleStage(stage.key)} onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && toggleStage(stage.key)} className={`cursor-pointer ${selectedStageKey === stage.key ? "ring-2 ring-[#5B0A91] ring-offset-2" : ""}`}>
+                <div key={stage.key} data-testid={`funnel-stage-${stage.key}`} role="button" tabIndex={0} onClick={() => toggleStage(stage.key)} onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && toggleStage(stage.key)} className={`rounded-lg p-1 cursor-pointer transition-colors ${selectedStageKey === stage.key ? "bg-[#ECFEFF] ring-2 ring-[#14E0E0] ring-offset-2" : "hover:bg-slate-50"}`}>
                   <div className="flex items-center gap-4">
                     <div className="w-32 text-sm font-medium">{stage.label}</div>
-                    <div className="flex-1 h-11 bg-neutral-100 relative overflow-hidden">
+                    <div className="flex-1 h-11 rounded-md bg-slate-100 relative overflow-hidden">
                       <div className="h-full flex items-center px-4 text-white text-sm font-mono" style={{ width: `${width}%`, background: COLORS[stage.key] }}>
                         {stage.count}
                       </div>
@@ -130,7 +130,7 @@ export default function Funnel() {
           </div>
         </div>
 
-        <div className="border border-neutral-200" data-testid="funnel-stage-detail">
+        <div className="wc-list-panel" data-testid="funnel-stage-detail">
           <div className="border-b border-neutral-200 px-4 py-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">
             {selectedStage ? `Composição · ${selectedStage.label}` : "Composição da fase"}
           </div>
@@ -156,7 +156,7 @@ export default function Funnel() {
           ) : <div className="p-6 text-sm text-neutral-500">Clique no número ou na linha de uma fase para consultar os registos que compõem o total.</div>}
         </div>
 
-        <div className="border border-neutral-200" data-testid="funnel-summary">
+        <div className="wc-list-panel" data-testid="funnel-summary">
           <div className="grid grid-cols-5 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
             <div>Fase</div>
             <div className="text-right">Registos</div>

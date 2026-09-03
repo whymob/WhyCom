@@ -39,15 +39,15 @@ export default function Projects() {
       <PageHeader kicker="Fase 4 · Técnico" title="Projetos"
         actions={<Button onClick={() => setOpen(true)} data-testid="new-project-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo projeto</Button>} />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
+        <div className="wc-list-panel">
+          <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
             <div className="col-span-4">Nome</div><div className="col-span-2">Encomenda</div>
             <div className="col-span-2 text-right">Horas prev.</div><div className="col-span-2 text-right">€/h faturável</div>
             <div className="col-span-2 text-right">Estado</div>
           </div>
           {items.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="projects-empty">Sem projetos. Crie um a partir de uma encomenda existente.</div>}
           {items.map((p) => (
-            <div key={p.id} className="grid grid-cols-12 items-center px-4 py-3 border-b border-neutral-100 text-sm hover:bg-neutral-50" data-testid={`project-row-${p.id}`}>
+            <div key={p.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-3 border-b text-sm" data-testid={`project-row-${p.id}`}>
               <div className="col-span-4"><Link to={`/projetos/${p.id}`} className="font-medium text-[#002FA7] hover:underline" data-testid={`project-link-${p.id}`}>{p.name}</Link><div className="text-[10px] text-neutral-500">{dateShort(p.created_at)}</div></div>
               <div className="col-span-2 font-mono text-xs">{orderNum(p.order_id)}</div>
               <div className="col-span-2 text-right font-mono">{p.hours_forecast}h</div>
