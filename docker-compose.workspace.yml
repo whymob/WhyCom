@@ -1,0 +1,39 @@
+name: whycom-workspace
+
+services:
+  backend-workspace:
+    build:
+      context: ./backend
+    container_name: whymob-workspace-backend
+    env_file:
+      - ./backend/.env.workspace
+    environment:
+      ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
+      WORKSPACE_DEMO_DATA: "true"
+      # O ambiente de validação não deve gerar e-mails externos.
+      RESEND_API_KEY: ""
+    ports:
+      - "8010:8000"
+    volumes:
+      - proposal_uploads_workspace:/app/uploads-workspace-dev
+    restart: "no"
+
+  frontend-workspace:
+    build:
+      context: ./frontend
+    container_name: whymob-workspace-frontend
+    environment:
+      REACT_APP_BACKEND_URL: http://localhost:8010
+      HOST: 0.0.0.0
+      PORT: 3010
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
+    ports:
+      - "3010:3010"
+    depends_on:
+      - backend-workspace
+    restart: "no"
+
+volumes:
+  proposal_uploads_workspace:

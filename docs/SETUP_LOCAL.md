@@ -13,7 +13,7 @@ cd backend
 Copy-Item .env.example .env
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-pip install -r requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 ### Arrancar API
@@ -42,13 +42,13 @@ Resposta esperada:
 ```powershell
 cd frontend
 Copy-Item .env.example .env
-yarn install
+npm.cmd install
 ```
 
 ### Arrancar app
 
 ```powershell
-yarn start
+npm.cmd start
 ```
 
 ### Confirmar funcionamento
@@ -82,7 +82,8 @@ Se `/api/health` devolver `degraded`, o mais provavel e:
 
 - `MONGO_URL` incorreto;
 - MongoDB desligado;
-- `DB_NAME` apontar para uma base inacessivel.
+- `DB_NAME` apontar para uma base inacessivel;
+- ou a ligacao externa ao Atlas estar bloqueada por DNS/rede/firewall.
 
 ### Notificacoes nao enviam
 
@@ -94,4 +95,4 @@ Verificar:
 
 ## Nota importante
 
-O projeto ainda contem alguns artefatos da exportacao original, incluindo problemas de encoding em textos PT-PT. Isso nao impede o arranque local, mas deve ser tratado como prioridade de consolidacao tecnica.
+Os principais problemas de encoding visiveis no codigo e nas paginas centrais ja foram tratados. Se aparecer texto corrompido depois de um merge, vale revisar o ficheiro alterado antes de assumir que o problema voltou ao projeto todo.

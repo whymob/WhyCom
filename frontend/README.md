@@ -1,6 +1,6 @@
 # Frontend WhyMob CRM
 
-Aplicação React do WhyMob CRM, responsável pela experiência de utilizador do ciclo comercial, financeiro e técnico.
+Aplicacao React do WhyMob CRM, responsavel pela experiencia de utilizador do ciclo comercial, financeiro e tecnico.
 
 ## Stack
 
@@ -20,7 +20,7 @@ Criar `.env`:
 Copy-Item .env.example .env
 ```
 
-Instalar dependências:
+Instalar dependencias:
 
 ```powershell
 npm.cmd install
@@ -38,7 +38,7 @@ Gerar build:
 npm.cmd run build
 ```
 
-## Variáveis de ambiente
+## Variaveis de ambiente
 
 - `REACT_APP_BACKEND_URL`
 - `ENABLE_HEALTH_CHECK` opcional
@@ -46,14 +46,15 @@ npm.cmd run build
 ## Estrutura principal
 
 ```text
-src/pages/         Ecrãs principais
-src/components/    Layout e componentes reutilizáveis
+src/pages/         Ecras principais
+src/components/    Layout e componentes reutilizaveis
 src/components/ui/ Primitivas UI
-src/context/       Contextos de aplicação
-src/lib/           API, formatação e utilitários
+src/context/       Contextos de aplicacao
+src/lib/           API, formatacao e utilitarios
 ```
 
 ## Notas
 
-- O frontend assume que a API está disponível em `REACT_APP_BACKEND_URL`.
-- A plataforma original de exportação incluía dependências e artefactos extra; este frontend já foi limpo para instalação local mais previsível.
+- o frontend assume que a API esta disponivel em `REACT_APP_BACKEND_URL`;
+- o frontend ja foi ajustado para instalar corretamente com `npm.cmd install`;
+- se um merge reintroduzir conflitos em paginas complexas, o build do frontend costuma acusar isso imediatamente.

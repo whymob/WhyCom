@@ -8,14 +8,13 @@ O projeto aberto e uma aplicacao web de gestao comercial chamada **WhyMob CRM**,
 
 Pelo que existe no repositorio, o sistema foi exportado de uma plataforma de desenvolvimento com AI e saiu com um nivel de maturidade acima de um prototipo visual. Ha frontend, backend, testes de regressao, seed de dados, scheduler, notificacoes e documentacao de produto.
 
-Ao mesmo tempo, a exportacao tambem trouxe sinais claros de geracao automatica:
+Ao mesmo tempo, a exportacao trouxe sinais claros de geracao automatica:
 
-- `README.md` raiz praticamente vazio.
-- `frontend/README.md` padrao do Create React App.
-- pasta `memory/` com PRD e memoria operacional da geracao.
-- pasta `test_reports/` com iteracoes automatizadas.
+- `README.md` raiz originalmente vazio;
+- `frontend/README.md` originalmente padrao do Create React App;
+- pasta `memory/` com PRD e memoria operacional da geracao;
+- pasta `test_reports/` com iteracoes automatizadas;
 - arquivo `.emergent/emergent.yml` com metadados da plataforma de origem.
-- varios textos com problema de encoding, como `Gestão`, `sessão`, `cêntimo`.
 
 Conclusao: **o projeto parece funcional e relativamente completo para uma base MVP/MMP, mas ainda precisa de consolidacao de engenharia para virar produto sustentavel em ambiente produtivo.**
 
@@ -28,13 +27,11 @@ Com base em `memory/PRD.md`, nas rotas do frontend e na organizacao do backend, 
 - leads, oportunidades, propostas e encomendas;
 - pipeline comercial e funil de vendas;
 - plano de faturacao, faturas e recebimentos;
-- auditoria e exportacoes CSV;
+- auditoria e exportacoes CSV/PDF;
 - modulo tecnico com projetos, alocacoes e timesheet;
 - reporting executivo e analitico;
 - notificacoes por email com Resend;
 - scheduler para digest de alertas.
-
-Em termos de negocio, o foco esta muito alinhado com uma operacao comercial B2B com controlo de VAB, forecast e rastreabilidade.
 
 ## 3. Stack e arquitetura identificadas
 
@@ -46,15 +43,7 @@ Em termos de negocio, o foco esta muito alinhado com uma operacao comercial B2B 
 - Shadcn UI / Radix UI
 - Axios
 - Recharts
-- Sonner
-- CRACO sobre Create React App
-
-Pontos observados:
-
-- estrutura por paginas em `frontend/src/pages`;
-- autenticacao centralizada em `frontend/src/context/AuthContext.jsx`;
-- cliente HTTP em `frontend/src/lib/api.js`;
-- layout principal em `frontend/src/components/Layout.jsx`.
+- CRACO
 
 ### Backend
 
@@ -65,22 +54,6 @@ Pontos observados:
 - Resend
 - Pydantic
 
-Pontos observados:
-
-- bootstrap fino em `backend/server.py`;
-- dependencias compartilhadas em `backend/deps.py`;
-- modelos em `backend/models.py`;
-- regras auxiliares em `backend/helpers.py`;
-- routers separados por dominio em `backend/routers/`.
-
-### Dados e operacao
-
-- base de dados MongoDB;
-- carga de seed no startup;
-- scheduler configuravel por variaveis de ambiente;
-- testes backend presentes;
-- relatorios de iteracao preservados no repositorio.
-
 ## 4. Estrutura do repositorio
 
 ```text
@@ -90,28 +63,10 @@ memory/          PRD e memoria do processo de geracao
 tests/           Estrutura adicional de testes
 test_reports/    Relatorios de execucao por iteracao
 .emergent/       Metadados da plataforma de origem
-docs/            Documentacao criada para consolidacao do projeto
+docs/            Documentacao consolidada do projeto
 ```
 
-## 5. Evidencias de que o projeto foi exportado de plataforma AI
-
-Os principais sinais encontrados foram:
-
-1. `README.md` raiz com conteudo placeholder.
-2. `frontend/README.md` ainda padrao do Create React App.
-3. `memory/PRD.md` muito mais completo que a documentacao de engenharia.
-4. `test_result.md` com protocolo operacional entre agentes.
-5. `test_reports/iteration_*.json` e XMLs de pytest por iteracao.
-6. `.emergent/emergent.yml` com `env_image_name`, `job_id` e `created_at`.
-7. mistura de codigo organizado com alguns detalhes tipicos de geracao automatica:
-   - dependencias em excesso;
-   - inconsistencias de encoding;
-   - documentacao final do produto incompleta;
-   - caminhos e referencias herdadas do ambiente de geracao.
-
-Isso nao e um problema em si. So significa que a proxima fase do projeto deve ser **industrializar o que ja foi gerado**.
-
-## 6. Estado atual de maturidade
+## 5. Estado atual de maturidade
 
 ### Pontos fortes
 
@@ -122,67 +77,57 @@ Isso nao e um problema em si. So significa que a proxima fase do projeto deve se
 - cobertura de testes backend reportada como forte nas iteracoes anteriores;
 - seed de dados para demonstracao;
 - notificacoes e scheduler ja pensados;
-- design guidelines preservadas.
+- setup local e Docker basicos ja documentados.
 
 ### Pontos de atencao
 
-- documentacao de setup, deploy e arquitetura ainda insuficiente;
-- encoding quebrado em varios arquivos e textos visiveis;
-- dependencia do frontend em `REACT_APP_BACKEND_URL`, exigindo configuracao correta de ambiente;
-- frontend ainda preso a CRA/CRACO, stack menos moderna e mais dificil de manter que Vite;
+- documentacao de setup e arquitetura melhorou, mas ainda exige manutencao apos merges;
+- frontend ainda preso a CRA/CRACO;
 - relatorios apontam mais cobertura de backend do que de frontend;
-- possivel excesso de bibliotecas carregadas para um MVP;
-- ausencia, no material lido, de pipeline de CI/CD documentado;
-- ausencia de documentacao clara de ambiente, secrets e operacao;
-- risco de acoplamento entre seed, ambiente de preview e comportamento real de producao.
+- CI/CD ainda nao esta ativo nesta fase;
+- validacao funcional completa ainda depende de acesso estavel a MongoDB.
 
-## 7. Riscos tecnicos principais
+## 6. Estado das fases iniciais
 
-### Risco 1: qualidade de produto vs qualidade de demo
+### Fase 0 - Consolidacao imediata
 
-O projeto aparenta estar muito bom para demonstracao e validacao funcional, mas ainda nao ha evidencias suficientes de endurecimento para producao:
+Estado: **quase concluida**
 
-- observabilidade limitada;
-- operacao pouco documentada;
-- validacao E2E do frontend nao esta clara;
-- infraestrutura nao esta descrita no repositorio.
+Ja feito:
 
-### Risco 2: problemas de encoding e localizacao
+- README principal criado;
+- guias de setup local e Docker criados;
+- `.env.example` criados;
+- grande parte do encoding problematico corrigido;
+- dependencias quebradas ou herdadas da exportacao removidas;
+- documentacao do frontend reescrita.
 
-O sistema e PT-PT, mas ha varios textos corrompidos. Isso impacta:
+Ainda pede manutencao leve:
 
-- UX;
-- credibilidade do produto;
-- exportacoes/documentos;
-- notificacoes por email;
-- consistencia de logs e mensagens.
+- manter docs alinhadas depois de merges;
+- fazer uma ultima passada de higiene documental quando a base funcional estiver estabilizada.
 
-### Risco 3: manutencao futura
+### Fase 1 - Estabilizacao tecnica
 
-Sem consolidar documentacao, convencoes, ambientes e backlog tecnico, o projeto pode ficar dificil de evoluir mesmo estando "pronto para mostrar".
+Estado: **parcial**
 
-### Risco 4: dependencia de artefatos de geracao
+Ja feito:
 
-Arquivos como `memory/`, `test_reports/` e `test_result.md` sao uteis para contexto, mas nao substituem:
+- setup local validado;
+- frontend compila com sucesso;
+- backend arranca e expoe `health`;
+- camada Docker criada para frontend/backend;
+- problemas de merge recentes corrigidos no frontend;
+- smoke check read-only por script Python e por pytest adicionados;
+- smoke E2E minimo com Playwright preparado para login, navegacao e logout.
 
-- documentacao funcional oficial;
-- documentacao tecnica oficial;
-- roadmap do produto;
-- definicao de ownership.
+Ainda falta:
 
-## 8. Avaliacao geral
+- executar os smokes read-only e E2E contra um ambiente local realmente em execucao;
+- correr testes backend completos num ambiente onde escrita em BD esteja autorizada;
+- formalizar melhor lint, seguranca e verificacoes automatizadas.
 
-Minha leitura e a seguinte:
-
-- **Produto**: bem pensado e com escopo comercial claro.
-- **Implementacao**: acima da media para um projeto exportado de AI.
-- **Engenharia**: boa base, mas ainda em fase de consolidacao.
-- **Prontidao para producao**: parcial.
-- **Prontidao para evolucao por equipa humana**: media, desde que a documentacao e o plano tecnico sejam arrumados agora.
-
-## 9. Plano de desenvolvimento recomendado
-
-O melhor caminho nao e reconstruir o projeto. E transformar a exportacao em base sustentavel.
+## 7. Plano de desenvolvimento recomendado
 
 ### Fase 0 - Consolidacao imediata
 
@@ -190,18 +135,9 @@ Objetivo: tornar o projeto compreensivel e operavel pela equipa.
 
 Entregas:
 
-- substituir o `README.md` raiz por documentacao real;
-- criar guia de setup local do frontend e backend;
-- documentar variaveis de ambiente obrigatorias;
-- mapear modulos, rotas principais e papeis de utilizador;
-- corrigir problemas de encoding em backend, frontend e documentacao;
-- revisar dependencias e remover o que nao e usado;
-- definir convencoes minimas de branches, commits e release.
-
-Resultado esperado:
-
-- qualquer developer consegue levantar o projeto localmente;
-- a equipa passa a ter uma visao unica do estado do sistema.
+- manter README e docs alinhados com o estado real;
+- rever dependencias apos merges relevantes;
+- estabilizar convencoes minimas de setup e release.
 
 ### Fase 1 - Estabilizacao tecnica
 
@@ -212,18 +148,26 @@ Entregas:
 - validar execucao real dos testes backend no ambiente atual;
 - introduzir testes de frontend para fluxos criticos;
 - criar smoke tests E2E para login, pipeline comercial e faturacao;
-- adicionar lint/format padrao no frontend e backend;
 - melhorar logs operacionais e health checks;
 - revisar seguranca basica: CORS, secrets, expiracao JWT, roles e validacoes.
-
-Resultado esperado:
-
-- regressao mais controlada;
-- maior confianca para mexer no sistema.
 
 ### Fase 2 - Preparacao para producao
 
 Objetivo: preparar deploy e operacao confiavel.
+
+Estado: **iniciada**
+
+Ja feito:
+
+- configuracao separada para desenvolvimento com Atlas e simulacao de producao com Mongo em container;
+- documentacao inicial de ambientes, deploy e operacao;
+- CI automatico do GitHub temporariamente desativado.
+
+Ainda falta:
+
+- definir o destino real de staging/producao;
+- automatizar verificacoes pos-deploy;
+- decidir quando reativar CI/CD.
 
 Entregas:
 
@@ -231,17 +175,9 @@ Entregas:
 - criar pipeline de CI/CD;
 - separar configs por ambiente: local, staging, producao;
 - definir estrategia de backups do MongoDB;
-- observabilidade minima: logs, erros, eventos criticos;
-- endurecer notificacoes, scheduler e jobs recorrentes;
-- revisar politicas de dados seed em ambientes nao locais.
-
-Resultado esperado:
-
-- sistema pronto para staging serio e piloto controlado.
+- reforcar observabilidade e operacao.
 
 ### Fase 3 - Evolucao funcional orientada a negocio
-
-Objetivo: expandir o produto sem perder base tecnica.
 
 Sugestoes de prioridade:
 
@@ -249,70 +185,61 @@ Sugestoes de prioridade:
 - anexos e documentos em propostas;
 - filtros avancados e pesquisa global;
 - exportacao PDF/Excel mais rica;
-- melhorias no dashboard executivo;
-- historico/versionamento mais robusto em propostas;
-- UX e performance das telas mais densas.
+- melhorias no dashboard executivo.
 
 ### Fase 4 - Modernizacao da stack frontend
-
-Objetivo: melhorar manutencao de medio prazo.
 
 Opcional, mas recomendada:
 
 - migrar de CRA/CRACO para Vite;
 - reorganizar frontend por dominios;
-- padronizar fetching com React Query ou SWR, evitando mistura desnecessaria;
-- introduzir estrategia clara de componentes, formularios e estados.
+- padronizar estrategia de fetch e estado;
+- simplificar estrutura para manutencao de medio prazo.
 
-Observacao:
-esta fase deve acontecer depois da estabilizacao, nao antes.
+## 8. Regras de reporting e exportacao (atualizacao 29/07/2026)
 
-## 10. Backlog tecnico sugerido
+Esta secao registra as regras consolidadas nas ultimas alteracoes, para evitar divergencias futuras entre Dashboard, Reporting e exportacoes.
 
-Lista pratica para abrir issues:
+### 8.1 Filtros temporais
 
-1. Corrigir encoding PT-PT em frontend, backend e docs.
-2. Escrever `README.md` principal com arquitetura, setup e comandos.
-3. Criar `.env.example` para backend e frontend.
-4. Validar quais dependencias realmente sao usadas.
-5. Executar e registrar testes backend no ambiente atual.
-6. Criar testes frontend para autenticacao e navegacao principal.
-7. Criar smoke test E2E do fluxo Lead -> Oportunidade -> Proposta -> Encomenda.
-8. Revisar mensagens de erro para usuario final.
-9. Documentar modelo de dados principal.
-10. Definir estrategia de deploy e observabilidade.
+- Dashboard e Reporting usam um seletor de ano.
+- Indicadores de faturacao usam `invoices.issued_at` como data real de emissao.
+- Linhas anuladas e encomendas com estado `cancelada` ou `anulada` sao ignoradas.
+- O plano e o valor por faturar usam `plan_lines.expected_date`; esta data representa a previsao, nao substitui a data de emissao.
 
-## 11. Recomendacao de prioridade para a equipa
+### 8.2 VAB faturado
 
-Se eu fosse organizar a continuidade deste projeto, a ordem seria:
+O VAB faturado do ano nao e o VAB total da encomenda. As novas linhas de fatura guardam o campo `vab_amount`, calculado no momento da emissao. Assim, varias faturas podem receber parcelas diferentes do VAB sem perder a rastreabilidade.
 
-1. **Entender e documentar**
-2. **Corrigir qualidade estrutural**
-3. **Validar estabilidade**
-4. **Preparar staging/producao**
-5. **So depois acelerar novas features**
+Para faturas antigas que ainda nao possuem esse campo, o sistema mantem o fallback historico:
 
-Isso evita o erro comum de continuar a construir sobre uma base que ainda nao foi consolidada.
+`VAB da encomenda x (valor sem IVA faturado / valor sem IVA da encomenda)`
 
-## 12. Proximos passos imediatos recomendados
+Quando uma encomenda e faturada em varios anos, cada ano recebe somente a parcela proporcional faturada nesse ano.
 
-Nas proximas interacoes, eu recomendaria fazermos nesta ordem:
+Um administrador pode corrigir o VAB por linha em `PATCH /api/invoices/{id}/vab`. O valor da fatura nao e alterado, o motivo e obrigatorio e a mudanca fica registada em `audit_log` com a acao `vab_correction`. Faturas anuladas nao podem ser corrigidas.
 
-1. reescrever o `README.md` principal;
-2. criar arquivos de ambiente de exemplo;
-3. corrigir encoding quebrado;
-4. mapear como arrancar e testar o projeto localmente;
-5. se quiser, transformar este plano num backlog tecnico em formato de issues/epicos.
+### 8.3 Relatorios e exportacoes
 
-## 13. Fontes utilizadas nesta analise
+- `GET /api/dashboard/kpis?year=AAAA`: KPIs, faturado anual, VAB faturado e faturacao mensal.
+- `GET /api/exports/dashboard.pdf?year=AAAA`: snapshot do Dashboard no ano selecionado.
+- `GET /api/exports/billing-annual.pdf?year=AAAA`: PDF horizontal agrupado por mes, com planeado, faturado, VAB faturado, por faturar e VAB por faturar.
+- `GET /api/exports/billing-annual.csv?year=AAAA`: exportacao compativel com Excel, uma linha por item/fatura.
+- `GET /api/exports/billing-orders.csv?month=AAAA-MM` e `.pdf`: ordem de faturacao de um mes especifico.
+- `GET /api/exports/invoices.csv`: faturas ativas em CSV.
+- `GET /api/exports/orders.csv`: encomendas ativas com cliente, valor sem IVA, data de conversao e proposta.
+- `GET /api/exports/proposals.csv`: propostas com oportunidade, notas, estado, valores e conversao.
 
-- `memory/PRD.md`
-- `backend/server.py`
-- `backend/deps.py`
-- `frontend/package.json`
-- `frontend/src/App.js`
-- `frontend/src/context/AuthContext.jsx`
-- `frontend/src/components/Layout.jsx`
-- `design_guidelines.json`
-- `test_reports/iteration_5.json`
-- `.emergent/emergent.yml`
+O PDF anual usa duas referencias: faturado e VAB faturado pela data de emissao; planeado e por faturar pela data prevista do plano. Linhas planeadas noutro ano, mas faturadas no ano selecionado, aparecem no mes de emissao com planeado zero, para que o total faturado coincida com o Dashboard.
+
+### 8.4 Importacao e conciliacao de recebimentos
+
+- O Reporting permite ao administrador importar CSV ou XLSX de recebimentos.
+- A primeira etapa e somente uma pre-conciliacao: nenhum recebimento e gravado.
+- A correspondencia prioriza numero de fatura externa, numero interno e depois cliente/valor em aberto.
+- Cada linha aparece como correspondencia exata, divergencia de valor, conflito ou sem correspondencia.
+- A confirmacao revalida o saldo c/IVA da fatura no backend antes de criar o recebimento.
+- Faturas anuladas e recebimentos anulados nao entram no saldo disponivel.
+- A confirmacao exige motivo e gera auditoria da importacao.
+
+Campos recomendados: `data_recebimento`, `numero_fatura_externa`, `numero_fatura_interna`, `cliente`, `valor_recebido`, `metodo` e `referencia`.

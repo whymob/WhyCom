@@ -10,6 +10,7 @@ from starlette.middleware.cors import CORSMiddleware
 from deps import mongo_client, logger
 from seed import seed_startup
 from scheduler import start_scheduler, stop_scheduler
+from indexes import ensure_search_indexes
 
 from routers.auth_users import router as auth_users_router
 from routers.master_data import router as master_data_router
@@ -19,6 +20,7 @@ from routers.analytics import router as analytics_router
 from routers.technical import router as technical_router
 from routers.exports_audit import router as exports_audit_router
 from routers.notifications import router as notifications_router
+from routers.search import router as search_router
 
 
 app = FastAPI(title="WhyMob CRM API")
@@ -54,6 +56,7 @@ for r in (
     technical_router,
     exports_audit_router,
     notifications_router,
+    search_router,
 ):
     api.include_router(r)
 
@@ -70,11 +73,19 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def on_startup():
+    seed_enabled = os.environ.get("ENABLE_STARTUP_SEED", "true").lower() in ("1", "true", "yes")
+    if seed_enabled:
+        try:
+            await seed_startup()
+            logger.info("Seed OK")
+        except Exception as e:
+            logger.exception("Seed error: %s", e)
+    else:
+        logger.info("Seed disabled by ENABLE_STARTUP_SEED")
     try:
-        await seed_startup()
-        logger.info("Seed OK")
+        await ensure_search_indexes()
     except Exception as e:
-        logger.exception("Seed error: %s", e)
+        logger.exception("Global search index setup error: %s", e)
     start_scheduler()
 
 

@@ -5,8 +5,12 @@ services:
     container_name: whymob-backend
     env_file:
       - ./backend/.env
+    environment:
+      ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
     ports:
       - "8000:8000"
+    volumes:
+      - proposal_uploads:/app/uploads
     restart: unless-stopped
 
   frontend:
@@ -19,8 +23,12 @@ services:
       PORT: 3000
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
+      REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
     ports:
       - "3000:3000"
     depends_on:
       - backend
     restart: unless-stopped
+
+volumes:
+  proposal_uploads:

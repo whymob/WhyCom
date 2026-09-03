@@ -2,14 +2,14 @@ import React from "react";
 
 export default function PageHeader({ title, kicker, actions }) {
   return (
-    <div className="border-b border-neutral-200 px-8 py-6 flex items-end justify-between gap-4 bg-white sticky top-0 z-10">
+    <div className="border-b border-[var(--wc-border)] px-7 py-5 flex items-end justify-between gap-4 bg-white">
       <div>
         {kicker && (
-          <div className="text-[10px] uppercase tracking-[0.2em] text-neutral-500 mb-1" data-testid="page-kicker">
+          <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400 mb-1" data-testid="page-kicker">
             {kicker}
           </div>
         )}
-        <h1 className="font-display font-black text-3xl tracking-tight" data-testid="page-title">
+        <h1 className="font-display font-extrabold text-[26px] tracking-tight text-slate-900" data-testid="page-title">
           {title}
         </h1>
       </div>

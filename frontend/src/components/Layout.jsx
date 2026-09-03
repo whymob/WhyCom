@@ -1,100 +1,49 @@
-import React from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import { LOGOUT } from "@/constants/testIds";
 import { ROLE_LABEL } from "@/lib/fmt";
-import {
-  LayoutDashboard,
-  Filter,
-  Sparkles,
-  Target,
-  FileText,
-  Package,
-  BarChart3,
-  Wrench,
-  Clock,
-  ShieldCheck,
-  Building2,
-  Factory,
-  Boxes,
-  Users as UsersIcon,
-  LogOut,
-} from "lucide-react";
+import { api } from "@/lib/api";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, CommandShortcut } from "@/components/ui/command";
+import { LayoutDashboard, ListTodo, Columns3, Filter, Sparkles, Target, FileText, Package, BarChart3, Wrench, Clock, ShieldCheck, Building2, Factory, Boxes, Users as UsersIcon, LogOut, Bell, Search, FolderKanban, History, ReceiptText } from "lucide-react";
 
 const NAV = [
-  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, testid: "nav-dashboard" },
-  { to: "/funil", label: "Funil de Vendas", icon: Filter, testid: "nav-funnel" },
-  { to: "/leads", label: "Leads", icon: Sparkles, testid: "nav-leads" },
-  { to: "/oportunidades", label: "Oportunidades", icon: Target, testid: "nav-opportunities" },
-  { to: "/propostas", label: "Propostas", icon: FileText, testid: "nav-proposals" },
-  { to: "/encomendas", label: "Encomendas", icon: Package, testid: "nav-orders" },
-  { to: "/reporting", label: "Reporting", icon: BarChart3, testid: "nav-reporting" },
-  { to: "/projetos", label: "Projetos", icon: Wrench, testid: "nav-projects" },
-  { to: "/timesheet", label: "Timesheet", icon: Clock, testid: "nav-timesheet" },
+  { to: "/", label: "Dashboard", icon: LayoutDashboard, end: true, testid: "nav-dashboard" }, { to: "/meu-dia", label: "O meu dia", icon: ListTodo, testid: "nav-workday" }, { to: "/funil", label: "Funil de Vendas", icon: Filter, testid: "nav-funnel" }, { to: "/quadro-comercial", label: "Quadro comercial", icon: Columns3, testid: "nav-workboard" }, { to: "/leads", label: "Leads", icon: Sparkles, testid: "nav-leads" }, { to: "/oportunidades", label: "Oportunidades", icon: Target, testid: "nav-opportunities" }, { to: "/propostas", label: "Propostas", icon: FileText, testid: "nav-proposals" }, { to: "/encomendas", label: "Encomendas", icon: Package, testid: "nav-orders" }, { to: "/faturas", label: "Faturas", icon: ReceiptText, testid: "nav-invoices" }, { to: "/reporting", label: "Reporting", icon: BarChart3, testid: "nav-reporting" }, { to: "/projetos", label: "Projetos", icon: Wrench, testid: "nav-projects" }, { to: "/timesheet", label: "Timesheet", icon: Clock, testid: "nav-timesheet" },
 ];
-const NAV_MD = [
-  { to: "/clientes", label: "Clientes", icon: Building2, testid: "nav-clients" },
-  { to: "/fabricantes", label: "Fabricantes", icon: Factory, testid: "nav-manufacturers" },
-  { to: "/produtos", label: "Produtos", icon: Boxes, testid: "nav-products" },
-  { to: "/utilizadores", label: "Utilizadores", icon: UsersIcon, testid: "nav-users" },
-  { to: "/auditoria", label: "Auditoria", icon: ShieldCheck, testid: "nav-audit" },
-];
+const NAV_MD = [{ to: "/clientes", label: "Clientes", icon: Building2, testid: "nav-clients" }, { to: "/fabricantes", label: "Fabricantes", icon: Factory, testid: "nav-manufacturers" }, { to: "/produtos", label: "Produtos", icon: Boxes, testid: "nav-products" }, { to: "/utilizadores", label: "Utilizadores", icon: UsersIcon, testid: "nav-users" }, { to: "/auditoria", label: "Auditoria", icon: ShieldCheck, testid: "nav-audit" }];
+const hrefFor = (a) => a.type === "proposta_sem_encomenda" ? `/propostas/${a.ref_id}` : a.type === "fatura_atraso" && a.order_id ? `/encomendas/${a.order_id}#faturas` : ["encomenda_sem_plano", "desvio_plano", "plano_atraso"].includes(a.type) ? `/encomendas/${a.ref_id}` : null;
+const typeFor = (t) => ({ proposta_sem_encomenda: "Proposta", encomenda_sem_plano: "Encomenda sem plano", desvio_plano: "Desvio no plano", plano_atraso: "Plano em atraso", fatura_atraso: "Recebimento em atraso" }[t] || t);
+const toneFor = (l) => ({ info: "border-l-[#14E0E0] bg-[#ECFEFF]", warning: "border-l-amber-400 bg-amber-50", danger: "border-l-red-500 bg-red-50" }[l] || "border-l-slate-300 bg-slate-50");
+const SEARCH_TYPES = { lead: { label: "Leads", icon: Sparkles }, opportunity: { label: "Oportunidades", icon: Target }, proposal: { label: "Propostas", icon: FileText }, order: { label: "Encomendas", icon: Package }, project: { label: "Projetos", icon: FolderKanban }, client: { label: "Clientes", icon: Building2 }, product: { label: "Produtos", icon: Boxes } };
+const stored = (key) => { try { return JSON.parse(window.localStorage.getItem(key) || "[]"); } catch { return []; } };
+const persist = (key, value) => { try { window.localStorage.setItem(key, JSON.stringify(value)); } catch { /* storage may be unavailable */ } };
 
 export default function Layout() {
-  const { user, logout } = useAuth();
-  const nav = useNavigate();
-
-  const linkCls = ({ isActive }) =>
-    `flex items-center gap-3 px-4 py-2.5 text-sm transition-colors border-l-2 ${
-      isActive
-        ? "border-[#002FA7] bg-[#002FA7]/5 text-[#002FA7] font-medium"
-        : "border-transparent text-neutral-700 hover:bg-neutral-50"
-    }`;
-
-  return (
-    <div className="min-h-screen flex bg-white">
-      <aside className="w-64 border-r border-neutral-200 flex flex-col shrink-0">
-        <div className="p-5 border-b border-neutral-200">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-[#002FA7]" aria-hidden />
-            <div>
-              <div className="font-display font-black text-lg tracking-tight">WhyMob</div>
-              <div className="text-[10px] uppercase tracking-widest text-neutral-500">Gestão Comercial</div>
-            </div>
-          </div>
-        </div>
-
-        <nav className="flex-1 py-3 overflow-y-auto">
-          <div className="px-4 pb-1 pt-2 text-[10px] uppercase tracking-widest text-neutral-400">Ciclo Comercial</div>
-          {NAV.map((n) => (
-            <NavLink key={n.to} to={n.to} end={n.end} className={linkCls} data-testid={n.testid}>
-              <n.icon size={16} strokeWidth={1.5} /> {n.label}
-            </NavLink>
-          ))}
-          <div className="px-4 pb-1 pt-4 text-[10px] uppercase tracking-widest text-neutral-400">Master Data</div>
-          {NAV_MD.map((n) => (
-            <NavLink key={n.to} to={n.to} className={linkCls} data-testid={n.testid}>
-              <n.icon size={16} strokeWidth={1.5} /> {n.label}
-            </NavLink>
-          ))}
-        </nav>
-
-        <div className="border-t border-neutral-200 p-4">
-          <div className="text-xs text-neutral-500 mb-1">{ROLE_LABEL[user?.role] || user?.role}</div>
-          <div className="text-sm font-medium truncate" data-testid="current-user-name">{user?.name}</div>
-          <div className="text-xs text-neutral-500 truncate">{user?.email}</div>
-          <button
-            data-testid="logout-btn"
-            onClick={() => { logout(); nav("/login"); }}
-            className="mt-3 flex items-center gap-2 text-xs text-neutral-700 hover:text-[#FF2A00]"
-          >
-            <LogOut size={14} /> Terminar sessão
-          </button>
-        </div>
-      </aside>
-
-      <main className="flex-1 min-w-0">
-        <Outlet />
-      </main>
-    </div>
-  );
+  const { user, logout } = useAuth(); const nav = useNavigate();
+  const [alerts, setAlerts] = useState([]); const [alertsOpen, setAlertsOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false); const [searchQuery, setSearchQuery] = useState(""); const [searchResults, setSearchResults] = useState([]); const [searchLoading, setSearchLoading] = useState(false);
+  const [recentSearches, setRecentSearches] = useState([]); const [recentItems, setRecentItems] = useState([]);
+  const searchesKey = `whymob:searches:${user?.id || "guest"}`; const itemsKey = `whymob:opened-items:${user?.id || "guest"}`;
+  const loadAlerts = () => api.get("/dashboard/alerts").then((r) => setAlerts(r.data.alerts || [])).catch(() => setAlerts([]));
+  const closeSearch = () => { setSearchOpen(false); setSearchQuery(""); setSearchResults([]); };
+  const rememberSelection = (item) => {
+    const term = searchQuery.trim();
+    if (term.length >= 2) setRecentSearches((current) => { const next = [term, ...current.filter((value) => value.toLowerCase() !== term.toLowerCase())].slice(0, 5); persist(searchesKey, next); return next; });
+    setRecentItems((current) => { const next = [item, ...current.filter((value) => `${value.type}-${value.id}` !== `${item.type}-${item.id}`)].slice(0, 6); persist(itemsKey, next); return next; });
+  };
+  const selectResult = (item) => { rememberSelection(item); nav(item.url); closeSearch(); };
+  useEffect(() => { loadAlerts(); }, []);
+  useEffect(() => { setRecentSearches(stored(searchesKey)); setRecentItems(stored(itemsKey)); }, [searchesKey, itemsKey]);
+  useEffect(() => { const onKeyDown = (event) => { if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setSearchOpen(true); } }; window.addEventListener("keydown", onKeyDown); return () => window.removeEventListener("keydown", onKeyDown); }, []);
+  useEffect(() => {
+    if (!searchOpen || searchQuery.trim().length < 2) { setSearchResults([]); setSearchLoading(false); return undefined; }
+    const controller = new AbortController(); const timer = window.setTimeout(() => { setSearchLoading(true); api.get("/search", { params: { q: searchQuery.trim() }, signal: controller.signal }).then((r) => setSearchResults(r.data.results || [])).catch((error) => { if (error.code !== "ERR_CANCELED") setSearchResults([]); }).finally(() => { if (!controller.signal.aborted) setSearchLoading(false); }); }, 250);
+    return () => { window.clearTimeout(timer); controller.abort(); };
+  }, [searchOpen, searchQuery]);
+  const linkCls = ({ isActive }) => `wc-nav-link flex items-center gap-3 mx-3 mb-0.5 px-3 py-2.5 rounded-lg text-[13.5px] transition-all ${isActive ? "wc-nav-link-active bg-[#14E0E0]/12 text-[#14E0E0] font-semibold" : "text-slate-300"}`;
+  const initials = user?.name?.split(" ").map((p) => p[0]).slice(0, 2).join("") || "U";
+  const groupedResults = searchResults.reduce((groups, result) => ({ ...groups, [result.type]: [...(groups[result.type] || []), result] }), {});
+  const itemRow = (item) => { const meta = SEARCH_TYPES[item.type]; const Icon = meta?.icon || Search; return <CommandItem key={`${item.type}-${item.id}`} value={`${item.type}-${item.id}`} onSelect={() => selectResult(item)}><Icon className="mt-0.5 text-[var(--wc-cyan-700)]" /><div className="min-w-0"><div className="truncate font-medium text-slate-800">{item.title}</div>{item.subtitle && <div className="truncate text-xs text-slate-500">{item.subtitle}</div>}</div></CommandItem>; };
+  return <div className="min-h-screen flex bg-[var(--wc-bg)]"><aside className="wc-sidebar w-[260px] bg-[var(--wc-ink)] border-r border-[#1c2530] flex flex-col shrink-0 sticky top-0 h-screen"><div className="min-h-16 px-5 py-3.5 border-b border-[#1c2530] flex items-center"><div className="flex items-center gap-2"><div className="w-7 h-7 rounded-md bg-[#14E0E0] shadow-[0_0_14px_rgba(20,224,224,.35)]" /><div className="wc-nav-label"><div className="font-display font-black text-lg tracking-tight text-white">WhyMob</div><div className="text-[10px] uppercase tracking-[0.18em] text-slate-400">Gestão Comercial</div></div></div></div><nav className="flex-1 py-3 overflow-y-auto"><div className="wc-nav-section px-6 pb-1 pt-2 text-[10px] uppercase tracking-widest text-slate-500">Ciclo Comercial</div>{NAV.map((item) => <NavLink key={item.to} to={item.to} end={item.end} className={linkCls} data-testid={item.testid}><item.icon size={16} strokeWidth={1.6} /><span className="wc-nav-label">{item.label}</span></NavLink>)}<div className="wc-nav-section px-6 pb-1 pt-4 text-[10px] uppercase tracking-widest text-slate-500">Master Data</div>{NAV_MD.map((item) => <NavLink key={item.to} to={item.to} className={linkCls} data-testid={item.testid}><item.icon size={16} strokeWidth={1.6} /><span className="wc-nav-label">{item.label}</span></NavLink>)}</nav><div className="border-t border-[#1c2530] p-4"><div className="flex items-center gap-2.5"><div className="h-9 w-9 shrink-0 rounded-full bg-gradient-to-br from-[#14E0E0] to-[#0B8E8E] flex items-center justify-center text-xs font-bold text-[#14181F]">{initials}</div><div className="wc-user-info min-w-0"><div className="text-sm font-semibold text-white truncate" data-testid="current-user-name">{user?.name}</div><div className="text-[11px] text-slate-400 truncate">{ROLE_LABEL[user?.role] || user?.role}</div></div></div><button data-testid={LOGOUT.button} onClick={() => { logout(); nav("/login"); }} className="wc-user-info mt-3 flex items-center gap-2 text-xs text-slate-400 hover:text-white"><LogOut size={14} />Terminar sessão</button></div></aside><main className="flex-1 min-w-0 flex flex-col"><header className="h-16 shrink-0 bg-white border-b border-[var(--wc-border)] px-6 flex items-center justify-between gap-4 sticky top-0 z-20"><div className="hidden sm:flex items-center gap-2 text-xs text-slate-500"><span className="font-semibold text-slate-700">WhyMob</span><span>/</span><span>Gestão Comercial</span></div><button type="button" onClick={() => setSearchOpen(true)} aria-label="Abrir pesquisa geral" aria-keyshortcuts="Control+K Meta+K" className="relative flex flex-1 max-w-md items-center rounded-lg border border-[var(--wc-border)] bg-[var(--wc-bg)] h-9 pl-9 pr-2 text-left text-xs text-slate-400 transition-colors hover:border-[#14E0E0]/50 focus:outline-none focus:ring-2 focus:ring-[#14E0E0]/20 sm:ml-auto" data-testid="global-search-button"><Search size={16} className="absolute left-3 text-slate-400" /><span>Pesquisar…</span><kbd className="ml-auto hidden rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-slate-500 sm:inline-flex">Ctrl K</kbd></button><button type="button" aria-label="Notificações" onClick={() => { loadAlerts(); setAlertsOpen(true); }} className="relative h-9 w-9 rounded-lg text-slate-400 hover:bg-slate-50 flex items-center justify-center" data-testid="notifications-button"><Bell size={18} />{alerts.length > 0 && <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-red-500 ring-2 ring-white" data-testid="notifications-badge" />}</button></header><div className="flex-1"><Outlet /></div></main><CommandDialog open={searchOpen} onOpenChange={(isOpen) => isOpen ? setSearchOpen(true) : closeSearch()}><DialogTitle className="sr-only">Pesquisa geral</DialogTitle><Command shouldFilter={false}><CommandInput autoFocus value={searchQuery} onValueChange={setSearchQuery} placeholder="Pesquisar leads, propostas, clientes…" /><CommandList>{searchQuery.trim().length < 2 && <>{recentItems.length > 0 && <CommandGroup heading="Abertos recentemente">{recentItems.map(itemRow)}</CommandGroup>}{recentSearches.length > 0 && <CommandGroup heading="Pesquisas recentes">{recentSearches.map((term) => <CommandItem key={term} value={`search-${term}`} onSelect={() => setSearchQuery(term)}><History className="text-slate-400" /><span>{term}</span></CommandItem>)}</CommandGroup>}{recentItems.length === 0 && recentSearches.length === 0 && <div className="px-5 py-8 text-center text-sm text-slate-500">Escreva pelo menos 2 caracteres para pesquisar em toda a aplicação.</div>}</>}{searchLoading && <div className="px-5 py-8 text-center text-sm text-slate-500">A pesquisar…</div>}{!searchLoading && searchQuery.trim().length >= 2 && searchResults.length === 0 && <CommandEmpty>Não foram encontrados resultados.</CommandEmpty>}{Object.entries(groupedResults).map(([type, items]) => <CommandGroup key={type} heading={SEARCH_TYPES[type]?.label || type}>{items.map(itemRow)}</CommandGroup>)}</CommandList><div className="flex items-center gap-3 border-t border-[var(--wc-border-soft)] px-4 py-2 text-[10px] text-slate-500"><span>↑↓ navegar</span><span>↵ abrir</span><span>Esc fechar</span><CommandShortcut>Ctrl K</CommandShortcut></div></Command></CommandDialog><Dialog open={alertsOpen} onOpenChange={setAlertsOpen}><DialogContent className="max-h-[80vh] max-w-2xl overflow-hidden p-0"><DialogHeader className="border-b border-[var(--wc-border)] px-6 py-5"><DialogTitle>Alertas e desvios</DialogTitle><p className="text-sm text-slate-500">{alerts.length ? `${alerts.length} alerta(s) ativo(s)` : "Não existem alertas ativos."}</p></DialogHeader><div className="max-h-[60vh] overflow-y-auto">{alerts.map((a, i) => { const href = hrefFor(a); const row = <div className={`border-b border-[var(--wc-border-soft)] border-l-4 px-5 py-4 ${toneFor(a.level)}`}><div className="flex items-start justify-between gap-4"><div><div className="font-medium text-slate-900">{a.message}</div>{href && <div className="mt-1 text-xs font-semibold text-[var(--wc-cyan-700)]">Abrir documento relacionado</div>}</div><span className="whitespace-nowrap text-[10px] font-semibold uppercase tracking-widest text-slate-500">{typeFor(a.type)}</span></div></div>; return href ? <Link key={`${a.type}-${i}`} to={href} onClick={() => setAlertsOpen(false)} className="block">{row}</Link> : <div key={`${a.type}-${i}`}>{row}</div>; })}</div></DialogContent></Dialog></div>;
 }

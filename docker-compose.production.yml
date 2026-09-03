@@ -1,0 +1,36 @@
+services:
+  backend:
+    env_file:
+      - ./backend/.env.production
+    environment:
+      ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
+    depends_on:
+      - mongo
+
+  frontend:
+    environment:
+      REACT_APP_BACKEND_URL: http://localhost:8000
+      HOST: 0.0.0.0
+      PORT: 3000
+      CHOKIDAR_USEPOLLING: "true"
+      WATCHPACK_POLLING: "true"
+      REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
+    ports:
+      - "80:3000"
+    depends_on:
+      - backend
+
+  mongo:
+    image: mongo:7
+    container_name: whymob-mongo
+    environment:
+      MONGO_INITDB_DATABASE: whymob_prod
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo_data:/data/db
+    restart: unless-stopped
+
+volumes:
+  mongo_data:
+  proposal_uploads:

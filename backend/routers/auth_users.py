@@ -1,9 +1,20 @@
 """Auth + Users endpoints."""
+
 from typing import List
+
 from fastapi import APIRouter, Depends, HTTPException
 
-from deps import db, hash_password, verify_password, create_access_token, get_current_user, require_roles, now_iso, new_id
-from models import UserCreate, UserOut, LoginIn
+from deps import (
+    create_access_token,
+    db,
+    get_current_user,
+    hash_password,
+    new_id,
+    now_iso,
+    require_roles,
+    verify_password,
+)
+from models import LoginIn, UserCreate, UserOut, UserUpdate, UserPreferencesUpdate
 
 router = APIRouter()
 
@@ -13,6 +24,7 @@ async def register(payload: UserCreate):
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email já registado")
+
     user = {
         "id": new_id(),
         "email": email,
@@ -31,22 +43,39 @@ async def register(payload: UserCreate):
 @router.post("/auth/login")
 async def login(payload: LoginIn):
     email = payload.email.lower()
-    u = await db.users.find_one({"email": email})
-    if not u or not verify_password(payload.password, u["password_hash"]):
+    user = await db.users.find_one({"email": email})
+    if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Credenciais inválidas")
-    if not u.get("active", True):
+    if not user.get("active", True):
         raise HTTPException(status_code=403, detail="Utilizador inativo")
-    token = create_access_token(u["id"], u["email"], u["role"])
+
+    token = create_access_token(user["id"], user["email"], user["role"])
     return {
         "access_token": token,
         "token_type": "bearer",
-        "user": {"id": u["id"], "email": u["email"], "name": u["name"], "role": u["role"]},
+        "user": {
+            "id": user["id"],
+            "email": user["email"],
+            "name": user["name"],
+            "role": user["role"],
+        },
     }
 
 
 @router.get("/auth/me", response_model=UserOut)
 async def me(user: dict = Depends(get_current_user)):
     return user
+
+
+@router.patch("/auth/me/preferences", response_model=UserOut)
+async def update_my_preferences(payload: UserPreferencesUpdate, user: dict = Depends(get_current_user)):
+    """Store private list-filter preferences for the authenticated user."""
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"list_preferences": payload.list_preferences}},
+    )
+    updated = await db.users.find_one({"id": user["id"]}, {"_id": 0, "password_hash": 0})
+    return updated
 
 
 @router.post("/auth/logout")
@@ -56,8 +85,7 @@ async def logout(user: dict = Depends(get_current_user)):
 
 @router.get("/users", response_model=List[UserOut])
 async def list_users(user: dict = Depends(get_current_user)):
-    docs = await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
-    return docs
+    return await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)
 
 
 @router.post("/users", response_model=UserOut)
@@ -65,6 +93,7 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_roles("a
     email = payload.email.lower()
     if await db.users.find_one({"email": email}):
         raise HTTPException(status_code=400, detail="Email já registado")
+
     doc = {
         "id": new_id(),
         "email": email,
@@ -81,19 +110,30 @@ async def create_user(payload: UserCreate, user: dict = Depends(require_roles("a
 
 
 @router.patch("/users/{uid}", response_model=UserOut)
-async def update_user(uid: str, payload: dict, user: dict = Depends(require_roles("admin"))):
-    payload.pop("id", None)
+async def update_user(uid: str, payload: UserUpdate, user: dict = Depends(require_roles("admin"))):
+    updates = payload.model_dump(exclude_unset=True)
+
+    if "email" in updates:
+        updates["email"] = updates["email"].lower()
+        existing = await db.users.find_one({"email": updates["email"]}, {"_id": 0, "id": 1})
+        if existing and existing["id"] != uid:
+            raise HTTPException(status_code=400, detail="Email já registado")
+
     if uid == user["id"]:
-        if "active" in payload and payload["active"] is False:
-            raise HTTPException(400, "Não pode inativar o próprio utilizador")
-        if "role" in payload and payload["role"] != user["role"]:
-            raise HTTPException(400, "Não pode alterar o próprio cargo")
-    if "password" in payload and payload["password"]:
-        payload["password_hash"] = hash_password(payload.pop("password"))
+        if updates.get("active") is False:
+            raise HTTPException(status_code=400, detail="Não pode inativar o próprio utilizador")
+        if "role" in updates and updates["role"] != user["role"]:
+            raise HTTPException(status_code=400, detail="Não pode alterar o próprio cargo")
+
+    if updates.get("password"):
+        updates["password_hash"] = hash_password(updates.pop("password"))
     else:
-        payload.pop("password", None)
-    await db.users.update_one({"id": uid}, {"$set": payload})
+        updates.pop("password", None)
+
+    if updates:
+        await db.users.update_one({"id": uid}, {"$set": updates})
+
     doc = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
     if not doc:
-        raise HTTPException(404, "Utilizador não encontrado")
+        raise HTTPException(status_code=404, detail="Utilizador não encontrado")
     return doc

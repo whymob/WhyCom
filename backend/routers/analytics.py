@@ -1,20 +1,53 @@
 """Analytics: by-commercial, by-client, by-manufacturer, forecasts, VAB, executive."""
 from datetime import datetime, timezone
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 
 from deps import db, get_current_user
 from helpers import month_key
 
 router = APIRouter()
 
+EXCLUDED_ORDER_STATUSES = ["cancelada", "anulada"]
+
+
+def record_year(record: dict, fields: tuple[str, ...]) -> int | None:
+    for field in fields:
+        value = record.get(field)
+        if value:
+            try:
+                return int(str(value)[:4])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
+async def _active_orders() -> list[dict]:
+    return await db.orders.find(
+        {"status": {"$nin": EXCLUDED_ORDER_STATUSES}},
+        {"_id": 0},
+    ).to_list(5000)
+
+
+async def _excluded_order_ids() -> set[str]:
+    orders = await db.orders.find(
+        {"status": {"$in": EXCLUDED_ORDER_STATUSES}},
+        {"_id": 0, "id": 1},
+    ).to_list(5000)
+    return {o["id"] for o in orders if o.get("id")}
+
+
+def _active_proposals(proposals: list[dict], excluded_order_ids: set[str]) -> list[dict]:
+    return [p for p in proposals if p.get("converted_order_id") not in excluded_order_ids]
+
 
 @router.get("/analytics/by-commercial")
-async def by_commercial(user: dict = Depends(get_current_user)):
+async def by_commercial(user: dict = Depends(get_current_user), year: int = Query(datetime.now().year, ge=2000, le=2100)):
     users = {u["id"]: u for u in await db.users.find({}, {"_id": 0, "password_hash": 0}).to_list(500)}
-    leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
-    opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
-    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    leads = [item for item in await db.leads.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
+    opps = [item for item in await db.opportunities.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
+    props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
+    orders = [item for item in await _active_orders() if record_year(item, ("order_date", "created_at")) == year]
+    props = _active_proposals(props, await _excluded_order_ids())
     rows = {}
 
     def row(uid):
@@ -51,10 +84,11 @@ async def by_commercial(user: dict = Depends(get_current_user)):
 
 
 @router.get("/analytics/by-client")
-async def by_client(user: dict = Depends(get_current_user)):
+async def by_client(user: dict = Depends(get_current_user), year: int = Query(datetime.now().year, ge=2000, le=2100)):
     clients = {c["id"]: c for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
-    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+    props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
+    orders = [item for item in await _active_orders() if record_year(item, ("order_date", "created_at")) == year]
+    props = _active_proposals(props, await _excluded_order_ids())
     rows = {}
 
     def row(cid):
@@ -84,11 +118,12 @@ async def by_client(user: dict = Depends(get_current_user)):
 
 
 @router.get("/analytics/by-manufacturer")
-async def by_manufacturer(user: dict = Depends(get_current_user)):
+async def by_manufacturer(user: dict = Depends(get_current_user), year: int = Query(datetime.now().year, ge=2000, le=2100)):
     manufs = {m["id"]: m for m in await db.manufacturers.find({}, {"_id": 0}).to_list(1000)}
     products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(2000)}
-    opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
-    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
+    opps = [item for item in await db.opportunities.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("created_at",)) == year]
+    props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if record_year(item, ("updated_at", "created_at")) == year]
+    props = _active_proposals(props, await _excluded_order_ids())
     rows = {}
 
     def row(mid):
@@ -123,36 +158,77 @@ async def by_manufacturer(user: dict = Depends(get_current_user)):
     return {"rows": sorted(rows.values(), key=lambda r: -r["won_value"])}
 
 
-async def _forecast_invoicing():
-    plan_lines = await db.plan_lines.find({"status": {"$in": ["planeada", "parcialmente_faturada"]}}, {"_id": 0}).to_list(5000)
-    buckets = {}
+async def _forecast_invoicing(year: int | None = None):
+    active_orders = await _active_orders()
+    active_order_ids = [o["id"] for o in active_orders]
+    plan_lines = await db.plan_lines.find(
+        {"status": {"$ne": "cancelada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(5000)
+    buckets = {
+        f"{year}-{month:02d}": {"month": f"{year}-{month:02d}", "planned_value": 0.0, "billed_value": 0.0, "remaining_value": 0.0, "count": 0, "items": {}}
+        for month in range(1, 13)
+    } if year is not None else {}
     for pl in plan_lines:
         exp = pl.get("expected_date")
         if not exp:
             continue
+        if year is not None and record_year(pl, ("expected_date",)) != year:
+            continue
         k = month_key(exp)
-        b = buckets.setdefault(k, {"month": k, "planned_value": 0.0, "remaining_value": 0.0, "count": 0})
+        b = buckets.setdefault(k, {"month": k, "planned_value": 0.0, "billed_value": 0.0, "remaining_value": 0.0, "count": 0, "items": {}})
         b["planned_value"] += pl["value"]
-        b["remaining_value"] += (pl["value"] - pl.get("invoiced_amount", 0))
+        b["remaining_value"] += max(0, pl["value"] - pl.get("invoiced_amount", 0))
         b["count"] += 1
+        item_name = str(pl.get("description") or pl.get("type") or "Sem descrição").strip()
+        item = b["items"].setdefault(item_name, {"name": item_name, "planned_value": 0.0, "remaining_value": 0.0})
+        item["planned_value"] += pl["value"]
+        item["remaining_value"] += max(0, pl["value"] - pl.get("invoiced_amount", 0))
+
+    invoices = await db.invoices.find(
+        {"status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(5000)
+    for invoice in invoices:
+        issued_at = str(invoice.get("issued_at") or invoice.get("created_at") or "")
+        if year is not None and record_year(invoice, ("issued_at", "created_at")) != year:
+            continue
+        k = month_key(issued_at)
+        if k not in buckets:
+            buckets[k] = {"month": k, "planned_value": 0.0, "billed_value": 0.0, "remaining_value": 0.0, "count": 0, "items": {}}
+        invoice_total = sum(float(line.get("amount") or 0) for line in invoice.get("lines", []))
+        if not invoice.get("lines"):
+            invoice_total = float(invoice.get("total_net") or 0)
+        buckets[k]["billed_value"] += invoice_total
     rows = sorted(buckets.values(), key=lambda r: r["month"])
     for r in rows:
-        for k in ("planned_value", "remaining_value"):
+        for k in ("planned_value", "billed_value", "remaining_value"):
             r[k] = round(r[k], 2)
+        r["items"] = [
+            {**item, "planned_value": round(item["planned_value"], 2), "remaining_value": round(item["remaining_value"], 2)}
+            for item in r["items"].values()
+        ]
     return rows
 
 
 @router.get("/analytics/forecast/invoicing")
-async def forecast_invoicing(months: int = 6, user: dict = Depends(get_current_user)):
-    return {"months": await _forecast_invoicing()}
+async def forecast_invoicing(months: int = 6, year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    return {"months": await _forecast_invoicing(year)}
 
 
-async def _forecast_receiving():
-    invoices = await db.invoices.find({"status": {"$in": ["emitida", "parcialmente_recebida"]}}, {"_id": 0}).to_list(5000)
+async def _forecast_receiving(year: int | None = None):
+    active_orders = await _active_orders()
+    active_order_ids = [o["id"] for o in active_orders]
+    invoices = await db.invoices.find(
+        {"status": {"$in": ["emitida", "parcialmente_recebida"]}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(5000)
     now = datetime.now(timezone.utc)
     buckets = {"em_atraso": 0.0, "0_30": 0.0, "31_60": 0.0, "61_90": 0.0, "gt_90": 0.0}
     total_open = 0.0
     for inv in invoices:
+        if year is not None and record_year(inv, ("issued_at",)) != year:
+            continue
         open_amt = inv["total_net"] - inv.get("received_amount", 0)
         if open_amt <= 0.01:
             continue
@@ -175,20 +251,21 @@ async def _forecast_receiving():
     return {
         "total_open": round(total_open, 2),
         "buckets": {k: round(v, 2) for k, v in buckets.items()},
-        "count": len(invoices),
+        "count": sum(1 for inv in invoices if (inv.get("total_net", 0) - inv.get("received_amount", 0)) > 0.01),
     }
 
 
 @router.get("/analytics/forecast/receiving")
-async def forecast_receiving(user: dict = Depends(get_current_user)):
-    return await _forecast_receiving()
+async def forecast_receiving(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    return await _forecast_receiving(year)
 
 
-async def _vab_analysis():
+async def _vab_analysis(year: int | None = None):
     """VAB só faz sentido até à fase da Encomenda. Não inclui plano/fatura."""
-    opps = await db.opportunities.find({"status": {"$in": ["aberta", "em_analise"]}}, {"_id": 0}).to_list(5000)
-    props_won = await db.proposals.find({"status": "ganha"}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({"status": {"$nin": ["cancelada"]}}, {"_id": 0}).to_list(5000)
+    opps = [item for item in await db.opportunities.find({"status": {"$in": ["aberta", "em_analise"]}}, {"_id": 0}).to_list(5000) if year is None or record_year(item, ("created_at",)) == year]
+    props_won = [item for item in await db.proposals.find({"status": "ganha"}, {"_id": 0}).to_list(5000) if year is None or record_year(item, ("updated_at", "created_at")) == year]
+    orders = [item for item in await _active_orders() if year is None or record_year(item, ("order_date", "created_at")) == year]
+    props_won = _active_proposals(props_won, await _excluded_order_ids())
     by_m = {}
     for p in props_won:
         k = month_key(p.get("updated_at") or p.get("created_at", ""))
@@ -209,15 +286,16 @@ async def _vab_analysis():
 
 
 @router.get("/analytics/vab")
-async def vab_analysis(user: dict = Depends(get_current_user)):
-    return await _vab_analysis()
+async def vab_analysis(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    return await _vab_analysis(year)
 
 
-async def _kpis_summary():
-    leads = await db.leads.find({}, {"_id": 0}).to_list(5000)
-    opps = await db.opportunities.find({}, {"_id": 0}).to_list(5000)
-    props = await db.proposals.find({}, {"_id": 0}).to_list(5000)
-    orders = await db.orders.find({}, {"_id": 0}).to_list(5000)
+async def _kpis_summary(year: int | None = None):
+    leads = [item for item in await db.leads.find({}, {"_id": 0}).to_list(5000) if year is None or record_year(item, ("created_at",)) == year]
+    opps = [item for item in await db.opportunities.find({}, {"_id": 0}).to_list(5000) if year is None or record_year(item, ("created_at",)) == year]
+    props = [item for item in await db.proposals.find({}, {"_id": 0}).to_list(5000) if year is None or record_year(item, ("updated_at", "created_at")) == year]
+    orders = [item for item in await _active_orders() if year is None or record_year(item, ("order_date", "created_at")) == year]
+    props = _active_proposals(props, await _excluded_order_ids())
     won = [p for p in props if p["status"] == "ganha"]
     return {
         "leads": len(leads),
@@ -232,9 +310,9 @@ async def _kpis_summary():
 
 
 @router.get("/analytics/executive")
-async def executive(user: dict = Depends(get_current_user)):
-    kpis = await _kpis_summary()
-    fi = await _forecast_invoicing()
-    fr = await _forecast_receiving()
-    vab = await _vab_analysis()
+async def executive(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    kpis = await _kpis_summary(year)
+    fi = await _forecast_invoicing(year)
+    fr = await _forecast_receiving(year)
+    vab = await _vab_analysis(year)
     return {"kpis": kpis, "forecast_invoicing": fi, "forecast_receiving": fr, "vab": vab}

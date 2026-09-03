@@ -12,6 +12,18 @@ class UserCreate(BaseModel):
     role: Literal["admin", "ceo", "diretor_tecnico", "comercial", "developer"] = "comercial"
 
 
+class UserUpdate(BaseModel):
+    email: Optional[EmailStr] = None
+    password: Optional[str] = None
+    name: Optional[str] = None
+    role: Optional[Literal["admin", "ceo", "diretor_tecnico", "comercial", "developer"]] = None
+    active: Optional[bool] = None
+
+
+class UserPreferencesUpdate(BaseModel):
+    list_preferences: dict = Field(default_factory=dict)
+
+
 class UserOut(BaseModel):
     id: str
     email: EmailStr
@@ -19,6 +31,7 @@ class UserOut(BaseModel):
     role: str
     active: bool = True
     created_at: str
+    list_preferences: dict = Field(default_factory=dict)
 
 
 class LoginIn(BaseModel):
@@ -95,6 +108,7 @@ class Opportunity(BaseModel):
     status: Literal["aberta", "em_analise", "convertida", "perdida"] = "aberta"
     lost_reason: Optional[str] = ""
     converted_proposal_id: Optional[str] = None
+    attachments: List[dict] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -126,17 +140,30 @@ class ProposalLine(BaseModel):
         return round(self.net - (self.unit_cost * self.quantity), 2)
 
 
+class NewProposalFromOpportunity(BaseModel):
+    replacement_reason: str = Field(min_length=1)
+
+
 class Proposal(BaseModel):
     id: str = Field(default_factory=new_id)
     number: str = ""
     version: int = 1
     opportunity_id: str
     client_id: str
+    description: Optional[str] = ""
+    previous_proposal_id: Optional[str] = None
+    replacement_reason: Optional[str] = ""
+    replacement_proposal_id: Optional[str] = None
     lines: List[ProposalLine] = []
     valid_until: Optional[str] = None
     notes: Optional[str] = ""
+    sent_at: Optional[str] = None
+    sent_to: Optional[str] = ""
+    status_change_reason: Optional[str] = ""
+    next_follow_up_date: Optional[str] = None
+    attachment: Optional[dict] = None
     owner_id: str
-    status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada"] = "em_elaboracao"
+    status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada", "substituida"] = "em_elaboracao"
     lost_reason: Optional[str] = ""
     converted_order_id: Optional[str] = None
     total_net: float = 0.0
@@ -163,6 +190,7 @@ class Order(BaseModel):
     owner_id: str
     status: Literal["aberta", "em_planeamento", "em_faturacao", "parcialmente_faturada", "faturada", "recebida", "fulfilled", "cancelada"] = "aberta"
     cancel_reason: Optional[str] = ""
+    status_change_reason: Optional[str] = ""
     created_at: str = Field(default_factory=now_iso)
 
 
