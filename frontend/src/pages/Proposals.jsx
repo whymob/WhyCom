@@ -164,8 +164,8 @@ export default function Proposals() {
     <div>
       <PageHeader kicker="Fase 3" title="Propostas" actions={<ListFilterSettings filters={filters} statusOptions={Object.entries(PROP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} />} />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+        <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">
             <div className="min-w-[260px] flex-1">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label>
               <Input
@@ -213,7 +213,7 @@ export default function Proposals() {
           {visibleProps.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="props-empty">Sem propostas para os filtros atuais.</div>}
 
           {visibleProps.map((proposal) => (
-            <div key={proposal.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`prop-row-${proposal.id}`}>
+            <div key={proposal.id} className="wc-table-row grid grid-cols-12 items-center border-b px-4 py-3 text-sm" data-testid={`prop-row-${proposal.id}`}>
               <div className="col-span-2">
                 <Link to={`/propostas/${proposal.id}`} className="font-mono text-[#002FA7] hover:underline" data-testid={`prop-link-${proposal.id}`}>
                   {proposal.number}

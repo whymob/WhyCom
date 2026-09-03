@@ -49,19 +49,19 @@ export default function Timesheet() {
         </div>} />
       <div className="p-8 space-y-6">
         <div className="grid grid-cols-3 gap-4">
-          <div className="border border-neutral-200 p-4" data-testid="ts-total-hours"><div className="text-[10px] uppercase tracking-widest text-neutral-500">Total horas</div><div className="mt-2 font-mono text-2xl">{data?.total_hours ?? 0}h</div></div>
-          <div className="border border-neutral-200 p-4" data-testid="ts-billable-hours"><div className="text-[10px] uppercase tracking-widest text-neutral-500">Horas faturáveis</div><div className="mt-2 font-mono text-2xl text-[#00A859]">{data?.total_billable ?? 0}h</div></div>
-          <div className="border border-neutral-200 p-4" data-testid="ts-allocations"><div className="text-[10px] uppercase tracking-widest text-neutral-500">Projetos alocados</div><div className="mt-2 font-mono text-2xl">{allocs.length}</div></div>
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm" data-testid="ts-total-hours"><div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Total horas</div><div className="mt-2 font-mono text-2xl">{data?.total_hours ?? 0}h</div></div>
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm" data-testid="ts-billable-hours"><div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Horas faturáveis</div><div className="mt-2 font-mono text-2xl text-[#00A859]">{data?.total_billable ?? 0}h</div></div>
+          <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm" data-testid="ts-allocations"><div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">Projetos alocados</div><div className="mt-2 font-mono text-2xl">{allocs.length}</div></div>
         </div>
 
-        <div className="border border-neutral-200">
-          <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
+        <div className="wc-list-panel">
+          <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
             <div className="col-span-2">Data</div><div className="col-span-4">Projeto</div>
             <div className="col-span-4">Descrição</div><div className="col-span-1 text-right">Horas</div><div className="col-span-1 text-center">Faturável</div>
           </div>
           {(data?.entries || []).length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="ts-empty">Sem registos.</div>}
           {(data?.entries || []).map((e) => (
-            <div key={e.id} className="grid grid-cols-12 items-center px-4 py-2 border-b border-neutral-100 text-sm">
+            <div key={e.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-2 border-b text-sm">
               <div className="col-span-2 font-mono text-xs">{dateShort(e.date)}</div>
               <div className="col-span-4 text-xs">{e.project_name}</div>
               <div className="col-span-4 text-xs text-neutral-600 truncate">{e.description || "—"}</div>

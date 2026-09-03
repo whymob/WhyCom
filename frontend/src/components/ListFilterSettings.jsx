@@ -35,16 +35,16 @@ export default function ListFilterSettings({ filters, statusOptions, onSave, onC
 
   return (
     <>
-      <Button variant="ghost" size="icon" className="rounded-none" onClick={() => setOpen(true)} title="Configurar filtros" aria-label="Configurar filtros" data-testid="list-filter-settings">
+      <Button variant="ghost" size="icon" onClick={() => setOpen(true)} title="Configurar filtros" aria-label="Configurar filtros" data-testid="list-filter-settings">
         <Settings size={16} />
       </Button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-md rounded-none">
+        <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle className="font-display">Filtros da listagem</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div>
               <Label>Pesquisa predefinida</Label>
-              <Input className="mt-1 rounded-none" value={draft.search || ""} onChange={(e) => setDraft((current) => ({ ...current, search: e.target.value }))} placeholder="Deixe vazio para listar todos" />
+              <Input className="mt-1" value={draft.search || ""} onChange={(e) => setDraft((current) => ({ ...current, search: e.target.value }))} placeholder="Deixe vazio para listar todos" />
             </div>
             <div>
               <Label>Estados predefinidos</Label>
@@ -55,15 +55,15 @@ export default function ListFilterSettings({ filters, statusOptions, onSave, onC
               <select
                 value={draft.pageSize || 30}
                 onChange={(e) => setDraft((current) => ({ ...current, pageSize: Number(e.target.value) }))}
-                className="mt-1 h-10 w-full rounded-none border border-neutral-300 bg-white px-3 text-sm"
+                className="mt-1 h-10 w-full rounded-lg border border-[var(--wc-border)] bg-white px-3 text-sm outline-none focus:border-[#14E0E0] focus:ring-4 focus:ring-[#14E0E0]/15"
               >
                 {[10, 30, 50, 100].map((size) => <option key={size} value={size}>{size} itens</option>)}
               </select>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="ghost" className="rounded-none" onClick={clear}>Listar todos</Button>
-            <Button className="rounded-none bg-[#002FA7] text-white" onClick={save}>Guardar filtros</Button>
+            <Button variant="ghost" onClick={clear}>Listar todos</Button>
+            <Button onClick={save}>Guardar filtros</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

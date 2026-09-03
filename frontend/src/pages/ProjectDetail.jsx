@@ -14,8 +14,8 @@ import { ChevronLeft, Plus, Trash2 } from "lucide-react";
 
 function Card({ label, value, sub, testid, tone = "" }) {
   return (
-    <div className="border border-neutral-200 p-4" data-testid={testid}>
-      <div className="text-[10px] uppercase tracking-widest text-neutral-500">{label}</div>
+    <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm" data-testid={testid}>
+      <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{label}</div>
       <div className={`mt-2 font-mono text-xl ${tone}`}>{value}</div>
       {sub && <div className="text-xs text-neutral-500 mt-1">{sub}</div>}
     </div>
@@ -153,8 +153,8 @@ export default function ProjectDetail() {
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Alocações de Developers</div>
             <Button size="sm" onClick={() => setAllocOpen(true)} data-testid="add-alloc-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={14} className="mr-1" /> Alocar developer</Button>
           </div>
-          <div className="border border-neutral-200">
-            <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
+          <div className="wc-list-panel">
+            <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
               <div className="col-span-4">Developer</div><div className="col-span-2 text-right">€/hora custo</div>
               <div className="col-span-2 text-right">Horas prev.</div><div className="col-span-2 text-right">Horas real</div><div className="col-span-1 text-right">Custo real</div><div className="col-span-1"></div>
             </div>
@@ -162,7 +162,7 @@ export default function ProjectDetail() {
             {allocs.map((alloc) => {
               const dev = summary.by_developer.find((item) => item.user_id === alloc.user_id);
               return (
-                <div key={alloc.id} className="grid grid-cols-12 items-center px-4 py-2.5 border-b border-neutral-100 text-sm" data-testid={`alloc-row-${alloc.id}`}>
+                <div key={alloc.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-2.5 border-b text-sm" data-testid={`alloc-row-${alloc.id}`}>
                   <div className="col-span-4 font-medium">{alloc.user_name}</div>
                   <div className="col-span-2 text-right font-mono">{eur(alloc.hourly_cost)}</div>
                   <div className="col-span-2 text-right font-mono">{alloc.hours_forecast}h</div>
@@ -180,15 +180,15 @@ export default function ProjectDetail() {
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Registo de Horas</div>
             <Button size="sm" onClick={() => setEntryOpen(true)} data-testid="add-entry-btn" disabled={allocs.length === 0} className="rounded-none bg-[#00A859] hover:bg-[#008C4A] text-white"><Plus size={14} className="mr-1" /> Registar horas</Button>
           </div>
-          <div className="border border-neutral-200">
-            <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
+          <div className="wc-list-panel">
+            <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
               <div className="col-span-2">Data</div><div className="col-span-3">Developer</div>
               <div className="col-span-4">Descrição</div><div className="col-span-1 text-right">Horas</div>
               <div className="col-span-1 text-right">Custo</div><div className="col-span-1 text-center">Faturável</div>
             </div>
             {entries.length === 0 && <div className="p-4 text-sm text-neutral-500" data-testid="entries-empty">Sem registos de horas.</div>}
             {entries.map((entry) => (
-              <div key={entry.id} className="grid grid-cols-12 items-center px-4 py-2 border-b border-neutral-100 text-sm">
+              <div key={entry.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-2 border-b text-sm">
                 <div className="col-span-2 font-mono text-xs">{dateShort(entry.date)}</div>
                 <div className="col-span-3 text-xs">{entry.user_name}</div>
                 <div className="col-span-4 text-xs text-neutral-600 truncate">{entry.description || "—"}</div>

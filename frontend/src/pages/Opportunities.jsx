@@ -1,11 +1,11 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Eye, Plus } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
 import PageHeader from "@/components/PageHeader";
 import { api, formatApiErrorDetail } from "@/lib/api";
-import { eur, OPP_STATUS } from "@/lib/fmt";
+import { dateShort, eur, OPP_STATUS } from "@/lib/fmt";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -19,6 +19,7 @@ import ListFilterSettings from "@/components/ListFilterSettings";
 import { useListFilters } from "@/lib/listPreferences";
 import Pagination from "@/components/Pagination";
 import { useAuth } from "@/context/AuthContext";
+import OpportunityAttachments from "@/components/OpportunityAttachments";
 
 const STATUS_STYLE = {
   aberta: "bg-neutral-100 text-neutral-800",
@@ -34,6 +35,7 @@ function defaultForm() {
     estimated_value: 0,
     estimated_vab: 0,
     probability: 50,
+    expected_close_date: "",
     priority: "media",
     competitor: "",
     notes: "",
@@ -81,6 +83,7 @@ export default function Opportunities() {
     pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "value", direction: "desc" });
+  const handledOpenId = useRef("");
   const canEditDescription = ["admin", "comercial"].includes(user?.role);
 
   const load = async (page = pagination.page) => {
@@ -102,10 +105,17 @@ export default function Opportunities() {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
     if (filters.statuses.length) next.set("status", filters.statuses.join(","));
+    if (searchParams.get("open")) next.set("open", searchParams.get("open"));
     setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, setSearchParams]);
 
   const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
+  const syncOpportunity = (updated) => {
+    setOpps((current) => current.map((item) => item.id === updated.id ? updated : item));
+    setViewing((current) => current?.id === updated.id ? updated : current);
+    setEditing((current) => current?.id === updated.id ? updated : current);
+  };
 
   const openCreate = () => {
     setEditing(null);
@@ -123,6 +133,7 @@ export default function Opportunities() {
       estimated_value: opportunity.estimated_value,
       estimated_vab: opportunity.estimated_vab,
       probability: opportunity.probability,
+      expected_close_date: (opportunity.expected_close_date || "").slice(0, 10),
       priority: opportunity.priority,
       competitor: opportunity.competitor || "",
       notes: opportunity.notes || "",
@@ -135,6 +146,21 @@ export default function Opportunities() {
     setViewing(opportunity);
     setViewOpen(true);
   };
+
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || handledOpenId.current === openId) return;
+    handledOpenId.current = openId;
+    api.get("/opportunities", { params: { page: 1, page_size: 1, search: openId } }).then((response) => {
+      const opportunity = (response.data.items || []).find((item) => item.id === openId);
+      if (opportunity) openView(opportunity);
+      else toast.error("Oportunidade não encontrada.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams]);
 
   const openDescriptionEdit = () => {
     if (!viewing) return;
@@ -302,8 +328,8 @@ export default function Opportunities() {
         actions={<><ListFilterSettings filters={filters} statusOptions={Object.entries(OPP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button onClick={openCreate} data-testid="new-opp-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]"><Plus size={16} className="mr-1" /> Nova oportunidade</Button></>}
       />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+        <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">
             <div className="min-w-[260px] flex-1">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label>
               <Input
@@ -340,7 +366,7 @@ export default function Opportunities() {
           {visibleOpps.length === 0 && <div className="p-6 text-sm text-neutral-500" data-testid="opps-empty">Sem oportunidades para os filtros atuais.</div>}
 
           {visibleOpps.map((opportunity) => (
-            <div key={opportunity.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`opp-row-${opportunity.id}`}>
+            <div key={opportunity.id} className="wc-table-row grid grid-cols-12 items-center border-b px-4 py-3 text-sm" data-testid={`opp-row-${opportunity.id}`}>
               <div className="col-span-3 font-medium">{clientName(opportunity.client_id)}</div>
               <div className="col-span-3 truncate text-neutral-700">
                 {opportunity.description}
@@ -408,6 +434,10 @@ export default function Opportunities() {
                   <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{viewing.probability}%</div>
                 </div>
                 <div>
+                  <Label>Data prevista de fecho</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{dateShort(viewing.expected_close_date)}</div>
+                </div>
+                <div>
                   <Label>Prioridade</Label>
                   <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.priority || "-"}</div>
                 </div>
@@ -424,6 +454,7 @@ export default function Opportunities() {
                   <div className="mt-1 min-h-10 whitespace-pre-wrap border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.notes || "-"}</div>
                 </div>
               </div>
+              <OpportunityAttachments opportunity={viewing} onUpdated={syncOpportunity} readOnly />
               {viewing.converted_proposal_id && (
                 <div className="flex flex-wrap gap-3 border-t border-neutral-200 pt-3 text-xs">
                   {viewing.converted_proposal_id && <Link to={`/propostas/${viewing.converted_proposal_id}`} className="text-[#002FA7] hover:underline">Ver proposta gerada</Link>}
@@ -480,7 +511,7 @@ export default function Opportunities() {
       </Dialog>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-xl rounded-none">
+        <DialogContent className="max-h-[85vh] max-w-xl overflow-y-auto rounded-none">
           <DialogHeader><DialogTitle className="font-display">{editing ? "Editar oportunidade" : "Nova oportunidade"}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-4">
             <div className="col-span-2">
@@ -524,6 +555,10 @@ export default function Opportunities() {
               <Input type="number" min="0" max="100" value={form.probability} onChange={(e) => setForm({ ...form, probability: e.target.value })} data-testid="opp-prob-input" className="rounded-none font-mono" />
             </div>
             <div>
+              <Label>Data prevista de fecho</Label>
+              <Input type="date" value={form.expected_close_date} onChange={(e) => setForm({ ...form, expected_close_date: e.target.value })} data-testid="opp-expected-close-date-input" className="rounded-none font-mono" />
+            </div>
+            <div>
               <Label>Prioridade</Label>
               <Select value={form.priority} onValueChange={(value) => setForm({ ...form, priority: value })}>
                 <SelectTrigger className="rounded-none"><SelectValue /></SelectTrigger>
@@ -553,6 +588,7 @@ export default function Opportunities() {
               <Textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="rounded-none" />
             </div>
           </div>
+          {editing && <OpportunityAttachments opportunity={editing} onUpdated={syncOpportunity} />}
           <DialogFooter>
             <Button variant="ghost" onClick={() => setOpen(false)} className="rounded-none">Cancelar</Button>
             <Button onClick={submit} data-testid="opp-save-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">Guardar</Button>

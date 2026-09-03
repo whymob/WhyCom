@@ -43,7 +43,7 @@ export default function SearchableSelect({
           disabled={disabled}
           data-testid={testId}
           className={cn(
-            "w-full justify-between rounded-none border-input bg-transparent px-3 font-normal hover:bg-transparent",
+            "h-10 w-full justify-between border-input bg-white px-3 font-normal hover:border-[#14E0E0] hover:bg-white",
             !selected && "text-muted-foreground",
             triggerClassName,
           )}
@@ -54,7 +54,7 @@ export default function SearchableSelect({
           <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className={cn("w-[var(--radix-popover-trigger-width)] p-0", contentClassName)} align="start">
+      <PopoverContent className={cn("w-[var(--radix-popover-trigger-width)] rounded-xl border-[var(--wc-border)] p-0 shadow-lg", contentClassName)} align="start">
         <Command>
           <CommandInput placeholder={searchPlaceholder} />
           <CommandList>

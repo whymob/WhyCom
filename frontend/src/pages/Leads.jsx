@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
@@ -60,6 +60,7 @@ export default function Leads() {
     pageSize: 30,
   });
   const [sort, setSort] = useState({ key: "client", direction: "asc" });
+  const handledOpenId = useRef("");
 
   const load = async (page = pagination.page) => {
     const [leadResponse, clientResponse] = await Promise.all([
@@ -80,7 +81,9 @@ export default function Leads() {
     const next = new URLSearchParams();
     if (filters.search) next.set("search", filters.search);
     if (filters.statuses.length) next.set("status", filters.statuses.join(","));
+    if (searchParams.get("open")) next.set("open", searchParams.get("open"));
     setSearchParams(next, { replace: true });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filters, setSearchParams]);
 
   const clientName = useCallback((id) => clients.find((client) => client.id === id)?.name || "-", [clients]);
@@ -102,6 +105,21 @@ export default function Leads() {
     });
     setOpen(true);
   };
+
+  useEffect(() => {
+    const openId = searchParams.get("open");
+    if (!openId || handledOpenId.current === openId) return;
+    handledOpenId.current = openId;
+    api.get("/leads", { params: { page: 1, page_size: 1, search: openId } }).then((response) => {
+      const lead = (response.data.items || []).find((item) => item.id === openId);
+      if (lead) openEdit(lead);
+      else toast.error("Lead não encontrada.");
+      const next = new URLSearchParams(searchParams);
+      next.delete("open");
+      setSearchParams(next, { replace: true });
+    });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, setSearchParams]);
 
   const submit = async () => {
     try {
@@ -210,8 +228,8 @@ export default function Leads() {
         )}
       />
       <div className="p-8">
-        <div className="border border-neutral-200">
-          <div className="flex flex-wrap items-end gap-3 border-b border-neutral-200 bg-neutral-50 px-4 py-3">
+        <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">
             <div className="min-w-[260px] flex-1">
               <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label>
               <Input
@@ -249,7 +267,7 @@ export default function Leads() {
           )}
 
           {visibleLeads.map((lead) => (
-            <div key={lead.id} className="grid grid-cols-12 items-center border-b border-neutral-100 px-4 py-3 text-sm hover:bg-neutral-50" data-testid={`lead-row-${lead.id}`}>
+            <div key={lead.id} className="wc-table-row grid grid-cols-12 items-center border-b px-4 py-3 text-sm" data-testid={`lead-row-${lead.id}`}>
               <div className="col-span-3 font-medium">{lead.client_id ? clientName(lead.client_id) : (lead.client_name_raw || "-")}</div>
               <div className="col-span-4 truncate text-neutral-700">{lead.description}</div>
               <div className="col-span-2 pr-4 text-right font-mono">{eur(lead.estimated_value)}</div>

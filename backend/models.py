@@ -108,6 +108,7 @@ class Opportunity(BaseModel):
     status: Literal["aberta", "em_analise", "convertida", "perdida"] = "aberta"
     lost_reason: Optional[str] = ""
     converted_proposal_id: Optional[str] = None
+    attachments: List[dict] = Field(default_factory=list)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 
@@ -156,6 +157,9 @@ class Proposal(BaseModel):
     lines: List[ProposalLine] = []
     valid_until: Optional[str] = None
     notes: Optional[str] = ""
+    sent_at: Optional[str] = None
+    sent_to: Optional[str] = ""
+    status_change_reason: Optional[str] = ""
     next_follow_up_date: Optional[str] = None
     attachment: Optional[dict] = None
     owner_id: str
@@ -186,6 +190,7 @@ class Order(BaseModel):
     owner_id: str
     status: Literal["aberta", "em_planeamento", "em_faturacao", "parcialmente_faturada", "faturada", "recebida", "fulfilled", "cancelada"] = "aberta"
     cancel_reason: Optional[str] = ""
+    status_change_reason: Optional[str] = ""
     created_at: str = Field(default_factory=now_iso)
 
 

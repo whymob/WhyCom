@@ -11,9 +11,9 @@ export default function DocumentTimeline({ events = [] }) {
   const lastCompletedIndex = events.reduce((lastIndex, event, index) => (event.complete ? index : lastIndex), -1);
 
   return (
-    <section className="border border-neutral-200 bg-white" data-testid="document-timeline">
-      <div className="border-b border-neutral-200 px-5 py-3">
-        <div className="text-[10px] uppercase tracking-[0.2em] text-neutral-500">Percurso do documento</div>
+    <section className="overflow-hidden rounded-[14px] border border-[var(--wc-border)] bg-white shadow-sm" data-testid="document-timeline">
+      <div className="border-b border-[var(--wc-border)] px-5 py-3">
+        <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Percurso do documento</div>
         <div className="mt-1 text-sm text-neutral-600">Origem, evolução comercial e fecho financeiro</div>
       </div>
 
@@ -31,7 +31,7 @@ export default function DocumentTimeline({ events = [] }) {
             return (
               <React.Fragment key={event.key}>
                 <div className="w-[145px] shrink-0 text-center">
-                  <div className={`mx-auto flex h-8 w-8 items-center justify-center border ${tone}`}>
+                  <div className={`mx-auto flex h-8 w-8 items-center justify-center rounded-full border ${tone}`}>
                     {complete ? <Check size={14} /> : <Circle size={12} />}
                   </div>
                   <div className={`mt-2 text-xs font-medium ${isCurrent ? "text-[#00A859]" : complete ? "text-neutral-900" : "text-[#A16207]"}`}>{event.label}</div>

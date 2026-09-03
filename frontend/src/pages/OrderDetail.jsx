@@ -841,15 +841,15 @@ export default function OrderDetail() {
 
         <section>
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Reconciliação</div>
-          <div className="grid grid-cols-4 gap-0 border border-neutral-200">
+          <div className="grid grid-cols-4 gap-0 overflow-hidden rounded-[14px] border border-[var(--wc-border)] bg-white shadow-sm">
             {[
               { label: "Encomenda", value: recon?.order.value, vab: recon?.order.vab, sub: null, testid: "recon-order" },
               { label: "Planeado", value: recon?.plan.value, vab: null, sub: null, testid: "recon-plan" },
               { label: "Faturado (s/IVA)", value: recon?.invoiced.value, vab: null, sub: recon?.invoiced.gross ? `c/IVA ${eur(recon.invoiced.gross)}` : null, testid: "recon-invoiced" },
               { label: "Recebido (c/IVA)", value: recon?.received.value, vab: null, sub: null, testid: "recon-received" },
             ].map((card, index) => (
-              <div key={card.label} className={`p-5 ${index < 3 ? "border-r border-neutral-200" : ""}`} data-testid={card.testid}>
-                <div className="text-[10px] uppercase tracking-widest text-neutral-500">{card.label}</div>
+              <div key={card.label} className={`p-5 ${index < 3 ? "border-r border-[var(--wc-border)]" : ""}`} data-testid={card.testid}>
+                <div className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">{card.label}</div>
                 <div className="mt-2 font-mono text-xl">{eur(card.value)}</div>
                 {card.vab !== null && card.vab !== undefined && <div className="text-xs text-neutral-500 mt-1">VAB <span className="font-mono">{eur(card.vab)}</span></div>}
                 {card.sub && <div className="text-[10px] text-neutral-400 mt-1 font-mono">{card.sub}</div>}
@@ -872,7 +872,7 @@ export default function OrderDetail() {
 
         <section>
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Composição Comercial</div>
-          <div className="border border-neutral-200">
+          <div className="wc-list-panel">
             <div className="grid grid-cols-12 gap-2 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
               <div className="col-span-4">Produto/Serviço</div>
               <div className="col-span-3">Fabricante</div>
@@ -918,7 +918,7 @@ export default function OrderDetail() {
               <Button size="sm" onClick={requestSavePlan} disabled={planEditDisabled} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
             </div>
           </div>
-          <div className="border border-neutral-200">
+          <div className="wc-list-panel">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2 gap-2">
               <div className="col-span-2">Tipo</div>
               <div className="col-span-3">Descrição</div>
@@ -953,7 +953,7 @@ export default function OrderDetail() {
             <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Faturas</div>
             <Button size="sm" onClick={openInvoice} data-testid="new-invoice-btn" disabled={isCancelled || planLines.filter((line) => (line.value - (line.invoiced_amount || 0)) > 0.001 && line.status !== "cancelada").length === 0} className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={14} className="mr-1" /> Emitir fatura</Button>
           </div>
-          <div className="border border-neutral-200">
+          <div className="wc-list-panel">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
               <div className="col-span-2">Número</div>
               <div className="col-span-2">Data</div>
@@ -1044,7 +1044,7 @@ export default function OrderDetail() {
 
         <section id="recebimentos">
           <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-3">Recebimentos</div>
-          <div className="border border-neutral-200">
+          <div className="wc-list-panel">
             <div className="grid grid-cols-12 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-3 py-2">
               <div className="col-span-3">Data</div>
               <div className="col-span-3">Fatura</div>
