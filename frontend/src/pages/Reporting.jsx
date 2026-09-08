@@ -155,7 +155,8 @@ export default function Reporting() {
     const quarterEnd = new Date(anchor.getFullYear(), Math.floor(anchor.getMonth() / 3) * 3 + 3, 0);
     const yearEnd = new Date(reportingYear, 11, 31);
 
-    return allProps
+    const proposals = allProps
+      .filter((proposal) => ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status))
       .map((proposal) => {
         const followUp = proposal.next_follow_up_date;
         if (!followUp) return null;
@@ -169,6 +170,8 @@ export default function Reporting() {
         const client = clientMap[proposal.client_id]?.name || "-";
         return {
           id: proposal.id,
+          type: "Proposta",
+          href: `/propostas/${proposal.id}`,
           scope: date <= thirtyDaysEnd ? "30d" : date <= quarterEnd ? "quarter" : "year",
           horizon,
           number: proposal.number || "-",
@@ -180,9 +183,43 @@ export default function Reporting() {
           followUp,
         };
       })
-      .filter(Boolean)
+      .filter(Boolean);
+
+    const opportunities = allOpps
+      .filter((opportunity) => ["aberta", "em_analise"].includes(opportunity.status))
+      .map((opportunity) => {
+        const followUp = opportunity.expected_close_date;
+        if (!followUp) return null;
+        const date = new Date(`${String(followUp).slice(0, 10)}T00:00:00`);
+        if (Number.isNaN(date.getTime()) || date < anchor || date > yearEnd) return null;
+        const horizon = date <= thirtyDaysEnd
+          ? "Próximos 30 dias"
+          : date <= quarterEnd
+            ? "Trimestre atual"
+            : "Até ao fim do ano";
+        const probability = Math.min(100, Math.max(0, Number(opportunity.probability) || 0));
+        const factor = probability / 100;
+        return {
+          id: opportunity.id,
+          type: "Oportunidade",
+          href: `/oportunidades/${opportunity.id}`,
+          scope: date <= thirtyDaysEnd ? "30d" : date <= quarterEnd ? "quarter" : "year",
+          horizon,
+          number: `OPP-${opportunity.id.slice(0, 8).toUpperCase()}`,
+          client: clientMap[opportunity.client_id]?.name || "-",
+          description: opportunity.description || "-",
+          value: (Number(opportunity.estimated_value) || 0) * factor,
+          vab: (Number(opportunity.estimated_vab) || 0) * factor,
+          status: OPP_STATUS[opportunity.status] || opportunity.status || "-",
+          probability,
+          followUp,
+        };
+      })
+      .filter(Boolean);
+
+    return [...proposals, ...opportunities]
       .sort((left, right) => String(left.followUp).localeCompare(String(right.followUp)));
-  }, [allProps, clientMap, opportunityMap, reportingYear]);
+  }, [allOpps, allProps, clientMap, opportunityMap, reportingYear]);
 
   const visibleProposalFollowUps = useMemo(() => {
     const allowed = followUpScope === "30d" ? ["30d"] : followUpScope === "quarter" ? ["30d", "quarter"] : ["30d", "quarter", "year"];
@@ -573,7 +610,7 @@ export default function Reporting() {
               </label>
             )}
         <button onClick={() => download(`/exports/dashboard.pdf?year=${reportingYear}`, `dashboard-${reportingYear}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
-        <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}`, `propostas-fecho-${reportingYear}.pdf`)} data-testid="export-proposals-follow-up-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Fecho propostas PDF</button>
+        <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}`, `previsao-fecho-${reportingYear}.pdf`)} data-testid="export-proposals-follow-up-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Previsão de fecho PDF</button>
             <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Ordem faturacao (por mes)</button>
             <button onClick={() => openAnnualBillingExport("pdf")} data-testid="export-annual-billing-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Faturação anual PDF</button>
             <button onClick={() => openAnnualBillingExport("csv")} data-testid="export-annual-billing-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturação anual Excel/CSV</button>
@@ -595,26 +632,26 @@ export default function Reporting() {
           </button>
         </div>
         <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="h-auto rounded-none border border-neutral-200 bg-transparent p-0">
+          <TabsList className="wc-reporting-tabs h-auto rounded-none border border-neutral-200 bg-transparent p-0">
             {[
               ["executive", "Executivo"],
               ["commercial", "Por Comercial"],
               ["client", "Por Cliente"],
               ["manufacturer", "Por Fabricante"],
-              ["forecast", "Previsoes"],
               ["vab", "Analise VAB"],
             ].map(([key, label]) => (
-              <TabsTrigger key={key} value={key} className="rounded-none px-4 py-2 text-xs data-[state=active]:bg-[#002FA7] data-[state=active]:text-white" data-testid={`tab-${key}`}>{label}</TabsTrigger>
+              <TabsTrigger key={key} value={key} className="wc-reporting-tab rounded-none px-4 py-2 text-xs" data-testid={`tab-${key}`}>{label}</TabsTrigger>
             ))}
           </TabsList>
 
           <TabsContent value="executive" className="mt-6">
             {exec && (
               <div className="space-y-6">
-                <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div className="grid grid-cols-2 gap-4 md:grid-cols-5">
                   <KPI testid="exec-won-value" label="Valor Ganho" value={eur(exec.kpis.won_value)} sub={`${exec.kpis.props} propostas`} />
-                  <KPI testid="exec-won-vab" label="VAB Ganho" value={eur(exec.kpis.won_vab)} sub={`Margem ${pct(exec.kpis.won_value ? (exec.kpis.won_vab / exec.kpis.won_value) * 100 : 0)}`} />
-                  <KPI testid="exec-orders" label="Encomendas" value={eur(exec.kpis.orders_value)} sub={`${exec.kpis.orders} total · ${exec.kpis.fulfilled} fulfilled`} />
+                  <KPI testid="exec-won-vab" label="VAB Ganho" value={eur(exec.kpis.won_vab)} sub={`${exec.kpis.props} propostas · margem ${pct(exec.kpis.won_value ? (exec.kpis.won_vab / exec.kpis.won_value) * 100 : 0)}`} />
+                  <KPI testid="exec-billed-value" label="Valor Faturado" value={eur(exec.kpis.billed_value)} sub={`${exec.kpis.orders} encomendas · ${exec.kpis.fulfilled} fulfilled`} />
+                  <KPI testid="exec-billed-vab" label="VAB Faturado" value={eur(exec.kpis.billed_vab)} sub={`${exec.kpis.orders} encomendas · ${exec.kpis.fulfilled} fulfilled`} />
                   <KPI testid="exec-open" label="Em Aberto p/ Receber" value={eur(fr?.total_open)} sub={`${fr?.count || 0} faturas · atraso ${eur(fr?.buckets.em_atraso)}`} />
                 </div>
                 <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
@@ -660,6 +697,42 @@ export default function Reporting() {
                       </ResponsiveContainer>
                     )}
                   </div>
+                </div>
+                <div className="border border-neutral-200 p-4" data-testid="proposal-follow-up-panel">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+                    <div className="text-[10px] uppercase tracking-widest text-neutral-500">Previsão de fecho · propostas e oportunidades · {reportingYear}</div>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}&scope=${followUpScope}`, `previsao-fecho-${reportingYear}-${followUpScope}.pdf`)} data-testid="export-proposal-follow-up-panel-pdf" className="border border-[#002FA7] px-3 py-1.5 text-xs text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ PDF</button>
+                      <button onClick={() => download(`/exports/proposals-follow-up.csv?year=${reportingYear}&scope=${followUpScope}`, `previsao-fecho-${reportingYear}-${followUpScope}.csv`)} data-testid="export-proposal-follow-up-panel-csv" className="border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50">↓ Excel/CSV</button>
+                      {[['30d', '30 dias'], ['quarter', 'Quarter'], ['year', 'Até final do ano']].map(([value, label]) => (
+                        <button key={value} type="button" onClick={() => setFollowUpScope(value)} className={`px-3 py-1.5 text-xs ${followUpScope === value ? "bg-[#002FA7] text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`} data-testid={`proposal-follow-up-${value}`}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="mb-3 text-xs text-neutral-500">Inclui propostas ativas e oportunidades abertas/em análise; os valores das oportunidades são ponderados pela respetiva probabilidade.</div>
+                  <Table
+                    testid="proposal-follow-up-table"
+                    rows={visibleProposalFollowUps}
+                    footer={{
+                      horizon: "TOTAL",
+                      value: visibleProposalFollowUps.reduce((total, row) => total + row.value, 0),
+                      vab: visibleProposalFollowUps.reduce((total, row) => total + row.vab, 0),
+                    }}
+                    columns={[
+                      { key: "horizon", label: "Horizonte", w: "170px" },
+                      { key: "type", label: "Tipo", w: "120px" },
+                      { key: "number", label: "Registo", w: "150px", mono: true, render: (row) => <Link to={row.href} className="text-[#002FA7] hover:underline">{row.number}</Link> },
+                      { key: "client", label: "Cliente" },
+                      { key: "description", label: "Descrição", w: "260px" },
+                      { key: "value", label: "Valor", w: "130px", align: "right", render: (row) => eur(row.value) },
+                      { key: "vab", label: "VAB", w: "130px", align: "right", render: (row) => eur(row.vab) },
+                      { key: "probability", label: "Prob.", w: "80px", align: "right", render: (row) => row.type === "Oportunidade" ? `${row.probability}%` : "-" },
+                      { key: "status", label: "Estado", w: "140px" },
+                      { key: "followUp", label: "Data prevista de fecho", w: "170px", mono: true, render: (row) => dateShort(row.followUp) },
+                    ]}
+                  />
                 </div>
               </div>
             )}
@@ -713,89 +786,6 @@ export default function Reporting() {
                 { key: "won_vab", label: "VAB", align: "right", w: "140px", render: (row) => <DetailLink align="right" onClick={() => openManufacturerDetail(row, "won_vab")}>{eur(row.won_vab)}</DetailLink> },
               ]}
             />
-          </TabsContent>
-
-          <TabsContent value="forecast" className="mt-6">
-            <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
-              <div className="border border-neutral-200 p-4" data-testid="forecast-invoicing-panel">
-                <div className="mb-1 text-[10px] uppercase tracking-widest text-neutral-500">Previsao de Faturacao por Mes · {reportingYear}</div>
-                <div className="mb-3 text-xs text-neutral-500">Planeado: <span className="font-mono">{eur(forecastTotals.planned)}</span> · Faturado: <span className="font-mono">{eur(forecastTotals.billed)}</span> · Por faturar: <span className="font-mono">{eur(forecastTotals.remaining)}</span></div>
-                <ResponsiveContainer width="100%" height={260}>
-                  <BarChart data={fi}>
-                    <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
-                    <XAxis dataKey="month" fontSize={11} />
-                    <YAxis fontSize={11} />
-                    <Tooltip content={<ForecastTooltip />} />
-                    <Legend />
-                    <Bar dataKey="planned_value" name="Planeado">
-                      {fi.map((entry, index) => <Cell key={`forecast-planned-${entry.month}`} fill={MONTH_COLORS[index % MONTH_COLORS.length]} />)}
-                    </Bar>
-                    <Bar dataKey="billed_value" fill="#1F2937" name="Faturado" />
-                    <Bar dataKey="remaining_value" fill={COLORS.yellow} name="Por faturar" />
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="border border-neutral-200 p-4" data-testid="forecast-receiving-panel">
-                <div className="mb-3 text-[10px] uppercase tracking-widest text-neutral-500">Recebimentos em aberto (Aging)</div>
-                {fr && (
-                  <div className="space-y-2">
-                    <div className="text-3xl font-mono">{eur(fr.total_open)}</div>
-                    <div className="mb-3 text-xs text-neutral-500">
-                      Mostra apenas faturas emitidas e ainda nao totalmente recebidas · {fr.count} faturas
-                    </div>
-                    {[
-                      ["0-30 dias", fr.buckets["0_30"], "#00A859"],
-                      ["31-60 dias", fr.buckets["31_60"], "#FFC800"],
-                      ["61-90 dias", fr.buckets["61_90"], "#FF8800"],
-                      [">90 dias", fr.buckets.gt_90, "#FF2A00"],
-                      ["Em atraso (>30d)", fr.buckets.em_atraso, "#B91C1C"],
-                    ].map(([label, value, color]) => (
-                      <div key={label} className="flex items-center gap-3 text-sm">
-                        <div className="w-32 text-xs text-neutral-600">{label}</div>
-                        <div className="h-6 flex-1 bg-neutral-100">
-                          <div className="h-full" style={{ width: `${fr.total_open ? Math.min(100, (value / fr.total_open) * 100) : 0}%`, background: color }} />
-                        </div>
-                        <div className="w-24 text-right font-mono text-xs">{eur(value)}</div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-            <div className="mt-6 border border-neutral-200 p-4" data-testid="proposal-follow-up-panel">
-              <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-                <div className="text-[10px] uppercase tracking-widest text-neutral-500">Propostas com data prevista de fecho · {reportingYear}</div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}&scope=${followUpScope}`, `propostas-fecho-${reportingYear}-${followUpScope}.pdf`)} data-testid="export-proposal-follow-up-panel-pdf" className="border border-[#002FA7] px-3 py-1.5 text-xs text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ PDF</button>
-                  <button onClick={() => download(`/exports/proposals-follow-up.csv?year=${reportingYear}&scope=${followUpScope}`, `propostas-fecho-${reportingYear}-${followUpScope}.csv`)} data-testid="export-proposal-follow-up-panel-csv" className="border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50">↓ Excel/CSV</button>
-                  {[['30d', '30 dias'], ['quarter', 'Quarter'], ['year', 'Até final do ano']].map(([value, label]) => (
-                    <button key={value} type="button" onClick={() => setFollowUpScope(value)} className={`px-3 py-1.5 text-xs ${followUpScope === value ? "bg-[#002FA7] text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`} data-testid={`proposal-follow-up-${value}`}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
-              <div className="mb-3 text-xs text-neutral-500">A apresentar propostas com data prevista de fecho no período selecionado.</div>
-              <Table
-                testid="proposal-follow-up-table"
-                rows={visibleProposalFollowUps}
-                footer={{
-                  horizon: "TOTAL",
-                  value: visibleProposalFollowUps.reduce((total, row) => total + row.value, 0),
-                  vab: visibleProposalFollowUps.reduce((total, row) => total + row.vab, 0),
-                }}
-                columns={[
-                  { key: "horizon", label: "Horizonte", w: "170px" },
-                  { key: "number", label: "Proposta", w: "150px", mono: true, render: (row) => <Link to={`/propostas/${row.id}`} className="text-[#002FA7] hover:underline">{row.number}</Link> },
-                  { key: "client", label: "Cliente" },
-                  { key: "description", label: "Descrição", w: "260px" },
-                  { key: "value", label: "Valor", w: "130px", align: "right", render: (row) => eur(row.value) },
-                  { key: "vab", label: "VAB", w: "130px", align: "right", render: (row) => eur(row.vab) },
-                  { key: "status", label: "Estado", w: "140px" },
-                  { key: "followUp", label: "Data prevista de fecho", w: "170px", mono: true, render: (row) => dateShort(row.followUp) },
-                ]}
-              />
-            </div>
           </TabsContent>
 
           <TabsContent value="vab" className="mt-6">

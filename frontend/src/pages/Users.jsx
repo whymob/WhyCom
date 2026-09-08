@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Pencil, Plus } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Pencil, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import PageHeader from "@/components/PageHeader";
@@ -12,9 +12,15 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useListFilters } from "@/lib/listPreferences";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import Pagination from "@/components/Pagination";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
 
 const ROLES = ["admin", "ceo", "diretor_tecnico", "comercial", "developer"];
 const EMPTY_FORM = { email: "", password: "", name: "", role: "comercial", active: true };
+const ROLE_OPTIONS = ROLES.map((value) => ({ value, label: ROLE_LABEL[value] || value }));
+function SortButton({ label, sortKey, sort, onClick }) { const active = sort.key === sortKey; const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown; return <button type="button" onClick={() => onClick(sortKey)} className="flex w-full items-center gap-1"><span>{label}</span><Icon size={12} /></button>; }
 
 export default function Users() {
   const { user: me } = useAuth();
@@ -22,6 +28,9 @@ export default function Users() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState({ key: "name", direction: "asc" });
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("users", { search: "", statuses: [], pageSize: 30 });
 
   const load = async () => setItems((await api.get("/users")).data);
 
@@ -30,6 +39,10 @@ export default function Users() {
   }, []);
 
   const isAdmin = me?.role === "admin";
+  useEffect(() => { setPage(1); }, [filters.search, filters.statuses, filters.pageSize, sort]);
+  const rows = useMemo(() => { const term = filters.search.trim().toLowerCase(); const matched = items.filter((item) => (!term || [item.name, item.email, ROLE_LABEL[item.role]].some((value) => String(value || "").toLowerCase().includes(term))) && (!filters.statuses.length || filters.statuses.includes(item.role))); return [...matched].sort((a, b) => { const left = sort.key === "role" ? ROLE_LABEL[a.role] || a.role : a[sort.key] || ""; const right = sort.key === "role" ? ROLE_LABEL[b.role] || b.role : b[sort.key] || ""; const result = String(left).localeCompare(String(right), "pt"); return sort.direction === "asc" ? result : -result; }); }, [filters.search, filters.statuses, items, sort]);
+  const pages = Math.max(1, Math.ceil(rows.length / filters.pageSize)); const visible = rows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  const toggleSort = (key) => setSort((current) => current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" });
 
   const resetForm = () => {
     setEditing(null);
@@ -111,7 +124,7 @@ export default function Users() {
         kicker="Master Data"
         title="Utilizadores"
         actions={
-          isAdmin && (
+          <div className="flex items-center gap-2"><ListFilterSettings filters={filters} statusOptions={ROLE_OPTIONS} filterLabel="Cargos predefinidos" onSave={saveFilters} onClear={clearSavedFilters} />{isAdmin && (
             <Button
               onClick={openCreate}
               data-testid="new-user-btn"
@@ -119,7 +132,7 @@ export default function Users() {
             >
               <Plus size={16} className="mr-1" /> Novo utilizador
             </Button>
-          )
+          )}</div>
         }
       />
 
@@ -127,15 +140,16 @@ export default function Users() {
         {!isAdmin && <div className="mb-4 text-sm text-neutral-500">Apenas Admin pode criar ou editar utilizadores.</div>}
 
         <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3"><div className="min-w-[260px] flex-1"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label><Input value={filters.search} onChange={(e) => setFilters((current) => ({ ...current, search: e.target.value }))} placeholder="Nome, email ou cargo" className="mt-1 rounded-none" /></div><div className="w-[240px]"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Cargo</Label><div className="mt-1"><StatusMultiSelect options={ROLE_OPTIONS} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="user-role-filter" /></div></div><button type="button" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="h-9 px-2 text-xs font-medium text-slate-600 hover:text-[var(--wc-cyan-700)]">Limpar filtros</button></div>
           <div className="wc-table-head grid grid-cols-12 border-b border-[var(--wc-border)] px-4 py-2 text-[10px] uppercase tracking-widest">
-            <div className="col-span-3">Nome</div>
-            <div className="col-span-3">Email</div>
-            <div className="col-span-3">Cargo</div>
+            <div className="col-span-3"><SortButton label="Nome" sortKey="name" sort={sort} onClick={toggleSort} /></div>
+            <div className="col-span-3"><SortButton label="Email" sortKey="email" sort={sort} onClick={toggleSort} /></div>
+            <div className="col-span-3"><SortButton label="Cargo" sortKey="role" sort={sort} onClick={toggleSort} /></div>
             <div className="col-span-1">Estado</div>
             <div className="col-span-2 text-right">Acoes</div>
           </div>
 
-          {items.map((item) => {
+          {visible.map((item) => {
             const isSelf = item.id === me?.id;
 
             return (
@@ -201,6 +215,8 @@ export default function Users() {
               </div>
             );
           })}
+          {!visible.length && <div className="px-4 py-8 text-sm text-neutral-500">Sem utilizadores para os critérios atuais.</div>}
+          <Pagination page={page} pages={pages} total={rows.length} pageSize={filters.pageSize} onPageChange={setPage} />
         </div>
       </div>
 

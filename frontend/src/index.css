@@ -130,6 +130,41 @@ h1, h2, h3, h4, h5, h6, .font-display {
 [class~="bg-[#00A859]"] { background-color: #059669 !important; }
 [class~="rounded-none"] { border-radius: 10px !important; }
 
+/* Botões brancos podem usar a variante default por compatibilidade. Nesse
+   caso, o hover da variante não deve trocar o texto para branco. */
+button[class~="bg-white"]:hover,
+button[class~="bg-white"]:focus-visible {
+    color: #0f172a !important;
+}
+button[class~="bg-white"]:hover svg,
+button[class~="bg-white"]:focus-visible svg {
+    color: #0f172a !important;
+}
+
+/* A ponte de cores antigas usa !important; o estado hover do botão de
+   exportação deve continuar legível sobre o fundo ciano. */
+button[class~="text-[#002FA7]"]:hover,
+button[class~="text-[#002FA7]"]:focus-visible {
+    color: #ffffff !important;
+}
+
+/* Tabs de Reporting: hover claro e estado ativo no ciano do designer atual. */
+.wc-reporting-tabs .wc-reporting-tab:hover,
+.wc-reporting-tabs .wc-reporting-tab:focus-visible {
+    background: #ecfeff !important;
+    color: #0b8e8e !important;
+    outline: none;
+}
+.wc-reporting-tabs .wc-reporting-tab[data-state="active"] {
+    background: #14e0e0 !important;
+    color: #14181f !important;
+    box-shadow: 0 0 0 2px rgba(20, 224, 224, .2), 0 3px 10px rgba(20, 224, 224, .18);
+}
+.wc-reporting-tabs .wc-reporting-tab[data-state="active"]:hover {
+    background: #0b8e8e !important;
+    color: #ffffff !important;
+}
+
 @media (max-width: 900px) {
     .wc-sidebar { width: 72px; }
     .wc-sidebar .wc-nav-label, .wc-sidebar .wc-nav-section, .wc-sidebar .wc-user-info { display: none; }

@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from "react";
-import { Plus } from "lucide-react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
 import { toast } from "sonner";
 
 import PageHeader from "@/components/PageHeader";
@@ -11,9 +11,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import SearchableSelect from "@/components/ui/searchable-select";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useListFilters } from "@/lib/listPreferences";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import Pagination from "@/components/Pagination";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
 
 const CATEGORIES = ["setup", "recorrente", "projeto", "horas", "licenciamento", "suporte"];
 const UNITS = ["unidade", "mes", "hora", "dia", "projeto"];
+const CATEGORY_OPTIONS = CATEGORIES.map((value) => ({ value, label: value }));
+function SortButton({ label, sortKey, sort, onClick, align = "left" }) { const active = sort.key === sortKey; const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown; return <button type="button" onClick={() => onClick(sortKey)} className={`flex w-full items-center gap-1 ${align === "right" ? "justify-end" : ""}`}><span>{label}</span><Icon size={12} /></button>; }
 
 export default function Products() {
   const [items, setItems] = useState([]);
@@ -21,6 +27,9 @@ export default function Products() {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState({});
+  const [page, setPage] = useState(1);
+  const [sort, setSort] = useState({ key: "name", direction: "asc" });
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("products", { search: "", statuses: [], pageSize: 30 });
 
   const load = async () => {
     const [productResponse, manufacturerResponse] = await Promise.all([api.get("/products"), api.get("/manufacturers")]);
@@ -31,6 +40,7 @@ export default function Products() {
   useEffect(() => {
     load();
   }, []);
+  useEffect(() => { setPage(1); }, [filters.search, filters.statuses, filters.pageSize, sort]);
 
   const openCreate = () => {
     setEditing(null);
@@ -45,6 +55,9 @@ export default function Products() {
   };
 
   const manufacturerName = (id) => manuf.find((manufacturer) => manufacturer.id === id)?.name || "—";
+  const rows = useMemo(() => { const term = filters.search.trim().toLowerCase(); const enriched = items.map((item) => ({ ...item, manufacturer_name: manufacturerName(item.manufacturer_id) })); const matched = enriched.filter((item) => (!term || [item.name, item.category, item.unit, item.manufacturer_name].some((value) => String(value || "").toLowerCase().includes(term))) && (!filters.statuses.length || filters.statuses.includes(item.category))); return [...matched].sort((a, b) => { const left = a[sort.key] ?? ""; const right = b[sort.key] ?? ""; const result = typeof left === "number" ? left - right : String(left).localeCompare(String(right), "pt"); return sort.direction === "asc" ? result : -result; }); }, [filters.search, filters.statuses, items, manuf, sort]);
+  const pages = Math.max(1, Math.ceil(rows.length / filters.pageSize)); const visible = rows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  const toggleSort = (key) => setSort((current) => current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: ["base_price", "base_cost"].includes(key) ? "desc" : "asc" });
 
   const submit = async () => {
     try {
@@ -69,14 +82,15 @@ export default function Products() {
       <PageHeader
         kicker="Master Data"
         title="Produtos & Servicos"
-        actions={<Button onClick={openCreate} data-testid="new-product-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo produto</Button>}
+        actions={<div className="flex items-center gap-2"><ListFilterSettings filters={filters} statusOptions={CATEGORY_OPTIONS} filterLabel="Categorias predefinidas" onSave={saveFilters} onClear={clearSavedFilters} /><Button onClick={openCreate} data-testid="new-product-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo produto</Button></div>}
       />
       <div className="p-8">
         <div className="wc-list-panel">
+          <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3"><div className="min-w-[260px] flex-1"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label><Input value={filters.search} onChange={(e) => setFilters((current) => ({ ...current, search: e.target.value }))} placeholder="Produto, fabricante ou categoria" className="mt-1 rounded-none" /></div><div className="w-[240px]"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Categoria</Label><div className="mt-1"><StatusMultiSelect options={CATEGORY_OPTIONS} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="product-category-filter" /></div></div><button type="button" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="h-9 px-2 text-xs font-medium text-slate-600 hover:text-[var(--wc-cyan-700)]">Limpar filtros</button></div>
           <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
-            <div className="col-span-3">Nome</div><div className="col-span-2">Fabricante</div><div className="col-span-2">Categoria</div><div className="col-span-1">Un.</div><div className="col-span-2 text-right">Preco base</div><div className="col-span-1 text-right">Custo</div><div className="col-span-1 text-right">Acoes</div>
+            <div className="col-span-3"><SortButton label="Nome" sortKey="name" sort={sort} onClick={toggleSort} /></div><div className="col-span-2"><SortButton label="Fabricante" sortKey="manufacturer_name" sort={sort} onClick={toggleSort} /></div><div className="col-span-2"><SortButton label="Categoria" sortKey="category" sort={sort} onClick={toggleSort} /></div><div className="col-span-1"><SortButton label="Un." sortKey="unit" sort={sort} onClick={toggleSort} /></div><div className="col-span-2 text-right"><SortButton label="Preco base" sortKey="base_price" sort={sort} onClick={toggleSort} align="right" /></div><div className="col-span-1 text-right"><SortButton label="Custo" sortKey="base_cost" sort={sort} onClick={toggleSort} align="right" /></div><div className="col-span-1 text-right">Acoes</div>
           </div>
-          {items.map((product) => (
+          {visible.map((product) => (
             <div key={product.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-3 border-b text-sm">
               <div className="col-span-3 font-medium">{product.name}</div>
               <div className="col-span-2 text-xs text-neutral-700" data-testid={`product-manufacturer-${product.id}`}>{manufacturerName(product.manufacturer_id)}</div>
@@ -87,6 +101,8 @@ export default function Products() {
               <div className="col-span-1 text-right"><Button size="sm" variant="ghost" onClick={() => openEdit(product)} className="rounded-none text-xs">Editar</Button></div>
             </div>
           ))}
+          {!visible.length && <div className="px-4 py-8 text-sm text-neutral-500">Sem produtos para os critérios atuais.</div>}
+          <Pagination page={page} pages={pages} total={rows.length} pageSize={filters.pageSize} onPageChange={setPage} />
         </div>
       </div>
       <Dialog open={open} onOpenChange={setOpen}>

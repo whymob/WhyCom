@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, Query
 
 from deps import db, get_current_user
-from helpers import month_key
+from helpers import invoice_line_vab, month_key
 
 router = APIRouter()
 
@@ -297,6 +297,23 @@ async def _kpis_summary(year: int | None = None):
     orders = [item for item in await _active_orders() if year is None or record_year(item, ("order_date", "created_at")) == year]
     props = _active_proposals(props, await _excluded_order_ids())
     won = [p for p in props if p["status"] == "ganha"]
+    orders_by_id = {order["id"]: order for order in orders}
+    active_order_ids = list(orders_by_id)
+    invoices = await db.invoices.find(
+        {"status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
+        {"_id": 0},
+    ).to_list(5000)
+    if year is not None:
+        invoices = [invoice for invoice in invoices if record_year(invoice, ("issued_at", "created_at")) == year]
+
+    def invoice_total(invoice: dict) -> float:
+        lines = invoice.get("lines", [])
+        return sum(float(line.get("amount") or 0) for line in lines) if lines else float(invoice.get("total_net") or 0)
+
+    def invoice_vab(invoice: dict) -> float:
+        order = orders_by_id.get(invoice.get("order_id"), {})
+        return sum(invoice_line_vab(line, order) for line in invoice.get("lines", []))
+
     return {
         "leads": len(leads),
         "opps": len(opps),
@@ -306,6 +323,8 @@ async def _kpis_summary(year: int | None = None):
         "won_vab": round(sum(p.get("total_vab", 0) for p in won), 2),
         "orders_value": round(sum(o.get("total_net", 0) for o in orders), 2),
         "fulfilled": len([o for o in orders if o["status"] == "fulfilled"]),
+        "billed_value": round(sum(invoice_total(invoice) for invoice in invoices), 2),
+        "billed_vab": round(sum(invoice_vab(invoice) for invoice in invoices), 2),
     }
 
 

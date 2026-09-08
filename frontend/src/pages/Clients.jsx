@@ -1,77 +1,30 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
+import { toast } from "sonner";
 import { api, formatApiErrorDetail } from "@/lib/api";
+import { useListFilters } from "@/lib/listPreferences";
 import PageHeader from "@/components/PageHeader";
+import ListFilterSettings from "@/components/ListFilterSettings";
+import Pagination from "@/components/Pagination";
+import StatusMultiSelect from "@/components/StatusMultiSelect";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
-import { toast } from "sonner";
-import { Plus } from "lucide-react";
+
+const STATES = [{ value: "active", label: "Ativos" }, { value: "inactive", label: "Inativos" }];
+function SortButton({ label, sortKey, sort, onClick }) { const active = sort.key === sortKey; const Icon = !active ? ArrowUpDown : sort.direction === "asc" ? ArrowUp : ArrowDown; return <button type="button" onClick={() => onClick(sortKey)} className="flex w-full items-center gap-1"><span>{label}</span><Icon size={12} /></button>; }
 
 export default function Clients() {
-  const [items, setItems] = useState([]);
-  const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({});
-
+  const [items, setItems] = useState([]); const [open, setOpen] = useState(false); const [editing, setEditing] = useState(null); const [form, setForm] = useState({}); const [page, setPage] = useState(1); const [sort, setSort] = useState({ key: "name", direction: "asc" });
+  const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("clients", { search: "", statuses: [], pageSize: 30 });
   const load = async () => setItems((await api.get("/clients")).data);
-  useEffect(() => { load(); }, []);
-
+  useEffect(() => { load(); }, []); useEffect(() => setPage(1), [filters.search, filters.statuses, filters.pageSize, sort]);
+  const rows = useMemo(() => { const term = filters.search.trim().toLowerCase(); const matched = items.filter((item) => (!term || [item.name, item.nif, item.contact_person, item.contact_email, item.contact_phone, item.segment].some((value) => String(value || "").toLowerCase().includes(term))) && (!filters.statuses.length || filters.statuses.includes(item.active ? "active" : "inactive"))); return [...matched].sort((a, b) => { const result = String(a[sort.key] || "").localeCompare(String(b[sort.key] || ""), "pt"); return sort.direction === "asc" ? result : -result; }); }, [filters.search, filters.statuses, items, sort]);
+  const pages = Math.max(1, Math.ceil(rows.length / filters.pageSize)); const visible = rows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
+  const toggleSort = (key) => setSort((current) => current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: "asc" });
   const openCreate = () => { setEditing(null); setForm({ name: "", nif: "", address: "", contact_email: "", contact_phone: "", contact_person: "", segment: "PME", active: true }); setOpen(true); };
-  const openEdit = (c) => { setEditing(c); setForm(c); setOpen(true); };
-
-  const submit = async () => {
-    try {
-      if (editing) await api.patch(`/clients/${editing.id}`, form);
-      else await api.post("/clients", form);
-      toast.success("Guardado");
-      setOpen(false); load();
-    } catch (e) { toast.error(formatApiErrorDetail(e.response?.data?.detail)); }
-  };
-
-  return (
-    <div>
-      <PageHeader
-        kicker="Master Data" title="Clientes"
-        actions={<Button onClick={openCreate} data-testid="new-client-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo cliente</Button>}
-      />
-      <div className="p-8">
-        <div className="wc-list-panel">
-          <div className="wc-table-head grid grid-cols-12 text-[10px] uppercase tracking-widest border-b border-[var(--wc-border)] px-4 py-2">
-            <div className="col-span-3">Nome</div><div className="col-span-2">NIF</div><div className="col-span-3">Contacto</div><div className="col-span-2">Segmento</div><div className="col-span-2 text-right">Ações</div>
-          </div>
-          {items.map((c) => (
-            <div key={c.id} className="wc-table-row grid grid-cols-12 items-center px-4 py-3 border-b text-sm">
-              <div className="col-span-3 font-medium">{c.name}</div>
-              <div className="col-span-2 font-mono text-xs">{c.nif}</div>
-              <div className="col-span-3 text-neutral-700 text-xs">{c.contact_person} · {c.contact_email}</div>
-              <div className="col-span-2 text-xs">{c.segment}</div>
-              <div className="col-span-2 text-right">
-                <Button size="sm" variant="ghost" onClick={() => openEdit(c)} className="rounded-none text-xs" data-testid={`edit-client-${c.id}`}>Editar</Button>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-lg rounded-none">
-          <DialogHeader><DialogTitle className="font-display">{editing ? "Editar cliente" : "Novo cliente"}</DialogTitle></DialogHeader>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="col-span-2"><Label>Nome</Label><Input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-none" data-testid="client-name-input" /></div>
-            <div><Label>NIF</Label><Input value={form.nif || ""} onChange={(e) => setForm({ ...form, nif: e.target.value })} className="rounded-none font-mono" data-testid="client-nif-input" /></div>
-            <div><Label>Segmento</Label><Input value={form.segment || ""} onChange={(e) => setForm({ ...form, segment: e.target.value })} className="rounded-none" /></div>
-            <div className="col-span-2"><Label>Morada</Label><Input value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} className="rounded-none" /></div>
-            <div><Label>Pessoa de contacto</Label><Input value={form.contact_person || ""} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className="rounded-none" /></div>
-            <div><Label>Email</Label><Input value={form.contact_email || ""} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} className="rounded-none" /></div>
-            <div className="col-span-2"><Label>Telefone</Label><Input value={form.contact_phone || ""} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} className="rounded-none font-mono" /></div>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setOpen(false)} className="rounded-none">Cancelar</Button>
-            <Button onClick={submit} data-testid="client-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
-  );
+  const submit = async () => { try { if (editing) await api.patch(`/clients/${editing.id}`, form); else await api.post("/clients", form); toast.success("Guardado"); setOpen(false); load(); } catch (error) { toast.error(formatApiErrorDetail(error.response?.data?.detail)); } };
+  const filterBar = <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3"><div className="min-w-[260px] flex-1"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Pesquisar</Label><Input value={filters.search} onChange={(event) => setFilters((current) => ({ ...current, search: event.target.value }))} placeholder="Nome, NIF ou contacto" className="mt-1 rounded-none" /></div><div className="w-[220px]"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Estado</Label><div className="mt-1"><StatusMultiSelect options={STATES} value={filters.statuses} onChange={(statuses) => setFilters((current) => ({ ...current, statuses }))} testId="client-status-filter" /></div></div><button type="button" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="h-9 px-2 text-xs font-medium text-slate-600 hover:text-[var(--wc-cyan-700)]">Limpar filtros</button></div>;
+  return <div><PageHeader kicker="Master Data" title="Clientes" actions={<div className="flex items-center gap-2"><ListFilterSettings filters={filters} statusOptions={STATES} filterLabel="Estado predefinido" onSave={saveFilters} onClear={clearSavedFilters} /><Button onClick={openCreate} data-testid="new-client-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white"><Plus size={16} className="mr-1" /> Novo cliente</Button></div>} /><div className="p-8"><div className="wc-list-panel overflow-hidden">{filterBar}<div className="overflow-x-auto"><div className="min-w-[900px]"><div className="wc-table-head grid grid-cols-12 border-b border-[var(--wc-border)] px-4 py-2 text-[10px] uppercase tracking-widest"><div className="col-span-3"><SortButton label="Nome" sortKey="name" sort={sort} onClick={toggleSort} /></div><div className="col-span-2"><SortButton label="NIF" sortKey="nif" sort={sort} onClick={toggleSort} /></div><div className="col-span-3"><SortButton label="Contacto" sortKey="contact_email" sort={sort} onClick={toggleSort} /></div><div className="col-span-2"><SortButton label="Segmento" sortKey="segment" sort={sort} onClick={toggleSort} /></div><div className="col-span-2 text-right">Ações</div></div>{visible.map((client) => <div key={client.id} className="wc-table-row grid grid-cols-12 items-center border-b px-4 py-3 text-sm"><div className="col-span-3 font-medium">{client.name}</div><div className="col-span-2 font-mono text-xs">{client.nif}</div><div className="col-span-3 text-xs text-neutral-700">{client.contact_person} · {client.contact_email}</div><div className="col-span-2 text-xs">{client.segment}</div><div className="col-span-2 text-right"><Button size="sm" variant="ghost" onClick={() => { setEditing(client); setForm(client); setOpen(true); }} className="rounded-none text-xs" data-testid={`edit-client-${client.id}`}>Editar</Button></div></div>)}{!visible.length && <div className="px-4 py-8 text-sm text-neutral-500">Sem clientes para os critérios atuais.</div>}</div></div><Pagination page={page} pages={pages} total={rows.length} pageSize={filters.pageSize} onPageChange={setPage} /></div></div><Dialog open={open} onOpenChange={setOpen}><DialogContent className="max-w-lg rounded-none"><DialogHeader><DialogTitle className="font-display">{editing ? "Editar cliente" : "Novo cliente"}</DialogTitle></DialogHeader><div className="grid grid-cols-2 gap-4"><div className="col-span-2"><Label>Nome</Label><Input value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-none" data-testid="client-name-input" /></div><div><Label>NIF</Label><Input value={form.nif || ""} onChange={(e) => setForm({ ...form, nif: e.target.value })} className="rounded-none font-mono" data-testid="client-nif-input" /></div><div><Label>Segmento</Label><Input value={form.segment || ""} onChange={(e) => setForm({ ...form, segment: e.target.value })} className="rounded-none" /></div><div className="col-span-2"><Label>Morada</Label><Input value={form.address || ""} onChange={(e) => setForm({ ...form, address: e.target.value })} className="rounded-none" /></div><div><Label>Pessoa de contacto</Label><Input value={form.contact_person || ""} onChange={(e) => setForm({ ...form, contact_person: e.target.value })} className="rounded-none" /></div><div><Label>Email</Label><Input value={form.contact_email || ""} onChange={(e) => setForm({ ...form, contact_email: e.target.value })} className="rounded-none" /></div><div className="col-span-2"><Label>Telefone</Label><Input value={form.contact_phone || ""} onChange={(e) => setForm({ ...form, contact_phone: e.target.value })} className="rounded-none font-mono" /></div></div><DialogFooter><Button variant="ghost" onClick={() => setOpen(false)} className="rounded-none">Cancelar</Button><Button onClick={submit} data-testid="client-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar</Button></DialogFooter></DialogContent></Dialog></div>;
 }

@@ -262,6 +262,9 @@ async def reschedule_plan_balance(oid: str, payload: dict, user: dict = Depends(
 
 @router.get("/orders/{oid}/reconcile")
 async def reconcile(oid: str, user: dict = Depends(get_current_user)):
+    # Repara estados históricos calculados antes das regras atuais de
+    # faturação/recebimento e mantém a reconciliação como fonte de verdade.
+    await recalc_order_status(oid)
     order = await get_order_or_404(oid)
     plan = await db.plan_lines.find({"order_id": oid, "status": {"$ne": "cancelada"}}, {"_id": 0}).to_list(1000)
     invoices = await db.invoices.find({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0}).to_list(1000)
@@ -315,12 +318,25 @@ async def list_invoices(order_id: Optional[str] = None, user: dict = Depends(get
         invoice["planned_value"] = planned_value
         invoice["planned_vab"] = round(order_vab * planned_value / order_net, 2) if order_net else 0.0
         invoice["billed_vab"] = round(sum(float(line.get("vab_amount") or 0) for line in invoice.get("lines", [])), 2)
-        invoice["display_number"] = invoice.get("external_invoice_number") or invoice.get("number") or "-"
+        invoice["display_number"] = invoice.get("external_invoice_number") or ""
         received_amount = round(received_by_invoice.get(invoice["id"], 0), 2)
         invoice["received_amount"] = received_amount
         if invoice.get("status") != "anulada":
             gross = float(invoice.get("total_gross", invoice.get("total_net", 0)) or 0)
             invoice["status"] = "recebida" if abs(received_amount - gross) <= TOLERANCE else ("parcialmente_recebida" if received_amount > TOLERANCE else "emitida")
+        gross = float(invoice.get("total_gross", invoice.get("total_net", 0)) or 0)
+        outstanding = max(0, gross - received_amount)
+        if invoice.get("status") == "anulada":
+            invoice["collection_status"] = "anulada"
+        elif outstanding <= TOLERANCE:
+            invoice["collection_status"] = "recebida"
+        else:
+            try:
+                issued_on = datetime.fromisoformat(str(invoice.get("issued_at") or "").replace("Z", "+00:00")).date()
+                is_overdue = (datetime.now().date() - issued_on).days > 30
+            except (TypeError, ValueError):
+                is_overdue = False
+            invoice["collection_status"] = "em_atraso" if is_overdue else "por_receber"
     return invoices
 
 

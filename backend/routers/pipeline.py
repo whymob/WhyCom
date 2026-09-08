@@ -165,7 +165,8 @@ async def convert_lead(lid: str, user: dict = Depends(get_current_user)):
         "created_at": now_iso(), "updated_at": now_iso(),
     }
     await db.opportunities.insert_one(opp)
-    await db.leads.update_one({"id": lid}, {"$set": {"status": "convertida", "converted_opportunity_id": opp["id"], "updated_at": now_iso()}})
+    converted_at = now_iso()
+    await db.leads.update_one({"id": lid}, {"$set": {"status": "convertida", "converted_opportunity_id": opp["id"], "converted_at": converted_at, "updated_at": converted_at}})
     opp.pop("_id", None)
     return opp
 
@@ -261,7 +262,8 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
         "created_at": now_iso(), "updated_at": now_iso(),
     }
     await db.proposals.insert_one(proposal)
-    await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "updated_at": now_iso()}})
+    converted_at = now_iso()
+    await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "converted_at": converted_at, "updated_at": converted_at}})
     proposal.pop("_id", None)
     return proposal
 
@@ -474,7 +476,8 @@ async def convert_proposal(pid: str, user: dict = Depends(get_current_user)):
         "status": "aberta", "cancel_reason": "", "status_change_reason": "", "created_at": now_iso(),
     }
     await db.orders.insert_one(order)
-    await db.proposals.update_one({"id": pid}, {"$set": {"converted_order_id": order["id"], "updated_at": now_iso()}})
+    converted_at = now_iso()
+    await db.proposals.update_one({"id": pid}, {"$set": {"converted_order_id": order["id"], "converted_at": converted_at, "updated_at": converted_at}})
     order.pop("_id", None)
     return order
 
@@ -529,7 +532,8 @@ async def create_new_proposal_from_opportunity(oid: str, payload: NewProposalFro
     if previous:
         await db.proposals.update_one({"id": previous["id"]}, {"$set": {"status": "substituida", "replacement_reason": payload.replacement_reason.strip(), "replacement_proposal_id": proposal["id"], "updated_at": now_iso()}})
         await audit_log("status_change", "proposal", previous["id"], {"status": previous.get("status")}, {"status": "substituida", "replacement_reason": payload.replacement_reason.strip(), "replacement_proposal_id": proposal["id"]}, user, "SubstituÃ­da por nova proposta")
-    await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "updated_at": now_iso()}})
+    converted_at = now_iso()
+    await db.opportunities.update_one({"id": oid}, {"$set": {"status": "convertida", "converted_proposal_id": proposal["id"], "converted_at": converted_at, "updated_at": converted_at}})
     await audit_log("create", "proposal", proposal["id"], {}, {"number": prop_number, "opportunity_id": oid, "previous_proposal_id": previous_id}, user, "Nova proposta criada a partir da oportunidade")
     proposal.pop("_id", None)
     return proposal
@@ -1038,3 +1042,119 @@ async def funnel(
             prev = stages[i - 1]["count"]
             s["conversion_pct"] = round((s["count"] / prev) * 100, 1) if prev else 0.0
     return {"stages": stages, "available_years": available_years}
+
+
+@router.get("/dashboard/funnel-v2")
+async def funnel_v2(
+    manufacturer_id: Optional[str] = Query(None),
+    year: Optional[int] = Query(None, ge=2000, le=2100),
+    user: dict = Depends(get_current_user),
+):
+    """Conversion cohorts, period activity, and the current commercial pipeline."""
+    leads, opportunities, proposals, orders = await asyncio.gather(
+        db.leads.find({}, {"_id": 0}).to_list(5000),
+        db.opportunities.find({}, {"_id": 0}).to_list(5000),
+        db.proposals.find({}, {"_id": 0}).to_list(5000),
+        db.orders.find({}, {"_id": 0}).to_list(5000),
+    )
+    products = {p["id"]: p for p in await db.products.find({}, {"_id": 0}).to_list(5000)} if manufacturer_id else {}
+    clients = {item["id"]: item.get("name", "") for item in await db.clients.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(5000)}
+
+    def matches_manufacturer(item: dict) -> bool:
+        if not manufacturer_id:
+            return True
+        if item.get("manufacturer_id") == manufacturer_id:
+            return True
+        return any(products.get(product_id, {}).get("manufacturer_id") == manufacturer_id for product_id in item.get("product_ids", []) or [])
+
+    def proposal_matches(item: dict) -> bool:
+        if not manufacturer_id:
+            return True
+        return any(products.get(line.get("product_id"), {}).get("manufacturer_id") == manufacturer_id for line in item.get("lines", []) or [])
+
+    def stage_items(kind: str, records: list[dict]) -> list[dict]:
+        result = []
+        for item in records:
+            if kind == "lead":
+                result.append({"id": item.get("id"), "title": item.get("id", "-"), "client": clients.get(item.get("client_id")) or item.get("client_name_raw") or "-", "description": item.get("description", ""), "value": item.get("estimated_value", 0), "vab": 0, "status": item.get("status"), "date": item.get("created_at")})
+            elif kind == "opportunity":
+                result.append({"id": item.get("id"), "title": f"OPP-{str(item.get('id') or '')[:8].upper()}", "client": clients.get(item.get("client_id"), "-"), "description": item.get("description", ""), "value": item.get("estimated_value", 0), "vab": item.get("estimated_vab", 0), "status": item.get("status"), "date": item.get("created_at")})
+            elif kind == "proposal":
+                result.append({"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": item.get("description", ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("created_at"), "follow_up_date": item.get("next_follow_up_date")})
+            else:
+                result.append({"id": item.get("id"), "title": item.get("number", "-"), "client": clients.get(item.get("client_id"), "-"), "description": item.get("description", ""), "value": item.get("total_net", 0), "vab": item.get("total_vab", 0), "status": item.get("status"), "date": item.get("order_date") or item.get("created_at")})
+        return result
+
+    def make_stages(groups: list[tuple[str, str, str, list[dict]]], conversion: bool = True) -> list[dict]:
+        stages = []
+        for key, label, kind, records in groups:
+            stages.append({
+                "key": key, "label": label, "count": len(records),
+                "value": round(sum(float(record.get("estimated_value", record.get("total_net", 0)) or 0) for record in records), 2),
+                "vab": round(sum(float(record.get("estimated_vab", record.get("total_vab", 0)) or 0) for record in records), 2),
+                "items": stage_items(kind, records),
+            })
+        for index, stage in enumerate(stages):
+            previous = stages[index - 1]["count"] if index else None
+            stage["conversion_pct"] = 100.0 if index == 0 and conversion else (round(stage["count"] / previous * 100, 1) if conversion and previous else None)
+        return stages
+
+    available_years = sorted({
+        result_year
+        for records, fields in ((leads, ("created_at",)), (opportunities, ("created_at",)), (proposals, ("created_at",)), (orders, ("order_date", "created_at")))
+        for item in records for result_year in [record_year(item, fields)] if result_year is not None
+    })
+
+    opportunities_by_lead: dict[str, list[dict]] = {}
+    for opportunity in opportunities:
+        if opportunity.get("lead_id"):
+            opportunities_by_lead.setdefault(opportunity["lead_id"], []).append(opportunity)
+    proposals_by_opportunity: dict[str, list[dict]] = {}
+    for proposal in proposals:
+        if proposal.get("opportunity_id"):
+            proposals_by_opportunity.setdefault(proposal["opportunity_id"], []).append(proposal)
+    orders_by_proposal: dict[str, list[dict]] = {}
+    for order in orders:
+        if order.get("proposal_id"):
+            orders_by_proposal.setdefault(order["proposal_id"], []).append(order)
+
+    cohort_leads = [item for item in leads if matches_manufacturer(item) and (year is None or record_year(item, ("created_at",)) == year)]
+    cohort_opportunities = [opportunity for lead in cohort_leads for opportunity in opportunities_by_lead.get(lead.get("id"), [])]
+    cohort_proposals = [proposal for opportunity in cohort_opportunities for proposal in proposals_by_opportunity.get(opportunity.get("id"), [])]
+    cohort_orders = [order for proposal in cohort_proposals for order in orders_by_proposal.get(proposal.get("id"), [])]
+    cohort = make_stages([
+        ("leads", "Leads de origem", "lead", cohort_leads),
+        ("opportunities", "Convertidos em oportunidades", "opportunity", cohort_opportunities),
+        ("proposals", "Convertidos em propostas", "proposal", cohort_proposals),
+        ("orders", "Convertidos em encomendas", "order", cohort_orders),
+    ])
+
+    def moved_in_year(item: dict, fields: tuple[str, ...]) -> bool:
+        return year is None or record_year(item, fields) == year
+
+    activity_leads = [item for item in leads if matches_manufacturer(item) and moved_in_year(item, ("created_at",))]
+    activity_opportunities = [item for item in opportunities if matches_manufacturer(item) and item.get("lead_id") and moved_in_year(item, ("created_at",))]
+    activity_proposals = [item for item in proposals if proposal_matches(item) and item.get("opportunity_id") and moved_in_year(item, ("created_at",))]
+    matching_proposal_ids = {item.get("id") for item in proposals if proposal_matches(item)}
+    activity_orders = [item for item in orders if item.get("proposal_id") in matching_proposal_ids and moved_in_year(item, ("order_date", "created_at"))]
+    activity = make_stages([
+        ("leads", "Leads criados", "lead", activity_leads),
+        ("opportunities", "Oportunidades criadas", "opportunity", activity_opportunities),
+        ("proposals", "Propostas criadas", "proposal", activity_proposals),
+        ("orders", "Encomendas criadas", "order", activity_orders),
+    ], conversion=False)
+
+    pipeline_opportunities = [item for item in opportunities if matches_manufacturer(item) and item.get("status") in {"aberta", "em_analise"}]
+    pipeline_proposals = [item for item in proposals if proposal_matches(item) and item.get("status") in {"em_elaboracao", "enviada", "em_negociacao"}]
+    pipeline_orders = [item for item in orders if item.get("proposal_id") in matching_proposal_ids and item.get("status") in {"aberta", "em_planeamento"}]
+    pipeline = make_stages([
+        ("opportunities", "Oportunidades ativas", "opportunity", pipeline_opportunities),
+        ("proposals", "Propostas ativas", "proposal", pipeline_proposals),
+        ("orders", "Encomendas em curso", "order", pipeline_orders),
+    ], conversion=False)
+    for stage, records in zip(pipeline, (pipeline_opportunities, pipeline_proposals, pipeline_orders)):
+        if stage["key"] == "opportunities":
+            stage["weighted_value"] = round(sum(float(item.get("estimated_value") or 0) * max(0, min(100, float(item.get("probability") or 0))) / 100 for item in records), 2)
+            stage["weighted_vab"] = round(sum(float(item.get("estimated_vab") or 0) * max(0, min(100, float(item.get("probability") or 0))) / 100 for item in records), 2)
+
+    return {"stages": cohort, "cohort": {"stages": cohort}, "activity": {"stages": activity}, "pipeline": {"stages": pipeline}, "available_years": available_years}

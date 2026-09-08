@@ -21,6 +21,7 @@ export default function Funnel() {
   const [availableYears, setAvailableYears] = useState([]);
   const [manufacturerId, setManufacturerId] = useState(searchParams.get("manufacturer_id") || "__all__");
   const [funnelYear, setFunnelYear] = useState(searchParams.get("year") || "__all__");
+  const [funnelView, setFunnelView] = useState("cohort");
   const [selectedStageKey, setSelectedStageKey] = useState(null);
 
   useEffect(() => {
@@ -31,7 +32,7 @@ export default function Funnel() {
     const params = {};
     if (manufacturerId && manufacturerId !== "__all__") params.manufacturer_id = manufacturerId;
     if (funnelYear && funnelYear !== "__all__") params.year = funnelYear;
-    api.get("/dashboard/funnel", { params }).then((response) => {
+    api.get("/dashboard/funnel-v2", { params }).then((response) => {
       setData(response.data);
       setAvailableYears(response.data.available_years || []);
     });
@@ -47,9 +48,9 @@ export default function Funnel() {
 
   useEffect(() => {
     setSelectedStageKey(null);
-  }, [manufacturerId, funnelYear]);
+  }, [funnelView, manufacturerId, funnelYear]);
 
-  const stages = data?.stages || [];
+  const stages = data?.[funnelView]?.stages || data?.stages || [];
   const maxCount = Math.max(1, ...stages.map((stage) => stage.count));
   const selectedStage = stages.find((stage) => stage.key === selectedStageKey);
   const toggleStage = (stageKey) => setSelectedStageKey((current) => current === stageKey ? null : stageKey);
@@ -59,6 +60,11 @@ export default function Funnel() {
   ])).sort((a, b) => a - b);
   const activeYear = funnelYear === "__all__" ? "Todos os anos" : funnelYear;
   const activeName = manufacturerId === "__all__" ? "Todos os fabricantes" : (manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—");
+  const viewMeta = {
+    cohort: { label: "Por origem", title: "Funil de conversão por origem", description: "Acompanha os leads criados no período selecionado, mesmo que avancem de fase noutro período.", metric: "Conversão" },
+    activity: { label: "Por movimentação", title: "Movimentação comercial", description: "Mostra os registos criados em cada fase durante o período selecionado; é uma leitura de atividade, não uma taxa de conversão.", metric: "Atividade" },
+    pipeline: { label: "Pipeline atual", title: "Pipeline comercial atual", description: "Mostra apenas a carteira ativa neste momento. O valor ponderado aplica-se às oportunidades conforme a probabilidade.", metric: "Ponderado" },
+  }[funnelView];
 
   const recordHref = (stageKey, item) => {
     if (stageKey === "proposals") return `/propostas/${item.id}`;
@@ -104,11 +110,30 @@ export default function Funnel() {
               triggerClassName="h-10"
             />
           </div>
+          <div className="flex rounded-lg border border-[var(--wc-border)] bg-slate-50 p-1" role="tablist" aria-label="Perspetiva do funil">
+            {["cohort", "activity", "pipeline"].map((view) => (
+              <button
+                key={view}
+                type="button"
+                onClick={() => setFunnelView(view)}
+                className={`rounded-md px-3 py-2 text-xs font-medium transition-colors ${funnelView === view ? "bg-[#14E0E0] text-slate-900 shadow-sm" : "text-slate-600 hover:bg-white"}`}
+                data-testid={`funnel-view-${view}`}
+              >{({ cohort: "Por origem", activity: "Por movimentação", pipeline: "Pipeline atual" })[view]}</button>
+            ))}
+          </div>
           <div className="ml-auto text-xs text-neutral-500 font-mono" data-testid="funnel-active-filter">{activeYear} · {activeName}</div>
         </div>
 
         <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-7 shadow-sm">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500 mb-6">Lead → Oportunidade → Proposta → Encomenda</div>
+          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">{viewMeta.title}</div>
+          <div className="mb-6 mt-2 text-xs text-neutral-500">{viewMeta.description}</div>
+          <div className="mb-2 flex items-center gap-4 px-1 text-[10px] uppercase tracking-widest text-neutral-500">
+            <div className="w-32">Fase</div>
+            <div className="flex-1">Registos</div>
+            <div className="w-32 text-right">Valor</div>
+            <div className="w-32 text-right">VAB</div>
+            <div className="w-32 text-right">{viewMeta.metric}</div>
+          </div>
           <div className="space-y-3">
             {stages.map((stage) => {
               const width = Math.max(8, (stage.count / maxCount) * 100);
@@ -122,7 +147,12 @@ export default function Funnel() {
                       </div>
                     </div>
                     <div className="w-32 text-right font-mono text-sm">{eur(stage.value)}</div>
-                    <div className="w-20 text-right font-mono text-xs text-neutral-500">{pct(stage.conversion_pct)}</div>
+                    <div className="w-32 text-right font-mono text-sm">{eur(stage.vab)}</div>
+                    <div className="w-32 text-right font-mono text-xs text-neutral-500">
+                      {funnelView === "cohort" ? pct(stage.conversion_pct) : funnelView === "pipeline" && stage.weighted_value !== undefined ? (
+                        <><div>{eur(stage.weighted_value)}</div><div className="mt-0.5 text-[10px]">VAB {eur(stage.weighted_vab)}</div></>
+                      ) : "—"}
+                    </div>
                   </div>
                 </div>
               );
@@ -154,25 +184,6 @@ export default function Funnel() {
               </div>
             ) : <div className="p-6 text-sm text-neutral-500">Não existem registos nesta fase para os filtros atuais.</div>
           ) : <div className="p-6 text-sm text-neutral-500">Clique no número ou na linha de uma fase para consultar os registos que compõem o total.</div>}
-        </div>
-
-        <div className="wc-list-panel" data-testid="funnel-summary">
-          <div className="grid grid-cols-5 text-[10px] uppercase tracking-widest text-neutral-500 border-b border-neutral-200 px-4 py-2">
-            <div>Fase</div>
-            <div className="text-right">Registos</div>
-            <div className="text-right">Valor</div>
-            <div className="text-right">VAB</div>
-            <div className="text-right">Conversao</div>
-          </div>
-          {stages.map((stage) => (
-            <div key={stage.key} onClick={() => toggleStage(stage.key)} className={`grid grid-cols-5 cursor-pointer px-4 py-3 border-b border-neutral-100 text-sm hover:bg-neutral-50 ${selectedStageKey === stage.key ? "bg-neutral-50" : ""}`} data-testid={`funnel-summary-${stage.key}`}>
-              <div className="font-medium">{stage.label}</div>
-              <div className="text-right font-mono">{stage.count}</div>
-              <div className="text-right font-mono">{eur(stage.value)}</div>
-              <div className="text-right font-mono">{eur(stage.vab)}</div>
-              <div className="text-right font-mono">{pct(stage.conversion_pct)}</div>
-            </div>
-          ))}
         </div>
       </div>
     </div>

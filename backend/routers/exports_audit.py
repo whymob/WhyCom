@@ -449,8 +449,15 @@ async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current
 
 @router.get("/exports/proposals-follow-up.csv")
 async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: str = Query("year", pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
-    """Exportação Excel/CSV da mesma listagem de fecho de propostas."""
-    proposals = await db.proposals.find({"next_follow_up_date": {"$exists": True, "$ne": None}}, {"_id": 0}).to_list(10000)
+    """Exportação da previsão de fecho: propostas ativas e oportunidades ponderadas."""
+    proposals = await db.proposals.find(
+        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "next_follow_up_date": {"$exists": True, "$ne": None}},
+        {"_id": 0},
+    ).to_list(10000)
+    open_opportunities = await db.opportunities.find(
+        {"status": {"$in": ["aberta", "em_analise"]}, "expected_close_date": {"$exists": True, "$ne": None}},
+        {"_id": 0},
+    ).to_list(10000)
     clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     opportunities = {o["id"]: o.get("description", "") for o in await db.opportunities.find({}, {"_id": 0}).to_list(10000)}
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -463,6 +470,7 @@ async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, 
         "em_elaboracao": "Em elaboração", "enviada": "Enviada", "em_negociacao": "Em negociação",
         "ganha": "Ganha", "perdida": "Perdida", "expirada": "Expirada", "substituida": "Substituída",
     }
+    opportunity_status_labels = {"aberta": "Aberta", "em_analise": "Em análise"}
     rows = []
     for proposal in proposals:
         follow_up = str(proposal.get("next_follow_up_date") or "")[:10]
@@ -475,12 +483,38 @@ async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, 
         horizon = "Próximos 30 dias" if follow_up_date <= min(thirty_days_end, year_end) else ("Trimestre atual" if follow_up_date <= quarter_end else "Até final do ano")
         rows.append({
             "horizonte": horizon,
-            "proposta": proposal.get("number", "-"),
+            "tipo": "Proposta",
+            "registo": proposal.get("number", "-"),
             "cliente": clients.get(proposal.get("client_id"), "-"),
             "descricao": proposal.get("description") or opportunities.get(proposal.get("opportunity_id"), "-"),
             "valor_sem_iva": proposal.get("total_net", 0),
             "vab": proposal.get("total_vab", 0),
+            "probabilidade": None,
             "estado": status_labels.get(proposal.get("status"), proposal.get("status", "-")),
+            "data_prevista_fecho": follow_up,
+            "_date": follow_up_date,
+        })
+    for opportunity in open_opportunities:
+        follow_up = str(opportunity.get("expected_close_date") or "")[:10]
+        try:
+            follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if follow_up_date < anchor or follow_up_date > year_end:
+            continue
+        probability = min(100, max(0, float(opportunity.get("probability") or 0)))
+        factor = probability / 100
+        horizon = "Próximos 30 dias" if follow_up_date <= min(thirty_days_end, year_end) else ("Trimestre atual" if follow_up_date <= quarter_end else "Até final do ano")
+        rows.append({
+            "horizonte": horizon,
+            "tipo": "Oportunidade",
+            "registo": f"OPP-{str(opportunity.get('id') or '-')[:8].upper()}",
+            "cliente": clients.get(opportunity.get("client_id"), "-"),
+            "descricao": opportunity.get("description", "-"),
+            "valor_sem_iva": float(opportunity.get("estimated_value") or 0) * factor,
+            "vab": float(opportunity.get("estimated_vab") or 0) * factor,
+            "probabilidade": probability,
+            "estado": opportunity_status_labels.get(opportunity.get("status"), opportunity.get("status", "-")),
             "data_prevista_fecho": follow_up,
             "_date": follow_up_date,
         })
@@ -491,8 +525,8 @@ async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, 
         row.pop("_date", None)
     return csv_response_pt(
         rows,
-        ["horizonte", "proposta", "cliente", "descricao", "valor_sem_iva", "vab", "estado", "data_prevista_fecho"],
-        f"propostas-fecho-{year}-{scope}.csv",
+        ["horizonte", "tipo", "registo", "cliente", "descricao", "valor_sem_iva", "vab", "probabilidade", "estado", "data_prevista_fecho"],
+        f"previsao-fecho-{year}-{scope}.csv",
         money_fields=("valor_sem_iva", "vab"),
         date_fields=("data_prevista_fecho",),
     )
@@ -514,8 +548,15 @@ async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, l
 
 @router.get("/exports/proposals-follow-up.pdf")
 async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: Optional[str] = Query(None, pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
-    """Exporta propostas com data prevista de fecho em tabelas por horizonte."""
-    proposals = await db.proposals.find({"next_follow_up_date": {"$exists": True, "$ne": None}}, {"_id": 0}).to_list(10000)
+    """Exporta a previsão de fecho em tabelas por horizonte."""
+    proposals = await db.proposals.find(
+        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "next_follow_up_date": {"$exists": True, "$ne": None}},
+        {"_id": 0},
+    ).to_list(10000)
+    open_opportunities = await db.opportunities.find(
+        {"status": {"$in": ["aberta", "em_analise"]}, "expected_close_date": {"$exists": True, "$ne": None}},
+        {"_id": 0},
+    ).to_list(10000)
     clients = {c["id"]: c.get("name", "") for c in await db.clients.find({}, {"_id": 0}).to_list(2000)}
     opportunities = {o["id"]: o.get("description", "") for o in await db.opportunities.find({}, {"_id": 0}).to_list(10000)}
     today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
@@ -526,8 +567,8 @@ async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, 
     year_end = datetime(year, 12, 31)
     status_labels = {
         "em_elaboracao": "Em elaboração", "enviada": "Enviada", "em_negociacao": "Em negociação",
-        "ganha": "Ganha", "perdida": "Perdida", "expirada": "Expirada",
     }
+    opportunity_status_labels = {"aberta": "Aberta", "em_analise": "Em análise"}
     rows = []
     for proposal in proposals:
         follow_up = str(proposal.get("next_follow_up_date") or "")[:10]
@@ -538,12 +579,35 @@ async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, 
         if follow_up_date < anchor or follow_up_date > year_end:
             continue
         rows.append({
+            "type": "Proposta",
             "number": proposal.get("number", "-"),
             "client": clients.get(proposal.get("client_id"), "-"),
             "description": opportunities.get(proposal.get("opportunity_id"), "-"),
             "value": proposal.get("total_net", 0),
             "vab": proposal.get("total_vab", 0),
             "status": status_labels.get(proposal.get("status"), proposal.get("status", "-")),
+            "follow_up": follow_up,
+            "date": follow_up_date,
+        })
+    for opportunity in open_opportunities:
+        follow_up = str(opportunity.get("expected_close_date") or "")[:10]
+        try:
+            follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d")
+        except ValueError:
+            continue
+        if follow_up_date < anchor or follow_up_date > year_end:
+            continue
+        probability = min(100, max(0, float(opportunity.get("probability") or 0)))
+        factor = probability / 100
+        rows.append({
+            "type": "Oportunidade",
+            "number": f"OPP-{str(opportunity.get('id') or '-')[:8].upper()}",
+            "client": clients.get(opportunity.get("client_id"), "-"),
+            "description": opportunity.get("description", "-"),
+            "value": float(opportunity.get("estimated_value") or 0) * factor,
+            "vab": float(opportunity.get("estimated_vab") or 0) * factor,
+            "probability": probability,
+            "status": opportunity_status_labels.get(opportunity.get("status"), opportunity.get("status", "-")),
             "follow_up": follow_up,
             "date": follow_up_date,
         })

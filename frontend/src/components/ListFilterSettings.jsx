@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import StatusMultiSelect from "@/components/StatusMultiSelect";
 
-export default function ListFilterSettings({ filters, statusOptions, onSave, onClear }) {
+export default function ListFilterSettings({ filters, statusOptions = [], filterLabel = "Estados predefinidos", onSave, onClear }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(filters);
 
@@ -46,10 +46,10 @@ export default function ListFilterSettings({ filters, statusOptions, onSave, onC
               <Label>Pesquisa predefinida</Label>
               <Input className="mt-1" value={draft.search || ""} onChange={(e) => setDraft((current) => ({ ...current, search: e.target.value }))} placeholder="Deixe vazio para listar todos" />
             </div>
-            <div>
-              <Label>Estados predefinidos</Label>
+            {statusOptions.length > 0 && <div>
+              <Label>{filterLabel}</Label>
               <div className="mt-1"><StatusMultiSelect options={statusOptions} value={draft.statuses || []} onChange={(statuses) => setDraft((current) => ({ ...current, statuses }))} /></div>
-            </div>
+            </div>}
             <div>
               <Label>Itens por página</Label>
               <select
