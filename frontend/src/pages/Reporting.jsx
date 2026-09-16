@@ -168,6 +168,8 @@ export default function Reporting() {
             ? "Trimestre atual"
             : "Até ao fim do ano";
         const client = clientMap[proposal.client_id]?.name || "-";
+        const probability = Math.min(100, Math.max(0, Number(proposal.probability ?? 100)));
+        const factor = probability / 100;
         return {
           id: proposal.id,
           type: "Proposta",
@@ -177,8 +179,9 @@ export default function Reporting() {
           number: proposal.number || "-",
           client,
           description: proposal.description || opportunityMap[proposal.opportunity_id]?.description || "-",
-          value: Number(proposal.total_net) || 0,
-          vab: Number(proposal.total_vab) || 0,
+          value: (Number(proposal.total_net) || 0) * factor,
+          vab: (Number(proposal.total_vab) || 0) * factor,
+          probability,
           status: PROP_STATUS[proposal.status] || proposal.status || "-",
           followUp,
         };
@@ -711,7 +714,7 @@ export default function Reporting() {
                       ))}
                     </div>
                   </div>
-                  <div className="mb-3 text-xs text-neutral-500">Inclui propostas ativas e oportunidades abertas/em análise; os valores das oportunidades são ponderados pela respetiva probabilidade.</div>
+                  <div className="mb-3 text-xs text-neutral-500">Inclui propostas ativas e oportunidades abertas/em análise; os valores e VAB são ponderados pela respetiva probabilidade.</div>
                   <Table
                     testid="proposal-follow-up-table"
                     rows={visibleProposalFollowUps}
@@ -728,7 +731,7 @@ export default function Reporting() {
                       { key: "description", label: "Descrição", w: "260px" },
                       { key: "value", label: "Valor", w: "130px", align: "right", render: (row) => eur(row.value) },
                       { key: "vab", label: "VAB", w: "130px", align: "right", render: (row) => eur(row.vab) },
-                      { key: "probability", label: "Prob.", w: "80px", align: "right", render: (row) => row.type === "Oportunidade" ? `${row.probability}%` : "-" },
+                      { key: "probability", label: "Prob.", w: "80px", align: "right", render: (row) => `${row.probability}%` },
                       { key: "status", label: "Estado", w: "140px" },
                       { key: "followUp", label: "Data prevista de fecho", w: "170px", mono: true, render: (row) => dateShort(row.followUp) },
                     ]}

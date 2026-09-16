@@ -9,8 +9,10 @@ New business rules:
 """
 import os
 import uuid
+from io import BytesIO
 import pytest
 import requests
+from openpyxl import load_workbook
 
 BASE_URL = os.environ.get("REACT_APP_BACKEND_URL").rstrip("/")
 API = f"{BASE_URL}/api"
@@ -350,6 +352,33 @@ class TestForecastInvoicing:
 # ==================== 8. Export /exports/invoices.csv — no vab column ====================
 
 class TestExportInvoicesCSV:
+    def test_leads_xlsx_export_respects_search_and_status_filters(self, http, A):
+        users = http.get(f"{API}/users", headers=A, timeout=10).json()
+        admin_id = next(user["id"] for user in users if user["email"] == "admin@whymob.pt")
+        marker = f"TEST_export_{uuid.uuid4().hex[:8]}"
+        matching = http.post(f"{API}/leads", headers=A, json={
+            "client_name_raw": marker, "description": "Lead a exportar", "owner_id": admin_id,
+            "estimated_value": 1250, "status": "nova",
+        }, timeout=15)
+        assert matching.status_code == 200, matching.text
+        excluded = http.post(f"{API}/leads", headers=A, json={
+            "client_name_raw": marker, "description": "Lead excluída", "owner_id": admin_id,
+            "estimated_value": 500, "status": "descartada",
+        }, timeout=15)
+        assert excluded.status_code == 200, excluded.text
+
+        response = http.get(
+            f"{API}/exports/leads.xlsx", headers=A,
+            params={"search": marker, "status": "nova", "sort_by": "client", "sort_dir": "asc"}, timeout=20,
+        )
+        assert response.status_code == 200, response.text
+        assert "spreadsheetml.sheet" in response.headers.get("Content-Type", "")
+        worksheet = load_workbook(BytesIO(response.content), data_only=True).active
+        rows = list(worksheet.iter_rows(min_row=2, values_only=True))
+        assert len(rows) == 1
+        assert rows[0][0] == marker
+        assert rows[0][3] == "Nova"
+
     def test_invoices_csv_no_vab_column(self, http, A):
         r = http.get(f"{API}/exports/invoices.csv", headers=A, timeout=20)
         assert r.status_code == 200, r.text
@@ -365,6 +394,28 @@ class TestExportInvoicesCSV:
 # ==================== 9. Regression — VAB tracking preserved up to Order ====================
 
 class TestVABPreservedUpToOrder:
+    def test_proposal_copies_opportunity_probability_and_close_date(self, http, A):
+        client = http.post(f"{API}/clients", headers=A, json={
+            "name": f"TEST_probability_{uuid.uuid4().hex[:6]}",
+            "nif": f"5{uuid.uuid4().hex[:8]}",
+        }, timeout=15).json()
+        users = http.get(f"{API}/users", headers=A, timeout=10).json()
+        admin_id = next(user["id"] for user in users if user["email"] == "admin@whymob.pt")
+        expected_close_date = "2026-12-15"
+        opportunity = http.post(f"{API}/opportunities", headers=A, json={
+            "client_id": client["id"], "description": "TEST proposal probability",
+            "owner_id": admin_id, "probability": 65,
+            "expected_close_date": expected_close_date, "status": "em_analise",
+        }, timeout=15)
+        assert opportunity.status_code == 200, opportunity.text
+
+        proposal = http.post(
+            f"{API}/opportunities/{opportunity.json()['id']}/convert", headers=A, timeout=15,
+        )
+        assert proposal.status_code == 200, proposal.text
+        assert proposal.json()["probability"] == 65
+        assert proposal.json()["next_follow_up_date"] == expected_close_date
+
     def test_opportunity_estimated_vab_preserved(self, http, A):
         opps = http.get(f"{API}/opportunities", headers=A, timeout=15).json()
         # Each opp should have estimated_vab field (may be 0)

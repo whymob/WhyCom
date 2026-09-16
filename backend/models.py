@@ -170,6 +170,9 @@ class Proposal(BaseModel):
     total_vat: float = 0.0
     total_gross: float = 0.0
     total_vab: float = 0.0
+    # Propostas criadas antes deste campo não têm probabilidade persistida.
+    # O default de 100 preserva o valor integral até o comercial o definir.
+    probability: int = Field(default=100, ge=0, le=100)
     created_at: str = Field(default_factory=now_iso)
     updated_at: str = Field(default_factory=now_iso)
 

@@ -1,7 +1,13 @@
 """Audit log + CSV/PDF Exports."""
+from io import BytesIO
+import re
 from datetime import datetime, timedelta
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import Response
+from openpyxl import Workbook
+from openpyxl.styles import Alignment, Font, PatternFill
+from openpyxl.utils import get_column_letter
 
 from deps import db, get_current_user
 from helpers import csv_response, csv_response_pt, invoice_line_vab
@@ -24,6 +30,77 @@ async def list_audit(entity: Optional[str] = None, entity_id: Optional[str] = No
         q["entity_id"] = entity_id
     docs = await db.audit_log.find(q, {"_id": 0}).sort("at", -1).to_list(min(limit, 500))
     return {"rows": docs}
+
+
+@router.get("/exports/leads.xlsx")
+async def export_leads_xlsx(
+    search: str = "",
+    status: str = "",
+    sort_by: str = "created_at",
+    sort_dir: str = "desc",
+    user: dict = Depends(get_current_user),
+):
+    """Exporta todas as leads correspondentes aos filtros da listagem."""
+    query = {}
+    if search.strip():
+        pattern = {"$regex": re.escape(search.strip()), "$options": "i"}
+        matching_clients = await db.clients.find({"name": pattern}, {"_id": 0, "id": 1}).to_list(5000)
+        query["$or"] = [
+            {field: pattern} for field in ("id", "description", "client_name_raw", "status")
+        ] + [{"client_id": {"$in": [client["id"] for client in matching_clients]}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+
+    leads = await db.leads.find(query, {"_id": 0}).to_list(10000)
+    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    status_labels = {
+        "nova": "Nova", "em_qualificacao": "Em qualificação",
+        "convertida": "Convertida", "descartada": "Descartada",
+    }
+
+    def sort_value(lead: dict):
+        if sort_by == "client":
+            return (clients.get(lead.get("client_id")) or lead.get("client_name_raw") or "").lower()
+        if sort_by == "value":
+            return float(lead.get("estimated_value") or 0)
+        if sort_by == "status":
+            return status_labels.get(lead.get("status"), lead.get("status", "")).lower()
+        return str(lead.get("created_at") or "")
+
+    leads.sort(key=sort_value, reverse=sort_dir != "asc")
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = "Leads"
+    worksheet.freeze_panes = "A2"
+    worksheet.append(["Cliente", "Descrição", "Valor estimado (EUR)", "Estado", "Criada em", "Atualizada em"])
+    for lead in leads:
+        worksheet.append([
+            clients.get(lead.get("client_id")) or lead.get("client_name_raw") or "-",
+            lead.get("description") or "",
+            float(lead.get("estimated_value") or 0),
+            status_labels.get(lead.get("status"), lead.get("status", "")),
+            str(lead.get("created_at") or "")[:19],
+            str(lead.get("updated_at") or "")[:19],
+        ])
+    header_fill = PatternFill("solid", fgColor="002FA7")
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for cell in worksheet["C"][1:]:
+        cell.number_format = '#,##0.00 [$€-pt-PT]'
+    for column, width in enumerate((34, 54, 22, 20, 22, 22), start=1):
+        worksheet.column_dimensions[get_column_letter(column)].width = width
+    worksheet.auto_filter.ref = worksheet.dimensions
+
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": 'attachment; filename="leads.xlsx"'},
+    )
 
 
 @router.get("/exports/invoices.csv")
@@ -481,15 +558,17 @@ async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, 
         if follow_up_date < anchor or follow_up_date > year_end:
             continue
         horizon = "Próximos 30 dias" if follow_up_date <= min(thirty_days_end, year_end) else ("Trimestre atual" if follow_up_date <= quarter_end else "Até final do ano")
+        probability = min(100, max(0, float(proposal.get("probability") if proposal.get("probability") is not None else 100)))
+        factor = probability / 100
         rows.append({
             "horizonte": horizon,
             "tipo": "Proposta",
             "registo": proposal.get("number", "-"),
             "cliente": clients.get(proposal.get("client_id"), "-"),
             "descricao": proposal.get("description") or opportunities.get(proposal.get("opportunity_id"), "-"),
-            "valor_sem_iva": proposal.get("total_net", 0),
-            "vab": proposal.get("total_vab", 0),
-            "probabilidade": None,
+            "valor_sem_iva": float(proposal.get("total_net") or 0) * factor,
+            "vab": float(proposal.get("total_vab") or 0) * factor,
+            "probabilidade": probability,
             "estado": status_labels.get(proposal.get("status"), proposal.get("status", "-")),
             "data_prevista_fecho": follow_up,
             "_date": follow_up_date,
@@ -578,13 +657,16 @@ async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, 
             continue
         if follow_up_date < anchor or follow_up_date > year_end:
             continue
+        probability = min(100, max(0, float(proposal.get("probability") if proposal.get("probability") is not None else 100)))
+        factor = probability / 100
         rows.append({
             "type": "Proposta",
             "number": proposal.get("number", "-"),
             "client": clients.get(proposal.get("client_id"), "-"),
             "description": opportunities.get(proposal.get("opportunity_id"), "-"),
-            "value": proposal.get("total_net", 0),
-            "vab": proposal.get("total_vab", 0),
+            "value": float(proposal.get("total_net") or 0) * factor,
+            "vab": float(proposal.get("total_vab") or 0) * factor,
+            "probability": probability,
             "status": status_labels.get(proposal.get("status"), proposal.get("status", "-")),
             "follow_up": follow_up,
             "date": follow_up_date,

@@ -24,6 +24,19 @@ PROPOSAL_TERMINAL_STATUSES = {"perdida", "expirada", "substituida"}
 ORDER_BOARD_STATUS_FLOW = ["aberta", "em_planeamento"]
 
 
+def _proposal_probability(value, default: int = 100) -> int:
+    """Normaliza a probabilidade persistida na proposta e protege o PATCH livre."""
+    if value is None or value == "":
+        return default
+    try:
+        probability = int(value)
+    except (TypeError, ValueError):
+        raise HTTPException(422, "A probabilidade deve ser um número inteiro entre 0 e 100")
+    if not 0 <= probability <= 100:
+        raise HTTPException(422, "A probabilidade deve estar entre 0 e 100")
+    return probability
+
+
 def _valid_proposal_attachment_signature(extension: str, header: bytes) -> bool:
     if extension == ".pdf":
         return header.startswith(b"%PDF-")
@@ -256,9 +269,10 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
         "description": opp.get("description", ""), "previous_proposal_id": None,
         "lines": [],
         "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opp.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": opp.get("next_follow_up_date"), "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opp.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": opp.get("expected_close_date"), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None,
         "total_net": 0.0, "total_vat": 0.0, "total_gross": 0.0, "total_vab": 0.0,
+        "probability": _proposal_probability(opp.get("probability"), default=50),
         "created_at": now_iso(), "updated_at": now_iso(),
     }
     await db.proposals.insert_one(proposal)
@@ -386,6 +400,10 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
         raise HTTPException(400, "Proposta convertida em encomenda: itens e estado não podem ser alterados")
 
     payload.pop("id", None)
+    if "probability" in payload:
+        if current.get("status") not in PROPOSAL_ACTIVE_STATUS_FLOW[:-1]:
+            raise HTTPException(400, "A probabilidade só pode ser alterada enquanto a proposta estiver ativa")
+        payload["probability"] = _proposal_probability(payload["probability"])
     target_status = payload.get("status")
     current_status = current.get("status")
     if target_status and target_status != current_status:
@@ -524,9 +542,9 @@ async def create_new_proposal_from_opportunity(oid: str, payload: NewProposalFro
         "opportunity_id": oid, "client_id": opportunity["client_id"],
         "description": opportunity.get("description", ""), "previous_proposal_id": previous_id, "replacement_reason": "",
         "lines": [], "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opportunity.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": None, "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opportunity.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": opportunity.get("expected_close_date"), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None, "total_net": 0.0, "total_vat": 0.0,
-        "total_gross": 0.0, "total_vab": 0.0, "created_at": now_iso(), "updated_at": now_iso(),
+        "total_gross": 0.0, "total_vab": 0.0, "probability": _proposal_probability(opportunity.get("probability"), default=50), "created_at": now_iso(), "updated_at": now_iso(),
     }
     await db.proposals.insert_one(proposal)
     if previous:

@@ -189,7 +189,7 @@ async def seed_workspace_demo():
             "valid_until": (now + timedelta(days=30)).date().isoformat(), "notes": "Dados de demonstração.",
             "next_follow_up_date": (now + timedelta(days=follow_in_days)).date().isoformat() if follow_in_days is not None else None,
             "owner_id": owner_id, "status": status, "lost_reason": "", "converted_order_id": converted_order_id,
-            "total_net": value, "total_vat": round(value * 0.23, 2), "total_gross": round(value * 1.23, 2), "total_vab": vab,
+            "total_net": value, "total_vat": round(value * 0.23, 2), "total_gross": round(value * 1.23, 2), "total_vab": vab, "probability": 100,
             "created_at": created_at, "updated_at": created_at, "workspace_demo": True,
         }
         await db.proposals.insert_one(proposal)

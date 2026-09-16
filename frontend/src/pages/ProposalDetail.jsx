@@ -100,6 +100,7 @@ export default function ProposalDetail() {
   const manufName = (manufacturerId) => manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—";
   const isSubstituted = proposal.status === "substituida";
   const isConverted = Boolean(proposal.converted_order_id) || isSubstituted;
+  const canEditProbability = ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status);
   const canEditAttachmentAfterConversion = process.env.REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER !== "false";
   const attachmentLocked = isSubstituted || (isConverted && !canEditAttachmentAfterConversion);
   const isAdmin = user?.role === "admin";
@@ -223,6 +224,7 @@ export default function ProposalDetail() {
         sent_at: proposal.sent_at || null,
         sent_to: proposal.sent_to || "",
         next_follow_up_date: proposal.next_follow_up_date || null,
+        ...(canEditProbability ? { probability: Number(proposal.probability ?? 100) } : {}),
       };
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
@@ -506,7 +508,8 @@ export default function ProposalDetail() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-4 gap-4">
+          <div className="border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Probabilidade (%)</Label><Input type="number" min="0" max="100" step="1" disabled={!canEditProbability} value={proposal.probability ?? 100} onChange={(e) => setProposal({ ...proposal, probability: e.target.value })} className="mt-2 rounded-none font-mono" data-testid="proposal-probability" />{!canEditProbability && <div className="mt-1 text-xs text-neutral-500">Bloqueada após o fecho da proposta.</div>}</div>
           <div className="border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Enviada em</Label><Input type="date" value={(proposal.sent_at || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, sent_at: e.target.value })} className="mt-2 rounded-none font-mono" /></div>
           <div className="col-span-2 border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Enviada para</Label><Input value={proposal.sent_to || ""} onChange={(e) => setProposal({ ...proposal, sent_to: e.target.value })} placeholder="Nome ou endereço de email do destinatário" className="mt-2 rounded-none" /></div>
         </div>

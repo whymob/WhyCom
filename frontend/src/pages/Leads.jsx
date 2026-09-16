@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Download, Plus } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -53,6 +53,7 @@ export default function Leads() {
   const [lostOpen, setLostOpen] = useState(null);
   const [lostReason, setLostReason] = useState("");
   const [convertOpen, setConvertOpen] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("leads", {
     search: searchParams.get("search") || "",
@@ -174,6 +175,27 @@ export default function Leads() {
     ));
   };
 
+  const exportLeads = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get("/exports/leads.xlsx", {
+        params: { search: filters.search, status: filters.statuses.join(","), sort_by: sort.key, sort_dir: sort.direction },
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "leads.xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Leads exportadas para Excel");
+    } catch (error) {
+      toast.error(formatApiErrorDetail(error.response?.data?.detail) || "Não foi possível exportar as leads.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const visibleLeads = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
 
@@ -222,7 +244,7 @@ export default function Leads() {
         kicker="Fase 1"
         title="Leads"
         actions={(
-          <><ListFilterSettings filters={filters} statusOptions={Object.entries(LEAD_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button data-testid="new-lead-btn" onClick={openCreate} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
+          <><ListFilterSettings filters={filters} statusOptions={Object.entries(LEAD_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button variant="outline" onClick={exportLeads} disabled={exporting} data-testid="export-leads-xlsx" className="rounded-none"><Download size={16} className="mr-1" /> {exporting ? "A exportar…" : "Exportar Excel"}</Button><Button data-testid="new-lead-btn" onClick={openCreate} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
             <Plus size={16} className="mr-1" /> Nova lead
           </Button></>
         )}
