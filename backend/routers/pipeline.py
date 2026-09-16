@@ -21,6 +21,7 @@ OPPORTUNITY_ATTACHMENT_DIR = os.environ.get("OPPORTUNITY_ATTACHMENT_DIR", PROPOS
 ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER = os.environ.get("ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER", "true").lower() in {"1", "true", "yes"}
 PROPOSAL_ACTIVE_STATUS_FLOW = ["em_elaboracao", "enviada", "em_negociacao", "ganha"]
 PROPOSAL_TERMINAL_STATUSES = {"perdida", "expirada", "substituida"}
+OPPORTUNITY_ACTIVE_STATUSES = {"aberta", "em_analise"}
 ORDER_BOARD_STATUS_FLOW = ["aberta", "em_planeamento"]
 
 
@@ -224,6 +225,14 @@ async def update_opp(oid: str, payload: dict, user: dict = Depends(get_current_u
     before = await db.opportunities.find_one({"id": oid}, {"_id": 0})
     if not before:
         raise HTTPException(404, "Oportunidade não encontrada")
+    if "probability" in payload:
+        probability = _proposal_probability(payload["probability"], default=50)
+        if probability != _proposal_probability(before.get("probability"), default=50):
+            if user.get("role") not in {"admin", "comercial"}:
+                raise HTTPException(403, "A alteração da probabilidade requer perfil admin ou comercial")
+            if before.get("status") not in OPPORTUNITY_ACTIVE_STATUSES:
+                raise HTTPException(400, "A probabilidade só pode ser alterada enquanto a oportunidade estiver ativa")
+        payload["probability"] = probability
     description_changed = "description" in payload and str(payload["description"]).strip() != str(before.get("description", "")).strip()
     if description_changed:
         if user.get("role") not in {"admin", "comercial"}:
@@ -401,9 +410,13 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
 
     payload.pop("id", None)
     if "probability" in payload:
-        if current.get("status") not in PROPOSAL_ACTIVE_STATUS_FLOW[:-1]:
-            raise HTTPException(400, "A probabilidade só pode ser alterada enquanto a proposta estiver ativa")
-        payload["probability"] = _proposal_probability(payload["probability"])
+        probability = _proposal_probability(payload["probability"])
+        if probability != _proposal_probability(current.get("probability")):
+            if user.get("role") not in {"admin", "comercial"}:
+                raise HTTPException(403, "A alteração da probabilidade requer perfil admin ou comercial")
+            if current.get("status") not in PROPOSAL_ACTIVE_STATUS_FLOW[:-1]:
+                raise HTTPException(400, "A probabilidade só pode ser alterada enquanto a proposta estiver ativa")
+        payload["probability"] = probability
     target_status = payload.get("status")
     current_status = current.get("status")
     if target_status and target_status != current_status:

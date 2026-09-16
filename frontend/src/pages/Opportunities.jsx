@@ -72,6 +72,8 @@ export default function Opportunities() {
   const [exporting, setExporting] = useState(false);
   const [newProposalOpen, setNewProposalOpen] = useState(false);
   const [replacementReason, setReplacementReason] = useState("");
+  const [probabilityDrafts, setProbabilityDrafts] = useState({});
+  const [savingProbabilityId, setSavingProbabilityId] = useState("");
   const [descriptionChangeReason, setDescriptionChangeReason] = useState("");
   const [descriptionEditOpen, setDescriptionEditOpen] = useState(false);
   const [descriptionEditValue, setDescriptionEditValue] = useState("");
@@ -86,6 +88,7 @@ export default function Opportunities() {
   const [sort, setSort] = useState({ key: "value", direction: "desc" });
   const handledOpenId = useRef("");
   const canEditDescription = ["admin", "comercial"].includes(user?.role);
+  const canEditProbability = (opportunity) => canEditDescription && ["aberta", "em_analise"].includes(opportunity.status);
 
   const load = async (page = pagination.page) => {
     const [opportunityResponse, clientResponse] = await Promise.all([
@@ -116,6 +119,40 @@ export default function Opportunities() {
     setOpps((current) => current.map((item) => item.id === updated.id ? updated : item));
     setViewing((current) => current?.id === updated.id ? updated : current);
     setEditing((current) => current?.id === updated.id ? updated : current);
+  };
+
+  const cancelProbabilityEdit = (opportunityId) => {
+    setProbabilityDrafts((current) => {
+      const next = { ...current };
+      delete next[opportunityId];
+      return next;
+    });
+  };
+
+  const saveProbability = async (opportunity) => {
+    const draft = probabilityDrafts[opportunity.id];
+    if (draft === undefined || savingProbabilityId === opportunity.id) return;
+    const probability = Number(draft);
+    if (draft === "" || !Number.isInteger(probability) || probability < 0 || probability > 100) {
+      toast.error("Indique uma probabilidade inteira entre 0 e 100");
+      cancelProbabilityEdit(opportunity.id);
+      return;
+    }
+    if (probability === Number(opportunity.probability)) {
+      cancelProbabilityEdit(opportunity.id);
+      return;
+    }
+    setSavingProbabilityId(opportunity.id);
+    try {
+      const { data } = await api.patch(`/opportunities/${opportunity.id}`, { probability });
+      syncOpportunity(data);
+      cancelProbabilityEdit(opportunity.id);
+      toast.success("Probabilidade da oportunidade atualizada");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setSavingProbabilityId("");
+    }
   };
 
   const openCreate = () => {
@@ -397,7 +434,34 @@ export default function Opportunities() {
                 {eur(opportunity.estimated_value)}
                 <div className="text-[10px] text-neutral-500">VAB {eur(opportunity.estimated_vab)}</div>
               </div>
-              <div className="col-span-1 text-right font-mono">{opportunity.probability}%</div>
+              <div className="col-span-1 text-right font-mono">
+                {canEditProbability(opportunity) ? (
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={probabilityDrafts[opportunity.id] ?? opportunity.probability}
+                    onFocus={() => setProbabilityDrafts((current) => ({ ...current, [opportunity.id]: String(opportunity.probability) }))}
+                    onChange={(e) => setProbabilityDrafts((current) => ({ ...current, [opportunity.id]: e.target.value }))}
+                    onBlur={(e) => {
+                      if (e.currentTarget.dataset.cancel === "true") {
+                        delete e.currentTarget.dataset.cancel;
+                        return;
+                      }
+                      saveProbability(opportunity);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") { e.currentTarget.dataset.cancel = "true"; cancelProbabilityEdit(opportunity.id); e.currentTarget.blur(); }
+                    }}
+                    disabled={savingProbabilityId === opportunity.id}
+                    aria-label={`Probabilidade da oportunidade ${opportunity.description}`}
+                    data-testid={`opp-probability-${opportunity.id}`}
+                    className="ml-auto h-8 w-16 rounded-none px-2 text-right font-mono text-sm"
+                  />
+                ) : `${opportunity.probability}%`}
+              </div>
               <div className="col-span-2 flex justify-center">
                 <Badge className={`${STATUS_STYLE[opportunity.status]} rounded-none font-normal`}>{OPP_STATUS[opportunity.status]}</Badge>
               </div>

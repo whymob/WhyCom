@@ -15,6 +15,7 @@ import StatusMultiSelect from "@/components/StatusMultiSelect";
 import ListFilterSettings from "@/components/ListFilterSettings";
 import { useListFilters } from "@/lib/listPreferences";
 import Pagination from "@/components/Pagination";
+import { useAuth } from "@/context/AuthContext";
 
 const STATUS_STYLE = {
   em_elaboracao: "bg-neutral-100 text-neutral-800",
@@ -40,6 +41,7 @@ function SortButton({ label, sortKey, sort, onClick, align = "left" }) {
 }
 
 export default function Proposals() {
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const [props, setProps] = useState([]);
   const [clients, setClients] = useState([]);
@@ -53,6 +55,9 @@ export default function Proposals() {
   });
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
+  const [probabilityDrafts, setProbabilityDrafts] = useState({});
+  const [savingProbabilityId, setSavingProbabilityId] = useState("");
+  const canEditProbability = (proposal) => ["admin", "comercial"].includes(user?.role) && ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status);
 
   const load = async (page = pagination.page) => {
     const [proposalResponse, clientResponse, opportunityResponse] = await Promise.all([
@@ -83,6 +88,40 @@ export default function Proposals() {
     (id) => opportunities.find((opportunity) => opportunity.id === id)?.description || "-",
     [opportunities],
   );
+
+  const cancelProbabilityEdit = (proposalId) => {
+    setProbabilityDrafts((current) => {
+      const next = { ...current };
+      delete next[proposalId];
+      return next;
+    });
+  };
+
+  const saveProbability = async (proposal) => {
+    const draft = probabilityDrafts[proposal.id];
+    if (draft === undefined || savingProbabilityId === proposal.id) return;
+    const probability = Number(draft);
+    if (draft === "" || !Number.isInteger(probability) || probability < 0 || probability > 100) {
+      toast.error("Indique uma probabilidade inteira entre 0 e 100");
+      cancelProbabilityEdit(proposal.id);
+      return;
+    }
+    if (probability === Number(proposal.probability ?? 100)) {
+      cancelProbabilityEdit(proposal.id);
+      return;
+    }
+    setSavingProbabilityId(proposal.id);
+    try {
+      const { data } = await api.patch(`/proposals/${proposal.id}`, { probability });
+      setProps((current) => current.map((item) => item.id === data.id ? data : item));
+      cancelProbabilityEdit(proposal.id);
+      toast.success("Probabilidade da proposta atualizada");
+    } catch (e) {
+      toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setSavingProbabilityId("");
+    }
+  };
 
   const confirmConvert = async () => {
     if (!convertOpen) return;
@@ -227,7 +266,34 @@ export default function Proposals() {
               <div className="col-span-2 truncate" title={proposal.description || opportunityDescription(proposal.opportunity_id)}>{proposal.description || opportunityDescription(proposal.opportunity_id)}</div>
               <div className="col-span-1 text-right font-mono">{eur(proposal.total_net)}</div>
               <div className="col-span-1 pr-6 text-right font-mono">{eur(proposal.total_vab)}</div>
-              <div className="col-span-1 text-right font-mono">{proposal.probability ?? 100}%</div>
+              <div className="col-span-1 text-right font-mono">
+                {canEditProbability(proposal) ? (
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={probabilityDrafts[proposal.id] ?? proposal.probability ?? 100}
+                    onFocus={() => setProbabilityDrafts((current) => ({ ...current, [proposal.id]: String(proposal.probability ?? 100) }))}
+                    onChange={(e) => setProbabilityDrafts((current) => ({ ...current, [proposal.id]: e.target.value }))}
+                    onBlur={(e) => {
+                      if (e.currentTarget.dataset.cancel === "true") {
+                        delete e.currentTarget.dataset.cancel;
+                        return;
+                      }
+                      saveProbability(proposal);
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") e.currentTarget.blur();
+                      if (e.key === "Escape") { e.currentTarget.dataset.cancel = "true"; cancelProbabilityEdit(proposal.id); e.currentTarget.blur(); }
+                    }}
+                    disabled={savingProbabilityId === proposal.id}
+                    aria-label={`Probabilidade da proposta ${proposal.number}`}
+                    data-testid={`proposal-probability-${proposal.id}`}
+                    className="ml-auto h-8 w-16 rounded-none px-2 text-right font-mono text-sm"
+                  />
+                ) : `${proposal.probability ?? 100}%`}
+              </div>
               <div className="col-span-1 text-right font-mono text-xs text-neutral-600">{proposal.next_follow_up_date ? dateShort(proposal.next_follow_up_date) : "-"}</div>
               <div className="col-span-1 flex justify-center">
                 <Badge className={`${STATUS_STYLE[proposal.status]} rounded-none font-normal`}>{PROP_STATUS[proposal.status]}</Badge>

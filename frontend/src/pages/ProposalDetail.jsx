@@ -100,7 +100,7 @@ export default function ProposalDetail() {
   const manufName = (manufacturerId) => manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—";
   const isSubstituted = proposal.status === "substituida";
   const isConverted = Boolean(proposal.converted_order_id) || isSubstituted;
-  const canEditProbability = ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status);
+  const canEditProbability = ["admin", "comercial"].includes(user?.role) && ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status);
   const canEditAttachmentAfterConversion = process.env.REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER !== "false";
   const attachmentLocked = isSubstituted || (isConverted && !canEditAttachmentAfterConversion);
   const isAdmin = user?.role === "admin";
