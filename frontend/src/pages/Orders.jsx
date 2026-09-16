@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowDown, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Download } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { eur, ORDER_STATUS, dateShort } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
@@ -34,6 +34,7 @@ export default function Orders() {
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("orders", { search: "", statuses: [], pageSize: 30 });
   const [sort, setSort] = useState({ key: "number", direction: "desc" });
   const [pagination, setPagination] = useState({ page: 1, pages: 1, total: 0, page_size: 30 });
+  const [exporting, setExporting] = useState(false);
 
   const load = async (page = pagination.page) => {
     const [orderResponse, clientResponse] = await Promise.all([
@@ -68,6 +69,27 @@ export default function Orders() {
         ? { key, direction: current.direction === "asc" ? "desc" : "asc" }
         : { key, direction: key === "number" || key === "value" ? "desc" : "asc" }
     ));
+  };
+
+  const exportOrders = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get("/exports/orders.xlsx", {
+        params: { search: filters.search, status: filters.statuses.join(","), sort_by: sort.key, sort_dir: sort.direction },
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "encomendas.xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Encomendas exportadas para Excel");
+    } catch (error) {
+      toast.error(formatApiErrorDetail(error.response?.data?.detail) || "Não foi possível exportar as encomendas.");
+    } finally {
+      setExporting(false);
+    }
   };
 
   const visibleOrders = useMemo(() => {
@@ -112,7 +134,7 @@ export default function Orders() {
 
   return (
     <div>
-      <PageHeader kicker="Fase 4" title="Encomendas" actions={<ListFilterSettings filters={filters} statusOptions={Object.entries(ORDER_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} />} />
+      <PageHeader kicker="Fase 4" title="Encomendas" actions={<><ListFilterSettings filters={filters} statusOptions={Object.entries(ORDER_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button variant="outline" onClick={exportOrders} disabled={exporting} data-testid="export-orders-xlsx" className="rounded-none"><Download size={16} className="mr-1" /> {exporting ? "A exportar…" : "Exportar Excel"}</Button></>} />
       <div className="p-8">
         <div className="wc-list-panel">
           <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">

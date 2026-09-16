@@ -16,8 +16,41 @@ from routers.analytics import (
     by_commercial, by_client, by_manufacturer, _kpis_summary, _forecast_receiving,
     _forecast_invoicing, _vab_analysis, _active_orders,
 )
+from routers.finance import list_invoices
 
 router = APIRouter()
+
+
+def _xlsx_response(sheet_name: str, headers: list[str], rows: list[list], filename: str, widths: tuple[int, ...], money_columns: tuple[int, ...] = (), percent_columns: tuple[int, ...] = ()) -> Response:
+    """Cria uma exportação Excel consistente para as listagens comerciais."""
+    workbook = Workbook()
+    worksheet = workbook.active
+    worksheet.title = sheet_name
+    worksheet.freeze_panes = "A2"
+    worksheet.append(headers)
+    for row in rows:
+        worksheet.append(row)
+    header_fill = PatternFill("solid", fgColor="002FA7")
+    for cell in worksheet[1]:
+        cell.fill = header_fill
+        cell.font = Font(color="FFFFFF", bold=True)
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+    for column in money_columns:
+        for cell in worksheet.iter_cols(min_col=column, max_col=column, min_row=2):
+            cell[0].number_format = '#,##0.00 [$€-pt-PT]'
+    for column in percent_columns:
+        for cell in worksheet.iter_cols(min_col=column, max_col=column, min_row=2):
+            cell[0].number_format = "0%"
+    for column, width in enumerate(widths, start=1):
+        worksheet.column_dimensions[get_column_letter(column)].width = width
+    worksheet.auto_filter.ref = worksheet.dimensions
+    buffer = BytesIO()
+    workbook.save(buffer)
+    return Response(
+        content=buffer.getvalue(),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/audit")
@@ -69,38 +102,130 @@ async def export_leads_xlsx(
         return str(lead.get("created_at") or "")
 
     leads.sort(key=sort_value, reverse=sort_dir != "asc")
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Leads"
-    worksheet.freeze_panes = "A2"
-    worksheet.append(["Cliente", "Descrição", "Valor estimado (EUR)", "Estado", "Criada em", "Atualizada em"])
-    for lead in leads:
-        worksheet.append([
+    return _xlsx_response(
+        "Leads",
+        ["Cliente", "Descrição", "Valor estimado (EUR)", "Estado", "Criada em", "Atualizada em"],
+        [[
             clients.get(lead.get("client_id")) or lead.get("client_name_raw") or "-",
             lead.get("description") or "",
             float(lead.get("estimated_value") or 0),
             status_labels.get(lead.get("status"), lead.get("status", "")),
             str(lead.get("created_at") or "")[:19],
             str(lead.get("updated_at") or "")[:19],
-        ])
-    header_fill = PatternFill("solid", fgColor="002FA7")
-    for cell in worksheet[1]:
-        cell.fill = header_fill
-        cell.font = Font(color="FFFFFF", bold=True)
-        cell.alignment = Alignment(horizontal="center", vertical="center")
-    for cell in worksheet["C"][1:]:
-        cell.number_format = '#,##0.00 [$€-pt-PT]'
-    for column, width in enumerate((34, 54, 22, 20, 22, 22), start=1):
-        worksheet.column_dimensions[get_column_letter(column)].width = width
-    worksheet.auto_filter.ref = worksheet.dimensions
-
-    buffer = BytesIO()
-    workbook.save(buffer)
-    return Response(
-        content=buffer.getvalue(),
-        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": 'attachment; filename="leads.xlsx"'},
+        ] for lead in leads],
+        "leads.xlsx",
+        (34, 54, 22, 20, 22, 22),
+        (3,),
     )
+
+
+@router.get("/exports/opportunities.xlsx")
+async def export_opportunities_xlsx(search: str = "", status: str = "", sort_by: str = "created_at", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    query = {}
+    if search.strip():
+        pattern = {"$regex": re.escape(search.strip()), "$options": "i"}
+        matching_clients = await db.clients.find({"name": pattern}, {"_id": 0, "id": 1}).to_list(5000)
+        query["$or"] = [{field: pattern} for field in ("id", "description", "status")] + [{"client_id": {"$in": [client["id"] for client in matching_clients]}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    opportunities = await db.opportunities.find(query, {"_id": 0}).to_list(10000)
+    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    labels = {"aberta": "Aberta", "em_analise": "Em análise", "convertida": "Convertida", "perdida": "Perdida"}
+
+    def sort_value(opportunity: dict):
+        if sort_by == "client": return (clients.get(opportunity.get("client_id")) or "").lower()
+        if sort_by == "value": return float(opportunity.get("estimated_value") or 0)
+        if sort_by == "status": return labels.get(opportunity.get("status"), opportunity.get("status", "")).lower()
+        return str(opportunity.get("created_at") or "")
+
+    opportunities.sort(key=sort_value, reverse=sort_dir != "asc")
+    return _xlsx_response("Oportunidades", ["Cliente", "Descrição", "Valor estimado (EUR)", "VAB estimado (EUR)", "Probabilidade", "Fecho previsto", "Prioridade", "Estado"], [[
+        clients.get(opportunity.get("client_id")) or "-", opportunity.get("description") or "",
+        float(opportunity.get("estimated_value") or 0), float(opportunity.get("estimated_vab") or 0),
+        float(opportunity.get("probability") or 0) / 100, str(opportunity.get("expected_close_date") or "")[:10],
+        opportunity.get("priority") or "", labels.get(opportunity.get("status"), opportunity.get("status", "")),
+    ] for opportunity in opportunities], "oportunidades.xlsx", (34, 58, 24, 24, 16, 18, 16, 20), (3, 4), (5,))
+
+
+@router.get("/exports/proposals.xlsx")
+async def export_proposals_xlsx(search: str = "", status: str = "", sort_by: str = "created_at", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    query = {}
+    if search.strip():
+        pattern = {"$regex": re.escape(search.strip()), "$options": "i"}
+        client_ids = [client["id"] for client in await db.clients.find({"name": pattern}, {"_id": 0, "id": 1}).to_list(5000)]
+        opportunity_ids = [opportunity["id"] for opportunity in await db.opportunities.find({"description": pattern}, {"_id": 0, "id": 1}).to_list(5000)]
+        query["$or"] = [{field: pattern} for field in ("id", "number", "description", "status")] + [{"client_id": {"$in": client_ids}}, {"opportunity_id": {"$in": opportunity_ids}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    proposals = await db.proposals.find(query, {"_id": 0}).to_list(10000)
+    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    opportunities = {opportunity["id"]: opportunity.get("description", "") for opportunity in await db.opportunities.find({}, {"_id": 0}).to_list(10000)}
+    labels = {"em_elaboracao": "Em elaboração", "enviada": "Enviada", "em_negociacao": "Em negociação", "ganha": "Ganha", "perdida": "Perdida", "expirada": "Expirada", "substituida": "Substituída"}
+
+    def sort_value(proposal: dict):
+        if sort_by == "number": return proposal.get("number") or ""
+        if sort_by == "client": return (clients.get(proposal.get("client_id")) or "").lower()
+        if sort_by == "opportunity": return (opportunities.get(proposal.get("opportunity_id")) or "").lower()
+        if sort_by == "value": return float(proposal.get("total_net") or 0)
+        if sort_by == "status": return labels.get(proposal.get("status"), proposal.get("status", "")).lower()
+        return str(proposal.get("created_at") or "")
+
+    proposals.sort(key=sort_value, reverse=sort_dir != "asc")
+    return _xlsx_response("Propostas", ["Número", "Versão", "Cliente", "Oportunidade", "Descrição", "Valor s/ IVA (EUR)", "VAB (EUR)", "Probabilidade", "Fecho previsto", "Estado"], [[
+        proposal.get("number") or "", proposal.get("version") or 1, clients.get(proposal.get("client_id")) or "-",
+        opportunities.get(proposal.get("opportunity_id")) or "", proposal.get("description") or "",
+        float(proposal.get("total_net") or 0), float(proposal.get("total_vab") or 0), float(proposal.get("probability") if proposal.get("probability") is not None else 100) / 100,
+        str(proposal.get("next_follow_up_date") or "")[:10], labels.get(proposal.get("status"), proposal.get("status", "")),
+    ] for proposal in proposals], "propostas.xlsx", (21, 12, 34, 52, 52, 24, 20, 16, 18, 20), (6, 7), (8,))
+
+
+@router.get("/exports/orders.xlsx")
+async def export_orders_xlsx(search: str = "", status: str = "", sort_by: str = "order_date", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    query = {}
+    if search.strip():
+        pattern = {"$regex": re.escape(search.strip()), "$options": "i"}
+        client_ids = [client["id"] for client in await db.clients.find({"name": pattern}, {"_id": 0, "id": 1}).to_list(5000)]
+        query["$or"] = [{field: pattern} for field in ("id", "number", "po_number", "status")] + [{"client_id": {"$in": client_ids}}]
+    statuses = [item for item in status.split(",") if item]
+    if statuses:
+        query["status"] = {"$in": statuses}
+    orders = await db.orders.find(query, {"_id": 0}).to_list(10000)
+    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    labels = {"aberta": "Aberta", "em_planeamento": "Em planeamento", "fulfilled": "Concluída", "cancelada": "Cancelada"}
+
+    def sort_value(order: dict):
+        if sort_by == "number": return order.get("number") or ""
+        if sort_by == "client": return (clients.get(order.get("client_id")) or "").lower()
+        if sort_by == "value": return float(order.get("total_net") or 0)
+        if sort_by == "status": return labels.get(order.get("status"), order.get("status", "")).lower()
+        return str(order.get("order_date") or order.get("created_at") or "")
+
+    orders.sort(key=sort_value, reverse=sort_dir != "asc")
+    return _xlsx_response("Encomendas", ["Número", "Cliente", "PO", "Valor s/ IVA (EUR)", "VAB (EUR)", "Estado", "Data"], [[
+        order.get("number") or "", clients.get(order.get("client_id")) or "-", order.get("po_number") or "",
+        float(order.get("total_net") or 0), float(order.get("total_vab") or 0), labels.get(order.get("status"), order.get("status", "")),
+        str(order.get("order_date") or order.get("created_at") or "")[:10],
+    ] for order in orders], "encomendas.xlsx", (21, 38, 24, 24, 20, 20, 16), (4, 5))
+
+
+@router.get("/exports/invoices.xlsx")
+async def export_invoices_xlsx(search: str = "", collection_status: str = "", sort_by: str = "issued_at", sort_dir: str = "desc", user: dict = Depends(get_current_user)):
+    invoices = await list_invoices(user=user)
+    labels = {"emitida": "Emitida", "parcialmente_recebida": "Parcialmente recebida", "recebida": "Recebida", "anulada": "Anulada"}
+    collection_labels = {"em_atraso": "Em atraso", "por_receber": "Por receber", "recebida": "Recebida", "anulada": "Anulada"}
+    term = search.strip().lower()
+    selected_statuses = [item for item in collection_status.split(",") if item]
+    invoices = [invoice for invoice in invoices if (
+        not term or any(term in str(value or "").lower() for value in (invoice.get("order_number"), invoice.get("client_name"), invoice.get("external_invoice_number"), labels.get(invoice.get("status")), collection_labels.get(invoice.get("collection_status"))))
+    ) and (not selected_statuses or invoice.get("collection_status") in selected_statuses)]
+    invoices.sort(key=lambda invoice: invoice.get(sort_by) if isinstance(invoice.get(sort_by), (int, float)) else str(invoice.get(sort_by) or ""), reverse=sort_dir != "asc")
+    return _xlsx_response("Faturas", ["Encomenda", "Cliente", "Data planeada", "Valor planeado (EUR)", "VAB planeado (EUR)", "Valor faturado (EUR)", "VAB faturado (EUR)", "N.º da fatura", "Estado", "Recebimento"], [[
+        invoice.get("order_number") or "", invoice.get("client_name") or "", str(invoice.get("planned_date") or "")[:10],
+        float(invoice.get("planned_value") or 0), float(invoice.get("planned_vab") or 0), float(invoice.get("total_net") or 0), float(invoice.get("billed_vab") or 0),
+        invoice.get("external_invoice_number") or "", labels.get(invoice.get("status"), invoice.get("status", "")), collection_labels.get(invoice.get("collection_status"), ""),
+    ] for invoice in invoices], "faturas.xlsx", (22, 38, 18, 25, 23, 25, 23, 22, 24, 20), (4, 5, 6, 7))
 
 
 @router.get("/exports/invoices.csv")

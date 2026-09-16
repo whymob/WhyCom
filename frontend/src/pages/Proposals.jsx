@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Download } from "lucide-react";
 import { api, formatApiErrorDetail } from "@/lib/api";
 import { eur, PROP_STATUS, dateShort } from "@/lib/fmt";
 import PageHeader from "@/components/PageHeader";
@@ -45,6 +45,7 @@ export default function Proposals() {
   const [clients, setClients] = useState([]);
   const [opportunities, setOpportunities] = useState([]);
   const [convertOpen, setConvertOpen] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const { filters, setFilters, saveFilters, clearSavedFilters } = useListFilters("proposals", {
     search: searchParams.get("search") || "",
     statuses: searchParams.get("status_scope") === "in_progress" ? ["enviada", "em_negociacao"] : (searchParams.get("status") || "").split(",").filter(Boolean),
@@ -96,16 +97,20 @@ export default function Proposals() {
   };
 
   const exportProposals = async () => {
+    setExporting(true);
     try {
-      const response = await api.get("/exports/proposals.csv", { responseType: "blob" });
+      const response = await api.get("/exports/proposals.xlsx", { params: { search: filters.search, status: filters.statuses.join(","), sort_by: sort.key, sort_dir: sort.direction }, responseType: "blob" });
       const url = URL.createObjectURL(response.data);
       const link = document.createElement("a");
       link.href = url;
-      link.download = "propostas.csv";
+      link.download = "propostas.xlsx";
       link.click();
       URL.revokeObjectURL(url);
+      toast.success("Propostas exportadas para Excel");
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
+    } finally {
+      setExporting(false);
     }
   };
 
@@ -162,7 +167,7 @@ export default function Proposals() {
 
   return (
     <div>
-      <PageHeader kicker="Fase 3" title="Propostas" actions={<ListFilterSettings filters={filters} statusOptions={Object.entries(PROP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} />} />
+      <PageHeader kicker="Fase 3" title="Propostas" actions={<><ListFilterSettings filters={filters} statusOptions={Object.entries(PROP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button variant="outline" onClick={exportProposals} disabled={exporting} data-testid="export-proposals-xlsx" className="rounded-none"><Download size={16} className="mr-1" /> {exporting ? "A exportar…" : "Exportar Excel"}</Button></>} />
       <div className="p-8">
         <div className="wc-list-panel">
           <div className="wc-filter-bar flex flex-wrap items-end gap-3 px-4 py-3">
@@ -182,9 +187,6 @@ export default function Proposals() {
             <Button variant="ghost" onClick={() => setFilters((current) => ({ ...current, search: "", statuses: [] }))} className="rounded-none">
               Limpar filtros
             </Button>
-            <Button onClick={exportProposals} className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]">
-              ↓ Exportar propostas (Excel/CSV)
-            </Button>
           </div>
 
           <div className="grid grid-cols-12 border-b border-neutral-200 px-4 py-2 text-[10px] uppercase tracking-widest text-neutral-500">
@@ -201,7 +203,8 @@ export default function Proposals() {
             <div className="col-span-1 pr-6 text-right">
               <SortButton label="VAB" sortKey="value" sort={sort} onClick={toggleSort} align="right" />
             </div>
-            <div className="col-span-2 text-right">
+            <div className="col-span-1 text-right">Prob.</div>
+            <div className="col-span-1 text-right">
               <SortButton label="Fecho previsto" sortKey="next_follow_up_date" sort={sort} onClick={toggleSort} align="right" />
             </div>
             <div className="col-span-1 text-center">
@@ -224,7 +227,8 @@ export default function Proposals() {
               <div className="col-span-2 truncate" title={proposal.description || opportunityDescription(proposal.opportunity_id)}>{proposal.description || opportunityDescription(proposal.opportunity_id)}</div>
               <div className="col-span-1 text-right font-mono">{eur(proposal.total_net)}</div>
               <div className="col-span-1 pr-6 text-right font-mono">{eur(proposal.total_vab)}</div>
-              <div className="col-span-2 text-right font-mono text-xs text-neutral-600">{proposal.next_follow_up_date ? dateShort(proposal.next_follow_up_date) : "-"}</div>
+              <div className="col-span-1 text-right font-mono">{proposal.probability ?? 100}%</div>
+              <div className="col-span-1 text-right font-mono text-xs text-neutral-600">{proposal.next_follow_up_date ? dateShort(proposal.next_follow_up_date) : "-"}</div>
               <div className="col-span-1 flex justify-center">
                 <Badge className={`${STATUS_STYLE[proposal.status]} rounded-none font-normal`}>{PROP_STATUS[proposal.status]}</Badge>
               </div>

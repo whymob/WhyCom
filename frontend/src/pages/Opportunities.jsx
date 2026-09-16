@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Eye, Plus } from "lucide-react";
+import { ArrowDown, ArrowRight, ArrowUp, ArrowUpDown, Download, Eye, Plus } from "lucide-react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { toast } from "sonner";
 
@@ -69,6 +69,7 @@ export default function Opportunities() {
   const [lostOpen, setLostOpen] = useState(null);
   const [lostReason, setLostReason] = useState("");
   const [convertOpen, setConvertOpen] = useState(null);
+  const [exporting, setExporting] = useState(false);
   const [newProposalOpen, setNewProposalOpen] = useState(false);
   const [replacementReason, setReplacementReason] = useState("");
   const [descriptionChangeReason, setDescriptionChangeReason] = useState("");
@@ -279,6 +280,27 @@ export default function Opportunities() {
     ));
   };
 
+  const exportOpportunities = async () => {
+    setExporting(true);
+    try {
+      const response = await api.get("/exports/opportunities.xlsx", {
+        params: { search: filters.search, status: filters.statuses.join(","), sort_by: sort.key, sort_dir: sort.direction },
+        responseType: "blob",
+      });
+      const url = URL.createObjectURL(response.data);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "oportunidades.xlsx";
+      link.click();
+      URL.revokeObjectURL(url);
+      toast.success("Oportunidades exportadas para Excel");
+    } catch (error) {
+      toast.error(formatApiErrorDetail(error.response?.data?.detail) || "Não foi possível exportar as oportunidades.");
+    } finally {
+      setExporting(false);
+    }
+  };
+
   const visibleOpps = useMemo(() => {
     const search = filters.search.trim().toLowerCase();
 
@@ -325,7 +347,7 @@ export default function Opportunities() {
       <PageHeader
         kicker="Fase 2"
         title="Oportunidades"
-        actions={<><ListFilterSettings filters={filters} statusOptions={Object.entries(OPP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button onClick={openCreate} data-testid="new-opp-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]"><Plus size={16} className="mr-1" /> Nova oportunidade</Button></>}
+        actions={<><ListFilterSettings filters={filters} statusOptions={Object.entries(OPP_STATUS).map(([value, label]) => ({ value, label }))} onSave={saveFilters} onClear={clearSavedFilters} /><Button variant="outline" onClick={exportOpportunities} disabled={exporting} data-testid="export-opportunities-xlsx" className="rounded-none"><Download size={16} className="mr-1" /> {exporting ? "A exportar…" : "Exportar Excel"}</Button><Button onClick={openCreate} data-testid="new-opp-btn" className="rounded-none bg-[#002FA7] text-white hover:bg-[#002277]"><Plus size={16} className="mr-1" /> Nova oportunidade</Button></>}
       />
       <div className="p-8">
         <div className="wc-list-panel">
