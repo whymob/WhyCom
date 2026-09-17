@@ -19,8 +19,12 @@ services:
   jaeger:
     image: cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
     container_name: whymob-jaeger
+    command: ["--config", "/etc/whymob-jaeger.yaml"]
     ports:
       - "16686:16686"
+    volumes:
+      - ./observability/jaeger/config-badger.yaml:/etc/whymob-jaeger.yaml:ro
+      - jaeger_data:/badger
     restart: unless-stopped
 
   frontend:
@@ -42,3 +46,4 @@ services:
 
 volumes:
   proposal_uploads:
+  jaeger_data:
