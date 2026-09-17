@@ -101,6 +101,9 @@ class Opportunity(BaseModel):
     estimated_vab: float = 0.0
     probability: int = 50
     expected_close_date: Optional[str] = None
+    next_follow_up_date: Optional[str] = None
+    next_follow_up_type: Literal["follow_up", "entrega"] = "follow_up"
+    follow_up_history: List[dict] = Field(default_factory=list)
     priority: Literal["baixa", "media", "alta"] = "media"
     competitor: Optional[str] = ""
     notes: Optional[str] = ""
@@ -160,7 +163,10 @@ class Proposal(BaseModel):
     sent_at: Optional[str] = None
     sent_to: Optional[str] = ""
     status_change_reason: Optional[str] = ""
+    expected_close_date: Optional[str] = None
     next_follow_up_date: Optional[str] = None
+    next_follow_up_type: Literal["follow_up", "entrega"] = "follow_up"
+    follow_up_history: List[dict] = Field(default_factory=list)
     attachment: Optional[dict] = None
     owner_id: str
     status: Literal["em_elaboracao", "enviada", "em_negociacao", "ganha", "perdida", "expirada", "substituida"] = "em_elaboracao"

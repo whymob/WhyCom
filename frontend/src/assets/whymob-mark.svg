@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="whymob-gradient" x1="7" y1="14" x2="57" y2="50" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#14E0E0"/>
+      <stop offset="1" stop-color="#002FA7"/>
+    </linearGradient>
+  </defs>
+  <path d="M8 13 22 47 32 25 43 47 53 21" stroke="url(#whymob-gradient)" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m47 21 9-10 2 14" stroke="#002FA7" stroke-width="9" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

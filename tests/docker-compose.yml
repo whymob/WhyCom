@@ -5,22 +5,10 @@ services:
     container_name: whymob-backend
     env_file:
       - ./backend/.env
-    environment:
-      ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
-      OTEL_ENABLED: "true"
-      OTEL_SERVICE_NAME: whymob-backend
-      OTEL_EXPORTER_OTLP_TRACES_ENDPOINT: http://jaeger:4318/v1/traces
     ports:
       - "8000:8000"
     volumes:
       - proposal_uploads:/app/uploads
-    restart: unless-stopped
-
-  jaeger:
-    image: cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
-    container_name: whymob-jaeger
-    ports:
-      - "16686:16686"
     restart: unless-stopped
 
   frontend:
@@ -33,7 +21,6 @@ services:
       PORT: 3000
       CHOKIDAR_USEPOLLING: "true"
       WATCHPACK_POLLING: "true"
-      REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
     ports:
       - "3000:3000"
     depends_on:

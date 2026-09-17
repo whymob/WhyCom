@@ -1,5 +1,5 @@
 export const eur = (n) =>
-  new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", maximumFractionDigits: 2 }).format(n || 0);
+  new Intl.NumberFormat("pt-PT", { style: "currency", currency: "EUR", maximumFractionDigits: 2, useGrouping: true }).format(n || 0);
 
 export const pct = (n) => `${(n ?? 0).toFixed(1)}%`;
 

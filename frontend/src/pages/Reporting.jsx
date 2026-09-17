@@ -40,9 +40,10 @@ function recordYear(item, fields) {
   return null;
 }
 
-function Table({ columns, rows, testid, footer }) {
+function Table({ columns, rows, testid, footer, minWidth }) {
   return (
-    <div className="wc-list-panel" data-testid={testid}>
+    <div className="wc-list-panel overflow-x-auto" data-testid={testid}>
+      <div style={{ minWidth }}>
       <div className="wc-table-head grid gap-3 border-b border-[var(--wc-border)] px-4 py-2 text-[10px] uppercase tracking-widest" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
         {columns.map((column) => <div key={column.key} className={column.align === "right" ? "text-right" : ""}>{column.label}</div>)}
       </div>
@@ -50,7 +51,7 @@ function Table({ columns, rows, testid, footer }) {
       {rows.map((row, index) => (
         <div key={index} className="wc-table-row grid gap-3 border-b px-4 py-2.5 text-sm" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
           {columns.map((column) => (
-            <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""}`}>
+            <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""} ${column.wrap ? "min-w-0 break-words leading-5" : ""} ${column.noWrap ? "whitespace-nowrap" : ""}`}>
               {column.render ? column.render(row) : row[column.key]}
             </div>
           ))}
@@ -65,6 +66,7 @@ function Table({ columns, rows, testid, footer }) {
           ))}
         </div>
       )}
+      </div>
     </div>
   );
 }
@@ -158,7 +160,7 @@ export default function Reporting() {
     const proposals = allProps
       .filter((proposal) => ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status))
       .map((proposal) => {
-        const followUp = proposal.next_follow_up_date;
+        const followUp = proposal.expected_close_date || proposal.next_follow_up_date;
         if (!followUp) return null;
         const date = new Date(`${String(followUp).slice(0, 10)}T00:00:00`);
         if (Number.isNaN(date.getTime()) || date < anchor || date > yearEnd) return null;
@@ -706,7 +708,7 @@ export default function Reporting() {
                     <div className="text-[10px] uppercase tracking-widest text-neutral-500">Previsão de fecho · propostas e oportunidades · {reportingYear}</div>
                     <div className="flex flex-wrap items-center gap-2">
                       <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}&scope=${followUpScope}`, `previsao-fecho-${reportingYear}-${followUpScope}.pdf`)} data-testid="export-proposal-follow-up-panel-pdf" className="border border-[#002FA7] px-3 py-1.5 text-xs text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ PDF</button>
-                      <button onClick={() => download(`/exports/proposals-follow-up.csv?year=${reportingYear}&scope=${followUpScope}`, `previsao-fecho-${reportingYear}-${followUpScope}.csv`)} data-testid="export-proposal-follow-up-panel-csv" className="border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50">↓ Excel/CSV</button>
+                      <button onClick={() => download(`/exports/proposals-follow-up.xlsx?year=${reportingYear}&scope=${followUpScope}`, `previsao-fecho-${reportingYear}-${followUpScope}.xlsx`)} data-testid="export-proposal-follow-up-panel-xlsx" className="border border-neutral-300 px-3 py-1.5 text-xs hover:bg-neutral-50">↓ Excel</button>
                       {[['30d', '30 dias'], ['quarter', 'Quarter'], ['year', 'Até final do ano']].map(([value, label]) => (
                         <button key={value} type="button" onClick={() => setFollowUpScope(value)} className={`px-3 py-1.5 text-xs ${followUpScope === value ? "bg-[#002FA7] text-white" : "bg-white text-neutral-700 hover:bg-neutral-50"}`} data-testid={`proposal-follow-up-${value}`}>
                           {label}
@@ -717,6 +719,7 @@ export default function Reporting() {
                   <div className="mb-3 text-xs text-neutral-500">Inclui propostas ativas e oportunidades abertas/em análise; os valores e VAB são ponderados pela respetiva probabilidade.</div>
                   <Table
                     testid="proposal-follow-up-table"
+                    minWidth="1528px"
                     rows={visibleProposalFollowUps}
                     footer={{
                       horizon: "TOTAL",
@@ -724,16 +727,16 @@ export default function Reporting() {
                       vab: visibleProposalFollowUps.reduce((total, row) => total + row.vab, 0),
                     }}
                     columns={[
-                      { key: "horizon", label: "Horizonte", w: "170px" },
-                      { key: "type", label: "Tipo", w: "120px" },
-                      { key: "number", label: "Registo", w: "150px", mono: true, render: (row) => <Link to={row.href} className="text-[#002FA7] hover:underline">{row.number}</Link> },
-                      { key: "client", label: "Cliente" },
-                      { key: "description", label: "Descrição", w: "260px" },
-                      { key: "value", label: "Valor", w: "130px", align: "right", render: (row) => eur(row.value) },
-                      { key: "vab", label: "VAB", w: "130px", align: "right", render: (row) => eur(row.vab) },
-                      { key: "probability", label: "Prob.", w: "80px", align: "right", render: (row) => `${row.probability}%` },
-                      { key: "status", label: "Estado", w: "140px" },
-                      { key: "followUp", label: "Data prevista de fecho", w: "170px", mono: true, render: (row) => dateShort(row.followUp) },
+                      { key: "horizon", label: "Horizonte", w: "150px", noWrap: true },
+                      { key: "type", label: "Tipo", w: "100px", noWrap: true },
+                      { key: "number", label: "Registo", w: "145px", mono: true, noWrap: true, render: (row) => <Link to={row.href} className="text-[#002FA7] hover:underline">{row.number}</Link> },
+                      { key: "client", label: "Cliente", w: "180px", wrap: true },
+                      { key: "description", label: "Descrição", w: "260px", wrap: true },
+                      { key: "value", label: "Valor", w: "125px", align: "right", noWrap: true, render: (row) => eur(row.value) },
+                      { key: "vab", label: "VAB", w: "125px", align: "right", noWrap: true, render: (row) => eur(row.vab) },
+                      { key: "probability", label: "Prob.", w: "70px", align: "right", noWrap: true, render: (row) => `${row.probability}%` },
+                      { key: "status", label: "Estado", w: "110px", noWrap: true },
+                      { key: "followUp", label: "Data prevista de fecho", w: "155px", mono: true, noWrap: true, render: (row) => dateShort(row.followUp) },
                     ]}
                   />
                 </div>

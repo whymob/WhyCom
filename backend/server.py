@@ -11,6 +11,7 @@ from deps import mongo_client, logger
 from seed import seed_startup
 from scheduler import start_scheduler, stop_scheduler
 from indexes import ensure_search_indexes
+from telemetry import configure_telemetry
 
 from routers.auth_users import router as auth_users_router
 from routers.master_data import router as master_data_router
@@ -24,6 +25,7 @@ from routers.search import router as search_router
 
 
 app = FastAPI(title="WhyMob CRM API")
+configure_telemetry(app)
 api = APIRouter(prefix="/api")
 
 

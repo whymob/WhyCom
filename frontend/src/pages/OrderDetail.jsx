@@ -42,6 +42,7 @@ export default function OrderDetail() {
   const [proposal, setProposal] = useState(null);
   const [proposalLines, setProposalLines] = useState([]);
   const [products, setProducts] = useState([]);
+  const [clients, setClients] = useState([]);
   const [manufs, setManufs] = useState([]);
   const [invOpen, setInvOpen] = useState(false);
   const [parcelOpen, setParcelOpen] = useState(false);
@@ -68,13 +69,14 @@ export default function OrderDetail() {
     let active = true;
 
     async function load() {
-      const [orderRes, planRes, invoiceRes, paymentRes, reconRes, productRes, manufRes, opportunityRes] = await Promise.all([
+      const [orderRes, planRes, invoiceRes, paymentRes, reconRes, productRes, clientRes, manufRes, opportunityRes] = await Promise.all([
         api.get("/orders").then((r) => r.data.find((item) => item.id === id)),
         api.get(`/orders/${id}/plan`),
         api.get(`/invoices?order_id=${id}`),
         api.get(`/payments?order_id=${id}`),
         api.get(`/orders/${id}/reconcile`),
         api.get("/products"),
+        api.get("/clients"),
         api.get("/manufacturers"),
         api.get("/opportunities"),
       ]);
@@ -87,6 +89,7 @@ export default function OrderDetail() {
       setPayments(paymentRes.data);
       setRecon(reconRes.data);
       setProducts(productRes.data);
+      setClients(clientRes.data);
       setManufs(manufRes.data);
 
       if (orderRes?.proposal_id) {
@@ -118,6 +121,7 @@ export default function OrderDetail() {
   if (!order) return <div className="p-8 text-sm text-neutral-500">A carregar…</div>;
 
   const productName = (productId) => products.find((product) => product.id === productId)?.name || "—";
+  const clientName = clients.find((client) => client.id === order.client_id)?.name || "\u2014";
   const isCancelled = order.status === "cancelada";
   const productManuf = (productId) => {
     const product = products.find((item) => item.id === productId);
@@ -183,13 +187,14 @@ export default function OrderDetail() {
   });
 
   const reload = async () => {
-    const [orderRes, planRes, invoiceRes, paymentRes, reconRes, productRes, manufRes, opportunityRes] = await Promise.all([
+    const [orderRes, planRes, invoiceRes, paymentRes, reconRes, productRes, clientRes, manufRes, opportunityRes] = await Promise.all([
       api.get("/orders").then((r) => r.data.find((item) => item.id === id)),
       api.get(`/orders/${id}/plan`),
       api.get(`/invoices?order_id=${id}`),
       api.get(`/payments?order_id=${id}`),
       api.get(`/orders/${id}/reconcile`),
       api.get("/products"),
+      api.get("/clients"),
       api.get("/manufacturers"),
       api.get("/opportunities"),
     ]);
@@ -200,6 +205,7 @@ export default function OrderDetail() {
     setPayments(paymentRes.data);
     setRecon(reconRes.data);
     setProducts(productRes.data);
+    setClients(clientRes.data);
     setManufs(manufRes.data);
 
     if (orderRes?.proposal_id) {
@@ -362,7 +368,7 @@ export default function OrderDetail() {
   });
 
   const openRescheduleModal = () => {
-    if (isCancelled || planEditDisabled) return;
+    if (isCancelled || !canRescheduleBalance) return;
     if (!reschedulableLines.length) {
       toast.error("Não existem saldos disponíveis para reprogramar");
       return;
@@ -483,6 +489,7 @@ export default function OrderDetail() {
   const activeTimelinePayments = payments.filter((payment) => payment.status !== "anulado");
   const hasActiveInvoices = activeTimelineInvoices.length > 0;
   const planEditDisabled = isCancelled || (hasActiveInvoices && !isAdmin);
+  const canRescheduleBalance = !isCancelled && (!hasActiveInvoices || ["admin", "comercial"].includes(user?.role));
   const invoiceTotal = activeTimelineInvoices.reduce((sum, invoice) => sum + (Number(invoice.total_net) || 0), 0);
   const paymentTotal = activeTimelinePayments.reduce((sum, payment) => sum + (Number(payment.amount) || 0), 0);
   const timelineEvents = [
@@ -831,7 +838,7 @@ export default function OrderDetail() {
   return (
     <div>
       <PageHeader
-        kicker={`Encomenda · ${dateShort(order.order_date)}`}
+        kicker={`Encomenda · ${clientName} · ${dateShort(order.order_date)}`}
         title={order.number}
         actions={<div className="flex gap-2"><Link to="/encomendas"><Button variant="ghost" className="rounded-none"><ChevronLeft size={14} className="mr-1" /> Voltar</Button></Link>{isAdmin && order.status !== "cancelada" && <Button onClick={() => openCancellation("order")} className="rounded-none bg-[#FF2A00] text-white hover:bg-[#D62200]">Anular encomenda</Button>}</div>}
       />
@@ -913,7 +920,7 @@ export default function OrderDetail() {
             </div>
             <div className="flex gap-2">
               <Button size="sm" onClick={openParcelModal} disabled={planEditDisabled} data-testid="plan-split-btn" className="rounded-none border border-neutral-300 bg-white text-neutral-900 hover:bg-neutral-100"><Plus size={14} className="mr-1" /> Plano faseado</Button>
-              <Button size="sm" onClick={openRescheduleModal} disabled={planEditDisabled || reschedulableLines.length === 0 || futurePlanLines.length === 0} data-testid="plan-reschedule-btn" className="rounded-none border border-[#B45309] bg-white text-[#B45309] hover:bg-[#FFF7ED]">Reprogramar saldo</Button>
+              <Button size="sm" onClick={openRescheduleModal} disabled={!canRescheduleBalance || reschedulableLines.length === 0 || futurePlanLines.length === 0} data-testid="plan-reschedule-btn" className="rounded-none border border-[#B45309] bg-white text-[#B45309] hover:bg-[#FFF7ED]">Reprogramar saldo</Button>
               <Button size="sm" onClick={addPlanLine} disabled={planEditDisabled || totalRemainingToPlan <= 0.01} data-testid="plan-add-line" className="rounded-none bg-neutral-900 text-white hover:bg-neutral-700"><Plus size={14} className="mr-1" /> Nova linha</Button>
               <Button size="sm" onClick={requestSavePlan} disabled={planEditDisabled} data-testid="plan-save-btn" className="rounded-none bg-[#002FA7] hover:bg-[#002277] text-white">Guardar plano</Button>
             </div>

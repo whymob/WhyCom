@@ -169,6 +169,7 @@ async def export_proposals_xlsx(search: str = "", status: str = "", sort_by: str
         if sort_by == "client": return (clients.get(proposal.get("client_id")) or "").lower()
         if sort_by == "opportunity": return (opportunities.get(proposal.get("opportunity_id")) or "").lower()
         if sort_by == "value": return float(proposal.get("total_net") or 0)
+        if sort_by == "expected_close_date": return str(proposal.get("expected_close_date") or "")
         if sort_by == "status": return labels.get(proposal.get("status"), proposal.get("status", "")).lower()
         return str(proposal.get("created_at") or "")
 
@@ -177,7 +178,7 @@ async def export_proposals_xlsx(search: str = "", status: str = "", sort_by: str
         proposal.get("number") or "", proposal.get("version") or 1, clients.get(proposal.get("client_id")) or "-",
         opportunities.get(proposal.get("opportunity_id")) or "", proposal.get("description") or "",
         float(proposal.get("total_net") or 0), float(proposal.get("total_vab") or 0), float(proposal.get("probability") if proposal.get("probability") is not None else 100) / 100,
-        str(proposal.get("next_follow_up_date") or "")[:10], labels.get(proposal.get("status"), proposal.get("status", "")),
+        str(proposal.get("expected_close_date") or proposal.get("next_follow_up_date") or "")[:10], labels.get(proposal.get("status"), proposal.get("status", "")),
     ] for proposal in proposals], "propostas.xlsx", (21, 12, 34, 52, 52, 24, 20, 16, 18, 20), (6, 7), (8,))
 
 
@@ -653,7 +654,7 @@ async def export_billing_orders_pdf(month: str, user: dict = Depends(get_current
 async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: str = Query("year", pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
     """Exportação da previsão de fecho: propostas ativas e oportunidades ponderadas."""
     proposals = await db.proposals.find(
-        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "next_follow_up_date": {"$exists": True, "$ne": None}},
+        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "$or": [{"expected_close_date": {"$exists": True, "$ne": None}}, {"next_follow_up_date": {"$exists": True, "$ne": None}}]},
         {"_id": 0},
     ).to_list(10000)
     open_opportunities = await db.opportunities.find(
@@ -675,7 +676,7 @@ async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, 
     opportunity_status_labels = {"aberta": "Aberta", "em_analise": "Em análise"}
     rows = []
     for proposal in proposals:
-        follow_up = str(proposal.get("next_follow_up_date") or "")[:10]
+        follow_up = str(proposal.get("expected_close_date") or proposal.get("next_follow_up_date") or "")[:10]
         try:
             follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d")
         except ValueError:
@@ -736,6 +737,60 @@ async def export_proposals_follow_up_csv(year: int = Query(datetime.now().year, 
     )
 
 
+@router.get("/exports/proposals-follow-up.xlsx")
+async def export_proposals_follow_up_xlsx(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: str = Query("year", pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
+    """Exporta a previsão de fecho para Excel, mantendo valores ponderados."""
+    proposals = await db.proposals.find(
+        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "$or": [{"expected_close_date": {"$exists": True, "$ne": None}}, {"next_follow_up_date": {"$exists": True, "$ne": None}}]},
+        {"_id": 0},
+    ).to_list(10000)
+    open_opportunities = await db.opportunities.find(
+        {"status": {"$in": ["aberta", "em_analise"]}, "expected_close_date": {"$exists": True, "$ne": None}},
+        {"_id": 0},
+    ).to_list(10000)
+    clients = {item["id"]: item.get("name", "") for item in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    opportunities = {item["id"]: item.get("description", "") for item in await db.opportunities.find({}, {"_id": 0}).to_list(10000)}
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    anchor = today if year == today.year else datetime(year, 1, 1)
+    thirty_days_end = anchor + timedelta(days=30)
+    next_quarter_month = ((anchor.month - 1) // 3 + 1) * 3 + 1
+    quarter_end = (datetime(year + 1, 1, 1) if next_quarter_month > 12 else datetime(year, next_quarter_month, 1)) - timedelta(days=1)
+    year_end = datetime(year, 12, 31)
+    proposal_labels = {"em_elaboracao": "Em elaboração", "enviada": "Enviada", "em_negociacao": "Em negociação"}
+    opportunity_labels = {"aberta": "Aberta", "em_analise": "Em análise"}
+    records = []
+
+    def add_record(kind: str, record: dict, due_value: object, value: float, vab: float, probability: float, status: str, description: str):
+        due_date = str(due_value or "")[:10]
+        try:
+            date = datetime.strptime(due_date, "%Y-%m-%d")
+        except ValueError:
+            return
+        if date < anchor or date > year_end:
+            return
+        horizon = "Próximos 30 dias" if date <= min(thirty_days_end, year_end) else ("Trimestre atual" if date <= quarter_end else "Até final do ano")
+        records.append({"horizon": horizon, "date": date, "type": kind, "number": record.get("number") or f"OPP-{str(record.get('id') or '-')[:8].upper()}", "client": clients.get(record.get("client_id"), "-"), "description": description, "value": value * probability / 100, "vab": vab * probability / 100, "probability": probability / 100, "status": status, "due_date": due_date})
+
+    for proposal in proposals:
+        probability = min(100, max(0, float(proposal.get("probability") if proposal.get("probability") is not None else 100)))
+        add_record("Proposta", proposal, proposal.get("expected_close_date") or proposal.get("next_follow_up_date"), float(proposal.get("total_net") or 0), float(proposal.get("total_vab") or 0), probability, proposal_labels.get(proposal.get("status"), proposal.get("status", "-")), proposal.get("description") or opportunities.get(proposal.get("opportunity_id"), "-"))
+    for opportunity in open_opportunities:
+        probability = min(100, max(0, float(opportunity.get("probability") or 0)))
+        add_record("Oportunidade", opportunity, opportunity.get("expected_close_date"), float(opportunity.get("estimated_value") or 0), float(opportunity.get("estimated_vab") or 0), probability, opportunity_labels.get(opportunity.get("status"), opportunity.get("status", "-")), opportunity.get("description", "-"))
+
+    allowed = {"30d": {"Próximos 30 dias"}, "quarter": {"Próximos 30 dias", "Trimestre atual"}, "year": {"Próximos 30 dias", "Trimestre atual", "Até final do ano"}}[scope]
+    records = sorted((record for record in records if record["horizon"] in allowed), key=lambda record: record["date"])
+    return _xlsx_response(
+        "Previsão de fecho",
+        ["Horizonte", "Tipo", "Registo", "Cliente", "Descrição", "Valor s/ IVA (EUR)", "VAB (EUR)", "Probabilidade", "Estado", "Data prevista de fecho"],
+        [[record["horizon"], record["type"], record["number"], record["client"], record["description"], record["value"], record["vab"], record["probability"], record["status"], record["due_date"]] for record in records],
+        f"previsao-fecho-{year}-{scope}.xlsx",
+        (20, 16, 20, 34, 54, 22, 20, 16, 20, 22),
+        (6, 7),
+        (8,),
+    )
+
+
 @router.get("/exports/dashboard.pdf")
 async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
     kpis = await _kpis_summary(year)
@@ -754,7 +809,7 @@ async def export_dashboard_pdf(year: int = Query(datetime.now().year, ge=2000, l
 async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, ge=2000, le=2100), scope: Optional[str] = Query(None, pattern="^(30d|quarter|year)$"), user: dict = Depends(get_current_user)):
     """Exporta a previsão de fecho em tabelas por horizonte."""
     proposals = await db.proposals.find(
-        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "next_follow_up_date": {"$exists": True, "$ne": None}},
+        {"status": {"$in": ["em_elaboracao", "enviada", "em_negociacao"]}, "$or": [{"expected_close_date": {"$exists": True, "$ne": None}}, {"next_follow_up_date": {"$exists": True, "$ne": None}}]},
         {"_id": 0},
     ).to_list(10000)
     open_opportunities = await db.opportunities.find(
@@ -775,7 +830,7 @@ async def export_proposals_follow_up_pdf(year: int = Query(datetime.now().year, 
     opportunity_status_labels = {"aberta": "Aberta", "em_analise": "Em análise"}
     rows = []
     for proposal in proposals:
-        follow_up = str(proposal.get("next_follow_up_date") or "")[:10]
+        follow_up = str(proposal.get("expected_close_date") or proposal.get("next_follow_up_date") or "")[:10]
         try:
             follow_up_date = datetime.strptime(follow_up, "%Y-%m-%d")
         except ValueError:

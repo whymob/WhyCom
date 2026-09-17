@@ -58,6 +58,8 @@ export default function Workboard() {
   const [sentAt, setSentAt] = useState("");
   const [sentTo, setSentTo] = useState("");
   const [expectedCloseDate, setExpectedCloseDate] = useState("");
+  const [nextActionDate, setNextActionDate] = useState("");
+  const [nextActionType, setNextActionType] = useState("follow_up");
   const [statusMoveReason, setStatusMoveReason] = useState("");
   const isManager = ["admin", "ceo"].includes(user?.role);
 
@@ -105,7 +107,9 @@ export default function Workboard() {
     setSendFile(null);
     setSentAt(new Date().toISOString().slice(0, 10));
     setSentTo("");
-    setExpectedCloseDate((dragged.item.due_date || "").slice(0, 10));
+    setExpectedCloseDate((dragged.item.expected_close_date || "").slice(0, 10));
+    setNextActionDate((dragged.item.due_date || "").slice(0, 10));
+    setNextActionType(dragged.item.next_follow_up_type || "follow_up");
     setPendingStatusMove({ ...dragged, targetStatus });
     setDragged(null);
   };
@@ -125,13 +129,15 @@ export default function Workboard() {
         }
         if (targetStatus === "enviada") {
           if (!sendFile) { toast.error("Anexe o ficheiro da proposta."); return; }
-          if (!sentAt || !sentTo.trim() || !expectedCloseDate) { toast.error("Preencha os dados de envio e a data prevista de fecho."); return; }
+          if (!sentAt || !sentTo.trim() || !expectedCloseDate || !nextActionDate) { toast.error("Preencha os dados de envio, a previsão de fecho e a próxima ação."); return; }
           const formData = new FormData();
           formData.append("file", sendFile);
           await api.post(`/proposals/${item.id}/attachment`, formData, { headers: { "Content-Type": "multipart/form-data" } });
           payload.sent_at = sentAt;
           payload.sent_to = sentTo.trim();
-          payload.next_follow_up_date = expectedCloseDate;
+          payload.expected_close_date = expectedCloseDate;
+          payload.next_follow_up_date = nextActionDate;
+          payload.next_follow_up_type = nextActionType;
         }
       }
       if (processKey === "orders" && item.status === "em_planeamento" && targetStatus === "aberta") {
@@ -289,7 +295,7 @@ export default function Workboard() {
 
       <Dialog open={Boolean(pendingStatusMove && pendingStatusMove.processKey === "proposals")} onOpenChange={(open) => !open && !advancing && setPendingStatusMove(null)}>
         <DialogContent className="max-w-md rounded-none">
-          {pendingStatusMove && <><DialogHeader><div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">Confirmar alteração</div><DialogTitle>Mover para {statusLabel({ kind: "proposal", status: pendingStatusMove.targetStatus })}</DialogTitle></DialogHeader><div className="border border-neutral-200 bg-neutral-50 p-3 text-sm"><div className="font-medium">{pendingStatusMove.item.title}</div><div className="mt-1 text-xs text-neutral-500">{pendingStatusMove.item.client}</div></div>{pendingStatusMove.targetStatus === "enviada" && <div className="space-y-3"><p className="text-sm text-neutral-700">Para enviar, anexe o ficheiro final e registe os dados de envio.</p><input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx" onChange={(event) => setSendFile(event.target.files?.[0] || null)} className="block w-full border border-neutral-300 p-2 text-sm" /><input type="date" value={sentAt} onChange={(event) => setSentAt(event.target.value)} className="w-full border border-neutral-300 p-2 text-sm" /><input value={sentTo} onChange={(event) => setSentTo(event.target.value)} placeholder="Enviada para" className="w-full border border-neutral-300 p-2 text-sm" /><input type="date" value={expectedCloseDate} onChange={(event) => setExpectedCloseDate(event.target.value)} className="w-full border border-neutral-300 p-2 text-sm" /></div>}{PROCESS_STATUSES.proposals.indexOf(pendingStatusMove.targetStatus) < PROCESS_STATUSES.proposals.indexOf(pendingStatusMove.item.status) && <textarea value={statusMoveReason} onChange={(event) => setStatusMoveReason(event.target.value)} rows={3} placeholder="Justificação obrigatória para retroceder" className="w-full border border-neutral-300 p-3 text-sm" />}<DialogFooter><button type="button" disabled={advancing} onClick={() => setPendingStatusMove(null)} className="border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50">Cancelar</button><button type="button" disabled={advancing} onClick={confirmStatusMove} className="border border-[#002FA7] bg-[#002FA7] px-3 py-2 text-xs text-white hover:bg-[#002480]">{advancing ? "A guardar…" : "Confirmar"}</button></DialogFooter></>}
+          {pendingStatusMove && <><DialogHeader><div className="text-[10px] uppercase tracking-[0.18em] text-neutral-500">Confirmar alteração</div><DialogTitle>Mover para {statusLabel({ kind: "proposal", status: pendingStatusMove.targetStatus })}</DialogTitle></DialogHeader><div className="border border-neutral-200 bg-neutral-50 p-3 text-sm"><div className="font-medium">{pendingStatusMove.item.title}</div><div className="mt-1 text-xs text-neutral-500">{pendingStatusMove.item.client}</div></div>{pendingStatusMove.targetStatus === "enviada" && <div className="space-y-3"><p className="text-sm text-neutral-700">Para enviar, anexe o ficheiro final e preencha os dados comerciais.</p><div><label className="mb-1 block text-xs font-medium">Ficheiro final da proposta</label><input type="file" accept=".pdf,.doc,.docx,.ppt,.pptx" onChange={(event) => setSendFile(event.target.files?.[0] || null)} className="block w-full border border-neutral-300 p-2 text-sm" /></div><div><label className="mb-1 block text-xs font-medium">Data de envio</label><input type="date" value={sentAt} onChange={(event) => setSentAt(event.target.value)} className="w-full border border-neutral-300 p-2 text-sm" /></div><div><label className="mb-1 block text-xs font-medium">Enviada para</label><input value={sentTo} onChange={(event) => setSentTo(event.target.value)} placeholder="Nome ou email do destinatário" className="w-full border border-neutral-300 p-2 text-sm" /></div><div><label className="mb-1 block text-xs font-medium">Data prevista de fecho</label><input type="date" value={expectedCloseDate} onChange={(event) => setExpectedCloseDate(event.target.value)} className="w-full border border-neutral-300 p-2 text-sm" /></div><div><label className="mb-1 block text-xs font-medium">Data próxima ação / entrega</label><input type="date" value={nextActionDate} onChange={(event) => setNextActionDate(event.target.value)} className="w-full border border-neutral-300 p-2 text-sm" /></div><div><label className="mb-1 block text-xs font-medium">Tipo da próxima ação</label><select value={nextActionType} onChange={(event) => setNextActionType(event.target.value)} className="w-full border border-neutral-300 bg-white p-2 text-sm"><option value="follow_up">Follow-up</option><option value="entrega">Entrega</option></select></div></div>}{PROCESS_STATUSES.proposals.indexOf(pendingStatusMove.targetStatus) < PROCESS_STATUSES.proposals.indexOf(pendingStatusMove.item.status) && <textarea value={statusMoveReason} onChange={(event) => setStatusMoveReason(event.target.value)} rows={3} placeholder="Justificação obrigatória para retroceder" className="w-full border border-neutral-300 p-3 text-sm" />}<DialogFooter><button type="button" disabled={advancing} onClick={() => setPendingStatusMove(null)} className="border border-neutral-300 px-3 py-2 text-xs hover:bg-neutral-50">Cancelar</button><button type="button" disabled={advancing} onClick={confirmStatusMove} className="border border-[#002FA7] bg-[#002FA7] px-3 py-2 text-xs text-white hover:bg-[#002480]">{advancing ? "A guardar…" : "Confirmar"}</button></DialogFooter></>}
         </DialogContent>
       </Dialog>
 

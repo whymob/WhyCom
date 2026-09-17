@@ -165,6 +165,19 @@ button[class~="text-[#002FA7]"]:focus-visible {
     color: #ffffff !important;
 }
 
+/* Marca da aplicação no menu lateral. */
+.wc-sidebar .w-7.h-7.rounded-md {
+    position: relative;
+    background-color: transparent !important;
+    box-shadow: none !important;
+}
+.wc-sidebar > div:first-child > div > .w-7.h-7.rounded-md::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    background: url("./assets/whymob-mark.svg") center / contain no-repeat;
+}
+
 @media (max-width: 900px) {
     .wc-sidebar { width: 72px; }
     .wc-sidebar .wc-nav-label, .wc-sidebar .wc-nav-section, .wc-sidebar .wc-user-info { display: none; }

@@ -173,6 +173,7 @@ async def convert_lead(lid: str, user: dict = Depends(get_current_user)):
         "product_ids": lead.get("product_ids", []),
         "estimated_value": lead.get("estimated_value", 0.0),
         "estimated_vab": 0.0, "probability": 50, "expected_close_date": None,
+        "next_follow_up_date": None, "next_follow_up_type": "follow_up", "follow_up_history": [],
         "priority": "media", "competitor": "", "notes": "",
         "owner_id": user["id"], "status": "aberta", "lost_reason": "",
         "converted_proposal_id": None,
@@ -225,6 +226,10 @@ async def update_opp(oid: str, payload: dict, user: dict = Depends(get_current_u
     before = await db.opportunities.find_one({"id": oid}, {"_id": 0})
     if not before:
         raise HTTPException(404, "Oportunidade não encontrada")
+    if "next_follow_up_date" in payload:
+        payload["next_follow_up_date"] = _follow_up_date(payload["next_follow_up_date"])
+    if "next_follow_up_type" in payload:
+        payload["next_follow_up_type"] = _follow_up_type(payload["next_follow_up_type"])
     if "probability" in payload:
         probability = _proposal_probability(payload["probability"], default=50)
         if probability != _proposal_probability(before.get("probability"), default=50):
@@ -278,7 +283,7 @@ async def convert_opp(oid: str, user: dict = Depends(get_current_user)):
         "description": opp.get("description", ""), "previous_proposal_id": None,
         "lines": [],
         "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opp.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": opp.get("expected_close_date"), "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opp.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "expected_close_date": opp.get("expected_close_date"), "next_follow_up_date": opp.get("next_follow_up_date") or opp.get("expected_close_date"), "next_follow_up_type": opp.get("next_follow_up_type") or "follow_up", "follow_up_history": opp.get("follow_up_history", []), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None,
         "total_net": 0.0, "total_vat": 0.0, "total_gross": 0.0, "total_vab": 0.0,
         "probability": _proposal_probability(opp.get("probability"), default=50),
@@ -384,7 +389,7 @@ async def list_proposals(page: Optional[int] = Query(None, ge=1), page_size: Opt
     if statuses:
         query["status"] = {"$in": statuses}
     total = await db.proposals.count_documents(query)
-    sort_field = sort_by if sort_by in {"created_at", "updated_at", "number", "status", "total_net", "total_vab", "next_follow_up_date"} else "created_at"
+    sort_field = sort_by if sort_by in {"created_at", "updated_at", "number", "status", "total_net", "total_vab", "expected_close_date", "next_follow_up_date"} else "created_at"
     direction = -1 if sort_dir != "asc" else 1
     items = await db.proposals.find(query, {"_id": 0}).sort(sort_field, direction).skip((page - 1) * page_size).limit(page_size).to_list(page_size)
     return _paged_response(items, page, page_size, total)
@@ -409,6 +414,12 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
         raise HTTPException(400, "Proposta convertida em encomenda: itens e estado não podem ser alterados")
 
     payload.pop("id", None)
+    if "expected_close_date" in payload:
+        payload["expected_close_date"] = _follow_up_date(payload["expected_close_date"])
+    if "next_follow_up_date" in payload:
+        payload["next_follow_up_date"] = _follow_up_date(payload["next_follow_up_date"])
+    if "next_follow_up_type" in payload:
+        payload["next_follow_up_type"] = _follow_up_type(payload["next_follow_up_type"])
     if "probability" in payload:
         probability = _proposal_probability(payload["probability"])
         if probability != _proposal_probability(current.get("probability")):
@@ -449,8 +460,10 @@ async def update_proposal(pid: str, payload: dict, user: dict = Depends(get_curr
                     raise HTTPException(400, "Indique a data de envio")
                 if not str(payload.get("sent_to") or current.get("sent_to") or "").strip():
                     raise HTTPException(400, "Indique para quem a proposta foi enviada")
-                if not str(payload.get("next_follow_up_date") or current.get("next_follow_up_date") or "").strip():
+                if not str(payload.get("expected_close_date") or current.get("expected_close_date") or "").strip():
                     raise HTTPException(400, "Indique a data prevista de fecho")
+                if not str(payload.get("next_follow_up_date") or current.get("next_follow_up_date") or "").strip():
+                    raise HTTPException(400, "Indique a data da próxima ação")
         else:
             raise HTTPException(400, "Transicao de estado invalida para a proposta")
     payload["updated_at"] = now_iso()
@@ -555,7 +568,7 @@ async def create_new_proposal_from_opportunity(oid: str, payload: NewProposalFro
         "opportunity_id": oid, "client_id": opportunity["client_id"],
         "description": opportunity.get("description", ""), "previous_proposal_id": previous_id, "replacement_reason": "",
         "lines": [], "valid_until": (datetime.now(timezone.utc) + timedelta(days=30)).isoformat(),
-        "notes": opportunity.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "next_follow_up_date": opportunity.get("expected_close_date"), "owner_id": user["id"], "status": "em_elaboracao",
+        "notes": opportunity.get("description", ""), "sent_at": None, "sent_to": "", "status_change_reason": "", "expected_close_date": opportunity.get("expected_close_date"), "next_follow_up_date": opportunity.get("next_follow_up_date") or opportunity.get("expected_close_date"), "next_follow_up_type": opportunity.get("next_follow_up_type") or "follow_up", "follow_up_history": opportunity.get("follow_up_history", []), "owner_id": user["id"], "status": "em_elaboracao",
         "lost_reason": "", "converted_order_id": None, "total_net": 0.0, "total_vat": 0.0,
         "total_gross": 0.0, "total_vab": 0.0, "probability": _proposal_probability(opportunity.get("probability"), default=50), "created_at": now_iso(), "updated_at": now_iso(),
     }
@@ -754,6 +767,71 @@ def _work_date(value: object) -> str:
     return str(value or "")[:10]
 
 
+def _follow_up_date(value: object, *, required: bool = False) -> Optional[str]:
+    date_value = _work_date(value)
+    if not date_value:
+        if required:
+            raise HTTPException(422, "Indique a data da próxima ação")
+        return None
+    try:
+        return datetime.strptime(date_value, "%Y-%m-%d").date().isoformat()
+    except ValueError:
+        raise HTTPException(422, "A data da próxima ação é inválida")
+
+
+def _follow_up_type(value: object) -> str:
+    action_type = str(value or "follow_up")
+    if action_type not in {"follow_up", "entrega"}:
+        raise HTTPException(422, "O tipo da próxima ação é inválido")
+    return action_type
+
+
+@router.post("/workday/{kind}/{record_id}/follow-up")
+async def update_workday_follow_up(kind: str, record_id: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Conclui ou reagenda a única ação comercial pendente, preservando o histórico."""
+    if kind not in {"opportunity", "proposal"}:
+        raise HTTPException(404, "Tipo de registo inválido")
+    collection = db.opportunities if kind == "opportunity" else db.proposals
+    active_statuses = WORKDAY_OPPORTUNITY_STATUSES if kind == "opportunity" else WORKDAY_PROPOSAL_STATUSES
+    record = await collection.find_one({"id": record_id}, {"_id": 0})
+    if not record:
+        raise HTTPException(404, "Registo não encontrado")
+    if record.get("status") not in active_statuses:
+        raise HTTPException(400, "Ações só podem ser atualizadas em registos ativos")
+    if user.get("role") not in {"admin", "ceo"} and record.get("owner_id") != user.get("id"):
+        raise HTTPException(403, "Só pode atualizar ações da sua carteira")
+
+    action = str(payload.get("action") or "")
+    if action not in {"complete", "reschedule"}:
+        raise HTTPException(422, "A ação deve ser concluir ou reagendar")
+    current_due_date = _follow_up_date(record.get("next_follow_up_date") or (record.get("expected_close_date") if kind == "opportunity" else None), required=True)
+    next_due_date = _follow_up_date(payload.get("next_follow_up_date"), required=action == "reschedule")
+    action_type = _follow_up_type(payload.get("next_follow_up_type") or record.get("next_follow_up_type"))
+    note = str(payload.get("note") or "").strip()
+    now = now_iso()
+    history_entry = {
+        "id": new_id(), "action": "completed" if action == "complete" else "rescheduled",
+        "performed_at": now, "performed_by_id": user.get("id"), "performed_by": user.get("name") or user.get("email") or "Utilizador",
+        "due_date": current_due_date, "next_due_date": next_due_date,
+        "type": action_type, "note": note,
+    }
+    history = list(record.get("follow_up_history") or [])
+    history.append(history_entry)
+    await collection.update_one({"id": record_id}, {"$set": {
+        "next_follow_up_date": next_due_date,
+        "next_follow_up_type": action_type,
+        "follow_up_history": history,
+        "updated_at": now,
+    }})
+    updated = await collection.find_one({"id": record_id}, {"_id": 0})
+    await audit_log(
+        "follow_up_completed" if action == "complete" else "follow_up_rescheduled", kind, record_id,
+        {"next_follow_up_date": current_due_date},
+        {"next_follow_up_date": next_due_date, "type": action_type}, user, note,
+    )
+    return updated
+
+
 @router.get("/workday")
 async def workday(owner_id: Optional[str] = Query(None), user: dict = Depends(get_current_user)):
     """Fila diária de trabalho, construída a partir dos prazos comerciais existentes."""
@@ -763,7 +841,10 @@ async def workday(owner_id: Optional[str] = Query(None), user: dict = Depends(ge
     scope = _work_scope(user, owner_id)
 
     proposal_query = {**scope, "status": {"$in": list(WORKDAY_PROPOSAL_STATUSES)}, "next_follow_up_date": {"$exists": True, "$ne": None}}
-    opportunity_query = {**scope, "status": {"$in": list(WORKDAY_OPPORTUNITY_STATUSES)}, "expected_close_date": {"$exists": True, "$ne": None}}
+    opportunity_query = {**scope, "status": {"$in": list(WORKDAY_OPPORTUNITY_STATUSES)}, "$or": [
+        {"next_follow_up_date": {"$exists": True, "$ne": None}},
+        {"next_follow_up_date": {"$exists": False}, "expected_close_date": {"$exists": True, "$ne": None}},
+    ]}
     proposals, opportunities = await asyncio.gather(
         db.proposals.find(proposal_query, {"_id": 0}).to_list(500),
         db.opportunities.find(opportunity_query, {"_id": 0}).to_list(500),
@@ -787,10 +868,10 @@ async def workday(owner_id: Optional[str] = Query(None), user: dict = Depends(ge
             "title": proposal.get("number") or "Proposta", "description": proposal.get("description") or "",
             "client": client_names.get(proposal.get("client_id"), "-"), "owner": owner_names.get(proposal.get("owner_id"), "-"),
             "status": proposal.get("status"), "due_date": due_date, "href": f"/propostas/{proposal['id']}",
-            "value": proposal.get("total_net", 0),
+            "value": proposal.get("total_net", 0), "follow_up_type": proposal.get("next_follow_up_type") or "follow_up",
         })
     for opportunity in opportunities:
-        due_date = _work_date(opportunity.get("expected_close_date"))
+        due_date = _work_date(opportunity.get("next_follow_up_date") or opportunity.get("expected_close_date"))
         if not due_date:
             continue
         items.append({
@@ -798,7 +879,7 @@ async def workday(owner_id: Optional[str] = Query(None), user: dict = Depends(ge
             "title": opportunity.get("description") or "Oportunidade", "description": "",
             "client": client_names.get(opportunity.get("client_id"), "-"), "owner": owner_names.get(opportunity.get("owner_id"), "-"),
             "status": opportunity.get("status"), "due_date": due_date, "href": f"/oportunidades/{opportunity['id']}",
-            "value": opportunity.get("estimated_value", 0),
+            "value": opportunity.get("estimated_value", 0), "follow_up_type": opportunity.get("next_follow_up_type") or "follow_up",
         })
 
     overdue = sorted((item for item in items if item["due_date"] < today_key), key=lambda item: item["due_date"])
@@ -858,6 +939,7 @@ async def workboard(owner_id: Optional[str] = Query(None), user: dict = Depends(
             "status": item.get("status"), "value": item.get("total_net", item.get("estimated_value", 0)),
             "due_date": _work_date(due_date), "href": href,
             "opportunity_id": item.get("opportunity_id"), "has_attachment": bool(item.get("attachment")),
+            "expected_close_date": _work_date(item.get("expected_close_date")), "next_follow_up_type": item.get("next_follow_up_type") or "follow_up",
             "has_valid_lines": has_valid_proposal_line,
         }
 

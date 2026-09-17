@@ -402,10 +402,11 @@ class TestVABPreservedUpToOrder:
         users = http.get(f"{API}/users", headers=A, timeout=10).json()
         admin_id = next(user["id"] for user in users if user["email"] == "admin@whymob.pt")
         expected_close_date = "2026-12-15"
+        follow_up_date = "2026-11-20"
         opportunity = http.post(f"{API}/opportunities", headers=A, json={
             "client_id": client["id"], "description": "TEST proposal probability",
             "owner_id": admin_id, "probability": 65,
-            "expected_close_date": expected_close_date, "status": "em_analise",
+            "expected_close_date": expected_close_date, "next_follow_up_date": follow_up_date, "status": "em_analise",
         }, timeout=15)
         assert opportunity.status_code == 200, opportunity.text
 
@@ -414,7 +415,8 @@ class TestVABPreservedUpToOrder:
         )
         assert proposal.status_code == 200, proposal.text
         assert proposal.json()["probability"] == 65
-        assert proposal.json()["next_follow_up_date"] == expected_close_date
+        assert proposal.json()["next_follow_up_date"] == follow_up_date
+        assert proposal.json()["expected_close_date"] == expected_close_date
 
     def test_opportunity_estimated_vab_preserved(self, http, A):
         opps = http.get(f"{API}/opportunities", headers=A, timeout=15).json()

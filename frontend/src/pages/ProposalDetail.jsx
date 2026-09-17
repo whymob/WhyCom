@@ -221,9 +221,11 @@ export default function ProposalDetail() {
         ...(isConverted ? {} : { lines: proposal.lines }),
         notes: proposal.notes,
         valid_until: proposal.valid_until,
+        expected_close_date: proposal.expected_close_date || null,
         sent_at: proposal.sent_at || null,
         sent_to: proposal.sent_to || "",
         next_follow_up_date: proposal.next_follow_up_date || null,
+        next_follow_up_type: proposal.next_follow_up_type || "follow_up",
         ...(canEditProbability ? { probability: Number(proposal.probability ?? 100) } : {}),
       };
       const { data } = await api.patch(`/proposals/${id}`, payload);
@@ -341,13 +343,15 @@ export default function ProposalDetail() {
       }
       if (pendingStatus === "enviada" && proposal.status === "em_elaboracao") {
         if (!sendFile) { toast.error("Anexe o ficheiro da proposta"); return; }
-        if (!proposal.sent_at || !proposal.sent_to?.trim() || !proposal.next_follow_up_date) { toast.error("Preencha a data, destinatário e fecho previsto"); return; }
+        if (!proposal.sent_at || !proposal.sent_to?.trim() || !proposal.expected_close_date || !proposal.next_follow_up_date) { toast.error("Preencha a data, destinatário, previsão de fecho e próxima ação"); return; }
         const formData = new FormData();
         formData.append("file", sendFile);
         await api.post(`/proposals/${id}/attachment`, formData, { headers: { "Content-Type": "multipart/form-data" } });
         payload.sent_at = proposal.sent_at;
         payload.sent_to = proposal.sent_to.trim();
+        payload.expected_close_date = proposal.expected_close_date;
         payload.next_follow_up_date = proposal.next_follow_up_date;
+        payload.next_follow_up_type = proposal.next_follow_up_type || "follow_up";
       }
       const { data } = await api.patch(`/proposals/${id}`, payload);
       setProposal(data);
@@ -392,7 +396,7 @@ export default function ProposalDetail() {
   return (
     <div>
       <PageHeader
-        kicker={`Proposta · ${dateShort(proposal.created_at)}`}
+        kicker={`Proposta · ${clientName} · ${dateShort(proposal.created_at)}`}
         title={proposal.number}
         actions={
           <div className="flex gap-2">
@@ -493,18 +497,22 @@ export default function ProposalDetail() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
           <div className="border border-neutral-200 p-4">
             <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Notas internas</Label>
             <Textarea rows={3} value={proposal.notes || ""} onChange={(e) => setProposal({ ...proposal, notes: e.target.value })} className="rounded-none mt-2" data-testid="prop-notes" />
           </div>
           <div className="border border-neutral-200 p-4">
-            <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Validade</Label>
-            <Input type="date" value={(proposal.valid_until || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, valid_until: e.target.value })} className="rounded-none mt-2 font-mono" />
+            <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Data próxima ação / entrega</Label>
+            <Input type="date" value={(proposal.next_follow_up_date || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, next_follow_up_date: e.target.value })} className="rounded-none mt-2 font-mono" data-testid="proposal-follow-up-date" />
           </div>
           <div className="border border-neutral-200 p-4">
             <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Data prevista de fecho</Label>
-            <Input type="date" value={(proposal.next_follow_up_date || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, next_follow_up_date: e.target.value })} className="rounded-none mt-2 font-mono" data-testid="proposal-follow-up-date" />
+            <Input type="date" value={(proposal.expected_close_date || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, expected_close_date: e.target.value })} className="rounded-none mt-2 font-mono" data-testid="proposal-expected-close-date" />
+          </div>
+          <div className="border border-neutral-200 p-4">
+            <Label className="text-[10px] uppercase tracking-widest text-neutral-500">Tipo de ação</Label>
+            <select value={proposal.next_follow_up_type || "follow_up"} onChange={(e) => setProposal({ ...proposal, next_follow_up_type: e.target.value })} className="mt-2 h-10 w-full rounded-none border border-neutral-300 bg-white px-3 text-sm"><option value="follow_up">Follow-up</option><option value="entrega">Entrega</option></select>
           </div>
         </div>
 
@@ -512,6 +520,11 @@ export default function ProposalDetail() {
           <div className="border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Probabilidade (%)</Label><Input type="number" min="0" max="100" step="1" disabled={!canEditProbability} value={proposal.probability ?? 100} onChange={(e) => setProposal({ ...proposal, probability: e.target.value })} className="mt-2 rounded-none font-mono" data-testid="proposal-probability" />{!canEditProbability && <div className="mt-1 text-xs text-neutral-500">Bloqueada após o fecho da proposta.</div>}</div>
           <div className="border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Enviada em</Label><Input type="date" value={(proposal.sent_at || "").slice(0, 10)} onChange={(e) => setProposal({ ...proposal, sent_at: e.target.value })} className="mt-2 rounded-none font-mono" /></div>
           <div className="col-span-2 border border-neutral-200 p-4"><Label className="text-[10px] uppercase tracking-widest text-neutral-500">Enviada para</Label><Input value={proposal.sent_to || ""} onChange={(e) => setProposal({ ...proposal, sent_to: e.target.value })} placeholder="Nome ou endereço de email do destinatário" className="mt-2 rounded-none" /></div>
+        </div>
+
+        <div className="border border-neutral-200 p-4">
+          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">Histórico de follow-ups</div>
+          {(proposal.follow_up_history || []).length === 0 ? <div className="mt-3 text-sm text-neutral-500">Sem ações concluídas ou reagendadas.</div> : <div className="mt-3 divide-y divide-neutral-100">{[...(proposal.follow_up_history || [])].reverse().map((entry) => <div key={entry.id} className="py-2 text-sm"><div className="font-medium">{entry.action === "completed" ? "Concluído" : "Reagendado"}{entry.type === "entrega" ? " · Entrega" : " · Follow-up"}</div><div className="mt-1 text-xs text-neutral-500">{dateShort(entry.due_date)}{entry.next_due_date ? ` → ${dateShort(entry.next_due_date)}` : ""} · {entry.performed_by || "Utilizador"}</div>{entry.note && <div className="mt-1 text-xs text-neutral-700">{entry.note}</div>}</div>)}</div>}
         </div>
 
         <div className="border border-neutral-200 p-4">

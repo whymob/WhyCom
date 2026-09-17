@@ -36,6 +36,8 @@ function defaultForm() {
     estimated_vab: 0,
     probability: 50,
     expected_close_date: "",
+    next_follow_up_date: "",
+    next_follow_up_type: "follow_up",
     priority: "media",
     competitor: "",
     notes: "",
@@ -172,6 +174,8 @@ export default function Opportunities() {
       estimated_vab: opportunity.estimated_vab,
       probability: opportunity.probability,
       expected_close_date: (opportunity.expected_close_date || "").slice(0, 10),
+      next_follow_up_date: (opportunity.next_follow_up_date || "").slice(0, 10),
+      next_follow_up_type: opportunity.next_follow_up_type || "follow_up",
       priority: opportunity.priority,
       competitor: opportunity.competitor || "",
       notes: opportunity.notes || "",
@@ -524,6 +528,10 @@ export default function Opportunities() {
                   <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{dateShort(viewing.expected_close_date)}</div>
                 </div>
                 <div>
+                  <Label>Próxima ação</Label>
+                  <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 font-mono text-sm">{viewing.next_follow_up_date ? `${dateShort(viewing.next_follow_up_date)} · ${viewing.next_follow_up_type === "entrega" ? "Entrega" : "Follow-up"}` : "-"}</div>
+                </div>
+                <div>
                   <Label>Prioridade</Label>
                   <div className="mt-1 border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.priority || "-"}</div>
                 </div>
@@ -540,6 +548,7 @@ export default function Opportunities() {
                   <div className="mt-1 min-h-10 whitespace-pre-wrap border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm">{viewing.notes || "-"}</div>
                 </div>
               </div>
+              <div className="border-t border-neutral-200 pt-3"><Label>Histórico de follow-ups</Label>{(viewing.follow_up_history || []).length === 0 ? <div className="mt-1 text-sm text-neutral-500">Sem ações concluídas ou reagendadas.</div> : <div className="mt-2 divide-y divide-neutral-100">{[...(viewing.follow_up_history || [])].reverse().map((entry) => <div key={entry.id} className="py-2 text-xs"><div className="font-medium">{entry.action === "completed" ? "Concluído" : "Reagendado"}{entry.type === "entrega" ? " · Entrega" : " · Follow-up"}</div><div className="mt-1 text-neutral-500">{dateShort(entry.due_date)}{entry.next_due_date ? ` → ${dateShort(entry.next_due_date)}` : ""} · {entry.performed_by || "Utilizador"}</div>{entry.note && <div className="mt-1">{entry.note}</div>}</div>)}</div>}</div>
               <OpportunityAttachments opportunity={viewing} onUpdated={syncOpportunity} readOnly />
               {viewing.converted_proposal_id && (
                 <div className="flex flex-wrap gap-3 border-t border-neutral-200 pt-3 text-xs">
@@ -643,6 +652,17 @@ export default function Opportunities() {
             <div>
               <Label>Data prevista de fecho</Label>
               <Input type="date" value={form.expected_close_date} onChange={(e) => setForm({ ...form, expected_close_date: e.target.value })} data-testid="opp-expected-close-date-input" className="rounded-none font-mono" />
+            </div>
+            <div>
+              <Label>Data próxima ação</Label>
+              <Input type="date" value={form.next_follow_up_date} onChange={(e) => setForm({ ...form, next_follow_up_date: e.target.value })} data-testid="opp-follow-up-date-input" className="rounded-none font-mono" />
+            </div>
+            <div>
+              <Label>Tipo de ação</Label>
+              <Select value={form.next_follow_up_type} onValueChange={(value) => setForm({ ...form, next_follow_up_type: value })}>
+                <SelectTrigger className="rounded-none"><SelectValue /></SelectTrigger>
+                <SelectContent><SelectItem value="follow_up">Follow-up</SelectItem><SelectItem value="entrega">Entrega</SelectItem></SelectContent>
+              </Select>
             </div>
             <div>
               <Label>Prioridade</Label>

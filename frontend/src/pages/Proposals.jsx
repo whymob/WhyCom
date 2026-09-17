@@ -244,7 +244,7 @@ export default function Proposals() {
             </div>
             <div className="col-span-1 text-right">Prob.</div>
             <div className="col-span-1 text-right">
-              <SortButton label="Fecho previsto" sortKey="next_follow_up_date" sort={sort} onClick={toggleSort} align="right" />
+              <SortButton label="Data prevista de fecho" sortKey="expected_close_date" sort={sort} onClick={toggleSort} align="right" />
             </div>
             <div className="col-span-1 text-center">
               <SortButton label="Estado" sortKey="status" sort={sort} onClick={toggleSort} align="center" />
@@ -294,7 +294,7 @@ export default function Proposals() {
                   />
                 ) : `${proposal.probability ?? 100}%`}
               </div>
-              <div className="col-span-1 text-right font-mono text-xs text-neutral-600">{proposal.next_follow_up_date ? dateShort(proposal.next_follow_up_date) : "-"}</div>
+              <div className="col-span-1 text-right font-mono text-xs text-neutral-600">{proposal.expected_close_date ? dateShort(proposal.expected_close_date) : "-"}</div>
               <div className="col-span-1 flex justify-center">
                 <Badge className={`${STATUS_STYLE[proposal.status]} rounded-none font-normal`}>{PROP_STATUS[proposal.status]}</Badge>
               </div>

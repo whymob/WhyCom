@@ -179,8 +179,8 @@ async def reschedule_plan_balance(oid: str, payload: dict, user: dict = Depends(
         raise HTTPException(400, "Encomenda anulada: o plano não pode ser reprogramado")
 
     active_invoice = await db.invoices.find_one({"order_id": oid, "status": {"$ne": "anulada"}}, {"_id": 0, "number": 1})
-    if active_invoice and user.get("role") != "admin":
-        raise HTTPException(403, "A reprogramação com faturação ativa requer um administrador")
+    if active_invoice and user.get("role") not in {"admin", "comercial"}:
+        raise HTTPException(403, "A reprogramação com faturação ativa requer perfil admin ou comercial")
 
     allocations = payload.get("allocations") or []
     if not isinstance(allocations, list) or not allocations:
