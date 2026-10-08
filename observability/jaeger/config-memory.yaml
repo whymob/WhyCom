@@ -17,13 +17,8 @@ extensions:
   jaeger_storage:
     backends:
       whymob_traces:
-        badger:
-          directories:
-            keys: /badger/keys
-            values: /badger/values
-          ephemeral: false
-          ttl:
-            spans: 336h
+          memory:
+            max_traces: 50000
 
 receivers:
   otlp:

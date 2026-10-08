@@ -1,4 +1,25 @@
 services:
+  jaeger:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
+    command: ["--config", "/etc/whymob-jaeger.yaml"]
+    volumes:
+      - ./observability/jaeger/config-badger-production.yaml:/etc/whymob-jaeger.yaml:ro
+      - jaeger_data:/badger
+    depends_on:
+      jaeger-storage-init:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  jaeger-storage-init:
+    image: cr.jaegertracing.io/jaegertracing/jaeger:2.21.0
+    user: "0:0"
+    network_mode: none
+    entrypoint: ["/bin/sh"]
+    command: ["-c", "mkdir -p /badger/keys /badger/values && chown -R 10001:0 /badger/keys /badger/values"]
+    volumes:
+      - jaeger_data:/badger
+    restart: "no"
+
   backend:
     env_file:
       - ./backend/.env.production
@@ -9,7 +30,7 @@ services:
 
   frontend:
     environment:
-      REACT_APP_BACKEND_URL: http://localhost:8000
+      REACT_APP_BACKEND_URL: http://whycrm.oramix.local:8000
       HOST: 0.0.0.0
       PORT: 3000
       CHOKIDAR_USEPOLLING: "true"
@@ -34,3 +55,4 @@ services:
 volumes:
   mongo_data:
   proposal_uploads:
+  jaeger_data:

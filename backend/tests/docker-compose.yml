@@ -22,8 +22,7 @@ services:
     ports:
       - "16686:16686"
     volumes:
-      - ./jaeger/config-badger.yaml:/etc/whymob-jaeger.yaml:ro
-      - jaeger_data:/badger
+      - ./jaeger/config-memory.yaml:/etc/whymob-jaeger.yaml:ro
     restart: unless-stopped
 
   frontend:
@@ -44,4 +43,3 @@ services:
 
 volumes:
   proposal_uploads:
-  jaeger_data:

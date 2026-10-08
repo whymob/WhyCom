@@ -786,9 +786,7 @@ def _follow_up_type(value: object) -> str:
     return action_type
 
 
-@router.post("/workday/{kind}/{record_id}/follow-up")
-async def update_workday_follow_up(kind: str, record_id: str, payload: dict, user: dict = Depends(get_current_user)):
-    """Conclui ou reagenda a única ação comercial pendente, preservando o histórico."""
+async def _apply_workday_follow_up(kind: str, record_id: str, payload: dict, user: dict):
     if kind not in {"opportunity", "proposal"}:
         raise HTTPException(404, "Tipo de registo inválido")
     collection = db.opportunities if kind == "opportunity" else db.proposals
@@ -830,6 +828,48 @@ async def update_workday_follow_up(kind: str, record_id: str, payload: dict, use
         {"next_follow_up_date": next_due_date, "type": action_type}, user, note,
     )
     return updated
+
+
+@router.post("/workday/reschedule")
+async def reschedule_workday_items(payload: dict, user: dict = Depends(get_current_user)):
+    """Reagenda em lote ações selecionadas, devolvendo o resultado por registo."""
+    items = payload.get("items")
+    if not isinstance(items, list) or not items or len(items) > 100:
+        raise HTTPException(422, "Selecione entre 1 e 100 ações para reagendar")
+    next_date = _follow_up_date(payload.get("next_follow_up_date"), required=True)
+    note = str(payload.get("note") or "").strip()
+    results = []
+    seen = set()
+    for item in items:
+        if not isinstance(item, dict):
+            results.append({"success": False, "error": "Ação inválida"})
+            continue
+        kind, record_id = str(item.get("kind") or ""), str(item.get("id") or "")
+        key = (kind, record_id)
+        if not record_id or key in seen:
+            results.append({"kind": kind, "id": record_id, "success": False, "error": "Ação inválida ou duplicada"})
+            continue
+        seen.add(key)
+        try:
+            await _apply_workday_follow_up(kind, record_id, {
+                "action": "reschedule",
+                "next_follow_up_date": next_date,
+                "note": note,
+            }, user)
+            results.append({"kind": kind, "id": record_id, "success": True})
+        except HTTPException as error:
+            results.append({"kind": kind, "id": record_id, "success": False, "error": error.detail})
+    return {
+        "results": results,
+        "succeeded": sum(1 for result in results if result["success"]),
+        "failed": sum(1 for result in results if not result["success"]),
+    }
+
+
+@router.post("/workday/{kind}/{record_id}/follow-up")
+async def update_workday_follow_up(kind: str, record_id: str, payload: dict, user: dict = Depends(get_current_user)):
+    """Conclui ou reagenda a única ação comercial pendente, preservando o histórico."""
+    return await _apply_workday_follow_up(kind, record_id, payload, user)
 
 
 @router.get("/workday")

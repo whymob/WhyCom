@@ -54,6 +54,9 @@ Neste modo:
 - a seed automatica deve ficar desligada com `ENABLE_STARTUP_SEED=false`;
 - o service `mongo` sobe dentro do mesmo compose;
 - o volume `mongo_data` guarda os dados do Mongo containerizado.
+- o Jaeger usa Badger no volume `jaeger_data`, com retencao de traces de 14 dias;
+- um contentor de inicializacao prepara as permissoes do volume para o utilizador nao-root do Jaeger;
+- o volume `jaeger_data` sobrevive a reinicios e a `docker compose down` (nao usar `down -v` se quiser manter os traces).
 
 ## Parar
 
