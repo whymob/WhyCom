@@ -22,6 +22,7 @@ from routers.technical import router as technical_router
 from routers.exports_audit import router as exports_audit_router
 from routers.notifications import router as notifications_router
 from routers.search import router as search_router
+from routers.client_enrichment import router as client_enrichment_router
 
 
 app = FastAPI(title="WhyMob CRM API")
@@ -59,6 +60,7 @@ for r in (
     exports_audit_router,
     notifications_router,
     search_router,
+    client_enrichment_router,
 ):
     api.include_router(r)
 

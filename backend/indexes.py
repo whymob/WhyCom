@@ -35,5 +35,7 @@ async def ensure_search_indexes() -> None:
             key = ((field, 1),)
             if key not in existing_keys:
                 operations.append(collection.create_index([(field, 1)], name=f"search_{collection_name}_{field}"))
+    for collection_name in ("client_enrichment_cache", "client_enrichment_quotas"):
+        operations.append(db[collection_name].create_index("expires_at", expireAfterSeconds=0, name="enrichment_expiry"))
     await asyncio.gather(*operations)
     logger.info("Global search indexes ready")

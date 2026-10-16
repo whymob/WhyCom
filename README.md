@@ -231,3 +231,4 @@ Os testes backend e o smoke E2E estão descritos nos próprios documentos. A exi
 
 - [Smoke de leitura](docs/SMOKE_READONLY.md)
 - [Smoke E2E mínimo](docs/SMOKE_E2E_MINIMO.md)
+- [Preenchimento assistido de clientes](docs/PREENCHIMENTO_ASSISTIDO_CLIENTES.md): pesquisa pública limitada, fallback NIF.pt e IA local opcional.
