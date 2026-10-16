@@ -1,21 +1,8 @@
 # WhyMob CRM
 
-WhyMob CRM e uma aplicacao web de gestao comercial B2B orientada ao ciclo completo:
+O WhyMob CRM é uma aplicação web B2B para gerir o ciclo comercial e acompanhar a execução e a faturação dos negócios. O fluxo principal é `Lead → Oportunidade → Proposta → Encomenda`; a encomenda pode seguir para planeamento financeiro, faturação, recebimentos e, quando aplicável, projeto técnico e timesheet.
 
-`Lead -> Oportunidade -> Proposta -> Encomenda -> Faturacao -> Recebimento -> Projeto -> Reporting`
-
-O projeto foi exportado de uma plataforma de desenvolvimento com AI e ja inclui uma base funcional relevante:
-
-- frontend React;
-- backend FastAPI;
-- MongoDB;
-- autenticacao JWT com perfis;
-- analytics e reporting;
-- modulo tecnico com projetos e timesheet;
-- notificacoes por email;
-- testes backend e dados seed.
-
-Este README foi consolidado para refletir o estado atual real do repositorio.
+Esta documentação descreve o estado observado no código do repositório. Requisitos e regras de negócio estão detalhados em [Análise Funcional e Regras de Negócio](docs/ANALISE_FUNCIONAL_E_REGRAS_NEGOCIO.md) e [Requisitos Não Funcionais](docs/REQUISITOS_NAO_FUNCIONAIS.md).
 
 ## Estrutura
 
@@ -50,9 +37,9 @@ docs/            Documentacao consolidada do projeto
 - APScheduler
 - Resend
 
-## Modulos funcionais identificados
+## Módulos disponíveis no código
 
-- autenticacao e RBAC;
+- autenticação JWT e controlo de acesso por perfil;
 - utilizadores;
 - clientes;
 - fabricantes;
@@ -61,15 +48,27 @@ docs/            Documentacao consolidada do projeto
 - oportunidades;
 - propostas;
 - encomendas;
-- plano de faturacao;
+- plano de faturação;
 - faturas;
 - recebimentos;
 - auditoria;
 - exportacoes CSV e PDF;
-- dashboards e analytics;
+- dashboards, funil e analytics;
 - projetos tecnicos;
 - alocacoes e time entries;
-- notificacoes e digest de alertas.
+- notificações por email e digest de alertas;
+- pesquisa global, quadro comercial e agenda de trabalho.
+
+## Documentação
+
+- [Manual de utilização](docs/MANUAL_USO_WHYMOB.md): operação das páginas e fluxos.
+- [Análise funcional e regras de negócio](docs/ANALISE_FUNCIONAL_E_REGRAS_NEGOCIO.md): requisitos observáveis, estados e condições de transição.
+- [Requisitos não funcionais](docs/REQUISITOS_NAO_FUNCIONAIS.md): características implementadas e decisões operacionais pendentes.
+- [Análise do projeto e plano](docs/ANALISE_PROJETO_E_PLANO.md): arquitetura, estado técnico e prioridades.
+- [Setup local](docs/SETUP_LOCAL.md) · [Docker local](docs/DOCKER_LOCAL.md) · [Ambientes](docs/AMBIENTES_E_VARIAVEIS.md) · [Deploy e operação](docs/DEPLOY_E_OPERACAO.md) · [Observabilidade](docs/observability.md).
+- [PRD atual](memory/PRD.md): âmbito do produto, capacidades presentes e backlog ainda em aberto.
+
+O Markdown do manual é a fonte editável. Os ficheiros PDF e DOCX são cópias exportadas e devem ser regenerados sempre que o manual for alterado.
 
 ## Requisitos locais
 
@@ -195,7 +194,7 @@ Notas:
 
 - o `pytest.ini` ja define `-n 2 --dist loadscope`;
 - os testes existentes assumem backend acessivel e, em varios casos, um ambiente seed funcional;
-- ainda falta uma rodada final de execucao completa de testes com uma base de dados acessivel de forma repetivel.
+- a execução recente da suite completa não foi confirmada nesta revisão.
 
 ### Frontend
 
@@ -205,7 +204,7 @@ No diretorio `frontend/`:
 npm.cmd run build
 ```
 
-O build do frontend ja foi validado com sucesso no ambiente local.
+O comando de build está disponível; esta revisão documental não executou o build.
 
 ## Docker
 
@@ -217,38 +216,18 @@ Documentacao de containers:
 
 | Cenario | Comando | Backend `.env` | Base de dados |
 | --- | --- | --- | --- |
-| Desenvolvimento / teste | `docker compose up --build` | `backend/.env` | Atlas via `MONGO_URL` |
-| Producao / simulacao local | `docker compose -f docker-compose.yml -f docker-compose.production.yml up --build` | `backend/.env.production` | container `mongo` |
+| Desenvolvimento isolado | `docker compose -f docker-compose.workspace.yml up --build` | `backend/.env.workspace` | Mongo local, base `whycom_workspace_dev` |
+| Desenvolvimento com configuração principal | `docker compose up --build` | `backend/.env` | destino definido por `MONGO_URL` |
+| Simulação financeira local | `docker compose -f docker-compose.yml -f docker-compose.production.yml up --build` | `backend/.env.production` | container `mongo`; nunca apontar a dados reais |
 
 ## Ambientes e deploy
 
 - [Ambientes e Variaveis](docs/AMBIENTES_E_VARIAVEIS.md)
 - [Deploy e Operacao](docs/DEPLOY_E_OPERACAO.md)
 
-## Estado atual
+## Validação
 
-O projeto esta numa fase boa de consolidacao tecnica:
+Os testes backend e o smoke E2E estão descritos nos próprios documentos. A existência de testes ou de documentação de deploy não significa que uma execução recente tenha sido validada neste ambiente; consultar [Análise do Projeto e Plano](docs/ANALISE_PROJETO_E_PLANO.md) para limitações e decisões pendentes.
 
-- documentacao principal criada;
-- setup local e Docker basicos definidos;
-- frontend compila com sucesso;
-- backend arranca e expoe `health`;
-- ainda faltam validacao funcional completa com base acessivel e endurecimento de engenharia.
-
-Analise completa e roadmap:
-
-- [Analise do Projeto e Plano](docs/ANALISE_PROJETO_E_PLANO.md)
-- [Setup Local](docs/SETUP_LOCAL.md)
-- [Setup Docker Local](docs/DOCKER_LOCAL.md)
-- [Ambientes e Variaveis](docs/AMBIENTES_E_VARIAVEIS.md)
-- [Deploy e Operacao](docs/DEPLOY_E_OPERACAO.md)
-- [Smoke Check Read-Only](docs/SMOKE_READONLY.md)
-- [Smoke E2E Minimo](docs/SMOKE_E2E_MINIMO.md)
-
-## Proximas prioridades recomendadas
-
-1. fechar a validacao funcional com base de dados acessivel;
-2. correr testes backend completos no ambiente atual;
-3. introduzir testes frontend e smoke tests E2E;
-4. reativar CI apenas quando o fluxo de deploy estiver estabilizado;
-5. continuar o endurecimento para staging/producao.
+- [Smoke de leitura](docs/SMOKE_READONLY.md)
+- [Smoke E2E mínimo](docs/SMOKE_E2E_MINIMO.md)

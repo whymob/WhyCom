@@ -27,7 +27,13 @@ async def ensure_search_indexes() -> None:
     operations = []
     for collection_name, fields in SEARCH_INDEXES.items():
         collection = db[collection_name]
+        existing_keys = {
+            tuple(index.get("key", []))
+            for index in (await collection.index_information()).values()
+        }
         for field in fields:
-            operations.append(collection.create_index([(field, 1)], name=f"search_{collection_name}_{field}"))
+            key = ((field, 1),)
+            if key not in existing_keys:
+                operations.append(collection.create_index([(field, 1)], name=f"search_{collection_name}_{field}"))
     await asyncio.gather(*operations)
     logger.info("Global search indexes ready")

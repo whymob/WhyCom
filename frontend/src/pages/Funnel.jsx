@@ -54,10 +54,7 @@ export default function Funnel() {
   const maxCount = Math.max(1, ...stages.map((stage) => stage.count));
   const selectedStage = stages.find((stage) => stage.key === selectedStageKey);
   const toggleStage = (stageKey) => setSelectedStageKey((current) => current === stageKey ? null : stageKey);
-  const funnelYears = Array.from(new Set([
-    ...availableYears,
-    ...Array.from({ length: Math.max(0, 2030 - new Date().getFullYear()) }, (_, index) => new Date().getFullYear() + index),
-  ])).sort((a, b) => a - b);
+  const funnelYears = [...new Set(availableYears)].sort((a, b) => a - b);
   const activeYear = funnelYear === "__all__" ? "Todos os anos" : funnelYear;
   const activeName = manufacturerId === "__all__" ? "Todos os fabricantes" : (manufs.find((manufacturer) => manufacturer.id === manufacturerId)?.name || "—");
   const viewMeta = {
@@ -76,7 +73,7 @@ export default function Funnel() {
   return (
     <div>
       <PageHeader kicker="Ciclo Comercial" title="Funil de Vendas" />
-      <div className="p-7 space-y-8">
+      <div className="space-y-6 p-4 sm:p-7">
         <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-4 shadow-sm flex flex-wrap items-center gap-4">
           <div className="text-[10px] font-semibold uppercase tracking-[0.16em] text-slate-400">Filtros do funil</div>
           <div className="w-40">
@@ -124,43 +121,44 @@ export default function Funnel() {
           <div className="ml-auto text-xs text-neutral-500 font-mono" data-testid="funnel-active-filter">{activeYear} · {activeName}</div>
         </div>
 
-        <div className="rounded-[14px] border border-[var(--wc-border)] bg-white p-7 shadow-sm">
-          <div className="text-[11px] uppercase tracking-[0.2em] text-neutral-500">{viewMeta.title}</div>
-          <div className="mb-6 mt-2 text-xs text-neutral-500">{viewMeta.description}</div>
-          <div className="mb-2 flex items-center gap-4 px-1 text-[10px] uppercase tracking-widest text-neutral-500">
-            <div className="w-32">Fase</div>
-            <div className="flex-1">Registos</div>
-            <div className="w-32 text-right">Valor</div>
-            <div className="w-32 text-right">VAB</div>
-            <div className="w-32 text-right">{viewMeta.metric}</div>
+        <div className="overflow-hidden rounded-2xl border border-[var(--wc-border)] bg-white shadow-sm">
+          <div className="flex flex-wrap items-start justify-between gap-3 border-b border-slate-100 px-5 py-5 sm:px-7">
+            <div>
+              <div className="text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-600">{viewMeta.title}</div>
+              <p className="mb-0 mt-2 max-w-3xl text-sm leading-6 text-slate-500">{viewMeta.description}</p>
+            </div>
+            <div className="rounded-full bg-slate-100 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-600">{viewMeta.metric}</div>
           </div>
-          <div className="space-y-3">
-            {stages.map((stage) => {
-              const width = Math.max(8, (stage.count / maxCount) * 100);
-              return (
-                <div key={stage.key} data-testid={`funnel-stage-${stage.key}`} role="button" tabIndex={0} onClick={() => toggleStage(stage.key)} onKeyDown={(event) => (event.key === "Enter" || event.key === " ") && toggleStage(stage.key)} className={`rounded-lg p-1 cursor-pointer transition-colors ${selectedStageKey === stage.key ? "bg-[#ECFEFF] ring-2 ring-[#14E0E0] ring-offset-2" : "hover:bg-slate-50"}`}>
-                  <div className="flex items-center gap-4">
-                    <div className="w-32 text-sm font-medium">{stage.label}</div>
-                    <div className="flex-1 h-11 rounded-md bg-slate-100 relative overflow-hidden">
-                      <div className="h-full flex items-center px-4 text-white text-sm font-mono" style={{ width: `${width}%`, background: COLORS[stage.key] }}>
-                        {stage.count}
+          <div className="bg-gradient-to-b from-slate-50 to-white px-3 py-7 sm:px-6 sm:py-9">
+            {!data ? <div className="py-12 text-center text-sm text-slate-500">A carregar dados do funil...</div> : stages.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">Sem registos para os filtros selecionados.</div> : <div className="mx-auto flex max-w-4xl flex-col items-center gap-1.5 sm:gap-2">
+              {stages.map((stage, index) => {
+                const width = Math.max(60, (stage.count / maxCount) * 100);
+                const metricValue = funnelView === "cohort" ? pct(stage.conversion_pct) : funnelView === "pipeline" && stage.weighted_value !== undefined ? eur(stage.weighted_value) : null;
+                return (
+                  <button key={stage.key} type="button" data-testid={`funnel-stage-${stage.key}`} aria-pressed={selectedStageKey === stage.key} onClick={() => toggleStage(stage.key)} className={`grid w-full grid-cols-[1fr_auto] items-center gap-x-3 gap-y-2 rounded-lg p-1 text-left transition-colors hover:bg-slate-100/70 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0B8E8E] sm:grid-cols-[250px_minmax(0,1fr)_150px] sm:gap-4 ${selectedStageKey === stage.key ? "bg-teal-50 ring-2 ring-[#0B8E8E] ring-offset-1" : ""}`}>
+                    <div className="col-span-2 flex min-w-0 items-center gap-2.5 sm:col-span-1">
+                      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-slate-200 bg-white font-mono text-[10px] font-semibold text-slate-500">{String(index + 1).padStart(2, "0")}</span>
+                      <span className="whitespace-normal text-sm font-semibold leading-5 text-slate-800">{stage.label}</span>
+                    </div>
+                    <div className="relative h-11 overflow-hidden rounded-md bg-slate-100">
+                      <div className="absolute inset-y-0 left-1/2 flex -translate-x-1/2 items-center justify-between rounded-md px-3 text-white shadow-sm transition-[width] duration-500 sm:px-4" style={{ width: `${width}%`, backgroundColor: COLORS[stage.key] }}>
+                        <span className="font-mono text-base font-bold">{stage.count}</span>
+                        <span className="ml-2 truncate text-right text-[10px] font-semibold text-white/90">{funnelView === "cohort" ? `${metricValue} da etapa anterior` : funnelView === "pipeline" && stage.weighted_value !== undefined ? `Ponderado ${metricValue}` : funnelView === "activity" ? `no per\u00edodo` : "base"}</span>
                       </div>
                     </div>
-                    <div className="w-32 text-right font-mono text-sm">{eur(stage.value)}</div>
-                    <div className="w-32 text-right font-mono text-sm">{eur(stage.vab)}</div>
-                    <div className="w-32 text-right font-mono text-xs text-neutral-500">
-                      {funnelView === "cohort" ? pct(stage.conversion_pct) : funnelView === "pipeline" && stage.weighted_value !== undefined ? (
-                        <><div>{eur(stage.weighted_value)}</div><div className="mt-0.5 text-[10px]">VAB {eur(stage.weighted_vab)}</div></>
-                      ) : "—"}
+                    <div className="col-span-2 flex items-center justify-end gap-4 pr-2 text-[10px] text-slate-500 sm:col-span-1 sm:block sm:text-right">
+                      <span><span className="uppercase tracking-wider">Valor </span><span className="font-mono font-medium text-slate-700">{eur(stage.value)}</span></span>
+                      <span><span className="uppercase tracking-wider">VAB </span><span className="font-mono font-medium text-slate-700">{eur(stage.vab)}</span></span>
                     </div>
-                  </div>
-                </div>
-              );
-            })}
+                  </button>
+                );
+              })}
+            </div>}
+            {data && <div className="mt-5 text-center text-[11px] text-slate-400">Escolha uma etapa para ver os registos associados.</div>}
           </div>
         </div>
 
-        <div className="wc-list-panel" data-testid="funnel-stage-detail">
+        <div className="wc-list-panel overflow-hidden rounded-xl" data-testid="funnel-stage-detail">
           <div className="border-b border-neutral-200 px-4 py-3 text-[11px] uppercase tracking-[0.2em] text-neutral-500">
             {selectedStage ? `Composição · ${selectedStage.label}` : "Composição da fase"}
           </div>

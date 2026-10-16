@@ -97,13 +97,12 @@ Utilização recomendada:
 
 ## 6. Funil de Vendas
 
-O módulo de funil oferece uma leitura agregada do pipeline por fase e pode ser usado para análise comercial.
+O funil oferece uma leitura agregada por fase. O filtro de ano mostra anos com dados disponíveis e o fabricante pode restringir a análise.
 
-Recomendações:
-
-- acompanhar a progressão entre leads, oportunidades e propostas
-- usar filtros por fabricante sempre que necessário
-- apoiar reuniões comerciais com esta vista
+- **Por origem** acompanha leads criadas no período escolhido, ainda que convertidas noutra data; use esta vista para analisar o resultado da coorte de leads.
+- **Por movimentação** acompanha movimentos comerciais que ocorreram no período; use-a para analisar a atividade do período.
+- **Pipeline atual** mostra a composição atual do pipeline.
+- Selecionar uma fase permite consultar os registos associados.
 
 ## 7. Gestão de Leads
 
@@ -131,7 +130,7 @@ Enquanto a lead não estiver convertida nem descartada, é possível:
 
 ### 7.3 Converter lead em oportunidade
 
-Quando a necessidade estiver qualificada:
+Quando a lead estiver qualificada, altere o estado para `em_qualificacao` e use a ação de conversão:
 
 - clique no botão de conversão da lead
 
@@ -178,7 +177,7 @@ O sistema permite:
 
 ### 8.3 Converter oportunidade em proposta
 
-Quando a solução já está estruturada:
+Quando a oportunidade estiver em `em_analise` e a solução estiver estruturada:
 
 - use a ação de conversão
 
@@ -216,6 +215,9 @@ Na listagem de propostas, o utilizador pode acompanhar:
 - `ganha`
 - `perdida`
 - `expirada`
+- `substituida`
+
+No fluxo normal, a proposta avança uma etapa de cada vez; para regressar, é necessária justificação. O envio exige linhas válidas e os dados e anexo solicitados pelo formulário. A perda requer motivo. Uma nova proposta para a mesma oportunidade substitui a anterior. Propostas já convertidas em encomenda ficam bloqueadas para alteração de estado e linhas.
 
 ### 9.2 Converter proposta ganha em encomenda
 
@@ -237,7 +239,7 @@ Na página `Encomendas`, o utilizador pode:
 - consultar número da encomenda
 - associar ou rever PO do cliente
 - acompanhar valor e VAB
-- atualizar o estado operacional
+- acompanhar o estado da encomenda; os estados financeiros são calculados a partir do plano, faturação e recebimentos
 
 ### 10.1 Atualizar PO
 
@@ -257,14 +259,19 @@ Na coluna `PO`:
 - `fulfilled`
 - `cancelada`
 
-### 10.3 Regra Fulfilled
+### 10.3 Estados e reconciliação
 
-Uma encomenda só deve atingir o estado `fulfilled` quando houver reconciliação total entre:
+O estado financeiro é recalculado a partir do plano, das faturas ativas e dos recebimentos:
 
-- valor da encomenda
-- valor planeado
-- valor faturado
-- valor recebido
+- `aberta`: sem plano e sem faturação;
+- `em_planeamento`: existe plano, ainda sem faturação;
+- `parcialmente_faturada`: já foi faturada uma parte do total líquido;
+- `faturada`: o total líquido está faturado, mas falta receber parte do valor bruto;
+- `recebida`: os recebimentos cobrem o total bruto faturado;
+- `fulfilled`: plano e faturação cobrem o total líquido da encomenda, e os recebimentos cobrem o total bruto faturado;
+- `cancelada`: encomenda cancelada com motivo e depois de anulados os documentos financeiros ativos.
+
+`em_faturacao` está listado no modelo, mas o recálculo financeiro atual não o atribui automaticamente. Planeamento e faturação são comparados sem IVA; recebimentos são comparados com valores brutos com IVA. A tolerância usada pelo recálculo é 0,01 €.
 
 ## 11. Reporting
 
@@ -292,13 +299,15 @@ Permite acompanhar:
 
 ### 11.2 Exportações disponíveis
 
-No reporting, o utilizador pode exportar:
+Nas páginas correspondentes, o utilizador pode exportar:
 
 - dashboard em PDF
 - ordem de faturação por mês
 - faturas em CSV
 - reporting comercial em CSV
 - timesheet em CSV
+- dados de leads, oportunidades, propostas, encomendas e faturas em XLSX, conforme os acessos disponíveis
+- faturação anual em CSV/PDF e propostas com follow-up em CSV/XLSX/PDF
 
 ### 11.3 Ordem de faturação
 
@@ -308,6 +317,7 @@ Para gerar:
 - indique o mês no formato `AAAA-MM`
 - escolha `CSV` ou `PDF`
 - descarregue
+
 
 ## 12. Projetos
 
@@ -456,7 +466,7 @@ Cada registo apresenta:
 - planear, faturar e reconciliar recebimentos
 - acompanhar resultados em dashboard e reporting
 
-## 14. Regras de reporting e exportacao
+## 19. Regras de reporting e exportação
 
 O seletor de ano do Dashboard e do Reporting e aplicado aos indicadores e aos graficos.
 
@@ -471,11 +481,11 @@ Os botoes `Faturacao anual PDF` e `Faturacao anual Excel/CSV` permitem exportar 
 
 Exportacoes principais: Dashboard PDF por ano; ordem de faturacao por mes; faturas CSV; reporting comercial CSV; encomendas com propostas; propostas CSV; e faturacao anual PDF/CSV.
 
-## 15. Importar recebimentos
+## 20. Importar recebimentos
 
 Administradores podem importar um ficheiro CSV ou Excel no Reporting. O sistema apresenta primeiro uma pre-conciliacao, sem gravar dados. Reveja as faturas encontradas, divergencias e linhas pendentes; selecione apenas as correspondencias pretendidas, indique o motivo e confirme. O valor importado e comparado com o saldo da fatura c/IVA. A operacao fica registada na auditoria.
 
-## 19. Suporte interno
+## 21. Suporte interno
 
 Em caso de erro operacional ou dúvida de processo:
 

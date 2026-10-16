@@ -2,16 +2,31 @@
 
 ## Objetivo
 
-Este setup suporta dois modos:
-
-- desenvolvimento com MongoDB Atlas definido em `backend/.env`;
-- simulacao de producao com MongoDB em container e `backend/.env.production`.
+Este repositório tem três configurações distintas. Para desenvolvimento isolado e validação local, use `docker-compose.workspace.yml`, que inicia uma base MongoDB própria. O Compose principal liga à base especificada em `backend/.env`; o override `docker-compose.production.yml` é apenas uma simulação local e não deve ser apontado a dados de produção.
 
 ## Pre-requisitos
 
 - Docker Desktop ativo
 - `backend/.env` configurado com a `MONGO_URL` do Atlas para desenvolvimento
+- `backend/.env.workspace` configurado para a stack local isolada
 - `backend/.env.production` criado a partir de `backend/.env.production.example` para simulacao de producao
+
+## Stack de desenvolvimento isolada
+
+Na raiz do projeto:
+
+```powershell
+docker compose -f docker-compose.workspace.yml up --build
+```
+
+Endereços:
+
+- Frontend: `http://localhost:3010`
+- Backend: `http://localhost:8010`
+- Health API: `http://localhost:8010/api/health`
+- MongoDB publicado no host: `localhost:27018`
+
+Esta stack usa a base `whycom_workspace_dev` no volume `mongo_workspace_data`, ativa seed de desenvolvimento e desativa o envio externo de emails. Os dados persistem após `down`; `down -v` remove os volumes e apaga os dados locais dessa stack.
 
 ## Desenvolvimento com Atlas
 
@@ -41,10 +56,10 @@ Criar o ficheiro de ambiente:
 Copy-Item backend\.env.production.example backend\.env.production
 ```
 
-Subir os containers com o override de producao:
+Subir os containers com o override de simulação local:
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.production.yml --profile production up --build
+docker compose -f docker-compose.yml -f docker-compose.production.yml up --build
 ```
 
 Neste modo:
@@ -64,15 +79,23 @@ Neste modo:
 docker compose down
 ```
 
-Para o modo de simulacao de producao:
+Para a stack de desenvolvimento isolada:
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.production.yml --profile production down
+docker compose -f docker-compose.workspace.yml down
+```
+
+Para a simulação local com Mongo:
+
+```powershell
+docker compose -f docker-compose.yml -f docker-compose.production.yml down
 ```
 
 ## Notas
 
 - em desenvolvimento, o service `mongo` nao arranca por omissao;
+- `docker-compose.workspace.yml` usa Mongo local e portas próprias (3010, 8010 e 27018), separados do Compose principal;
 - em desenvolvimento, a ligacao a base depende totalmente da `MONGO_URL` configurada no `backend/.env`;
-- em simulacao de producao, o `backend` deve usar `backend/.env.production`;
+- em simulação local, o `backend` usa `backend/.env.production`; confirme sempre o `DB_NAME` e o destino de `MONGO_URL` antes de iniciar;
+- esta configuração chamada “produção” no nome é apenas uma simulação em máquina local. Nunca a use para ligar a uma base de produção sem o processo de release aprovado;
 - se o Atlas continuar inacessivel a partir do Docker ou host, o backend vai arrancar mas o `health` devera indicar `degraded`.

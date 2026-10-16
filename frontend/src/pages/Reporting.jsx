@@ -2,6 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, API } from "@/lib/api";
 import { eur, pct, dateShort, LEAD_STATUS, OPP_STATUS, PROP_STATUS, ORDER_STATUS } from "@/lib/fmt";
+import Table from "@/components/ReportingTable";
+import { buildClientCommercialRows, clientCommercialColumns } from "@/components/ClientCommercialRecords";
+import ClientBillingReport from "@/components/ClientBillingReport";
+import ClientMultiSelect from "@/components/ClientMultiSelect";
 import PageHeader from "@/components/PageHeader";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
@@ -40,36 +44,6 @@ function recordYear(item, fields) {
   return null;
 }
 
-function Table({ columns, rows, testid, footer, minWidth }) {
-  return (
-    <div className="wc-list-panel overflow-x-auto" data-testid={testid}>
-      <div style={{ minWidth }}>
-      <div className="wc-table-head grid gap-3 border-b border-[var(--wc-border)] px-4 py-2 text-[10px] uppercase tracking-widest" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
-        {columns.map((column) => <div key={column.key} className={column.align === "right" ? "text-right" : ""}>{column.label}</div>)}
-      </div>
-      {rows.length === 0 && <div className="p-4 text-sm text-neutral-500">Sem dados.</div>}
-      {rows.map((row, index) => (
-        <div key={index} className="wc-table-row grid gap-3 border-b px-4 py-2.5 text-sm" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
-          {columns.map((column) => (
-            <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""} ${column.wrap ? "min-w-0 break-words leading-5" : ""} ${column.noWrap ? "whitespace-nowrap" : ""}`}>
-              {column.render ? column.render(row) : row[column.key]}
-            </div>
-          ))}
-        </div>
-      ))}
-      {footer && (
-        <div className="grid gap-3 bg-neutral-50 px-4 py-2.5 text-sm font-medium" style={{ gridTemplateColumns: columns.map((column) => column.w || "1fr").join(" ") }}>
-          {columns.map((column) => (
-            <div key={column.key} className={`${column.align === "right" ? "text-right font-mono" : ""} ${column.mono ? "font-mono" : ""}`}>
-              {column.render ? column.render(footer) : footer[column.key] || ""}
-            </div>
-          ))}
-        </div>
-      )}
-      </div>
-    </div>
-  );
-}
 
 function KPI({ label, value, sub, testid }) {
   return (
@@ -100,6 +74,12 @@ export default function Reporting() {
   const [exec, setExec] = useState(null);
   const [comm, setComm] = useState([]);
   const [cli, setCli] = useState([]);
+  const [clientSearch, setClientSearch] = useState("");
+  const visibleClients = useMemo(() => {
+    const normalize = (value) => String(value ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLocaleLowerCase("pt");
+    const term = normalize(clientSearch).trim();
+    return term ? cli.filter((row) => [row.name, row.segment].some((value) => normalize(value).includes(term))) : cli;
+  }, [cli, clientSearch]);
   const [manuf, setManuf] = useState([]);
   const [vab, setVab] = useState(null);
   const [fi, setFi] = useState([]);
@@ -110,9 +90,11 @@ export default function Reporting() {
   const [allProps, setAllProps] = useState([]);
   const [allOpps, setAllOpps] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [allOrders, setAllOrders] = useState([]);
   const [clients, setClients] = useState([]);
   const [products, setProducts] = useState([]);
   const [followUpScope, setFollowUpScope] = useState("30d");
+  const [customizeClient, setCustomizeClient] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailConfig, setDetailConfig] = useState({ title: "", description: "", columns: [], rows: [] });
 
@@ -128,6 +110,31 @@ export default function Reporting() {
   const [annualBillingMode, setAnnualBillingMode] = useState("year");
   const [annualBillingStart, setAnnualBillingStart] = useState(`${new Date().getFullYear()}-01`);
   const [annualBillingEnd, setAnnualBillingEnd] = useState(`${new Date().getFullYear()}-12`);
+  const [annualClientOptions, setAnnualClientOptions] = useState({ key: "", rows: [] });
+  const [annualClientSelection, setAnnualClientSelection] = useState({ key: "", ids: [] });
+  const [annualClientsError, setAnnualClientsError] = useState("");
+  const [annualClientsRetry, setAnnualClientsRetry] = useState(0);
+  const [annualExporting, setAnnualExporting] = useState(false);
+  const annualStartMonth = annualBillingMode === "year" ? `${reportingYear}-01` : annualBillingStart;
+  const annualEndMonth = annualBillingMode === "year" ? `${reportingYear}-12` : annualBillingEnd;
+  const annualPeriodKey = `${reportingYear}:${annualStartMonth}:${annualEndMonth}`;
+  const annualPeriodValid = [annualStartMonth, annualEndMonth].every((month) => /^\d{4}-(0[1-9]|1[0-2])$/.test(month) && month.startsWith(`${reportingYear}-`)) && annualStartMonth <= annualEndMonth;
+  const annualClientsLoading = annualClientOptions.key !== annualPeriodKey;
+  const annualSelectedClients = annualClientSelection.key === annualPeriodKey ? annualClientSelection.ids : [];
+
+  useEffect(() => {
+    if (!annualBillingOpen) return;
+    let active = true;
+    setAnnualClientOptions({ key: "", rows: [] });
+    setAnnualClientSelection({ key: annualPeriodKey, ids: [] });
+    setAnnualClientsError("");
+    if (annualPeriodValid) {
+      api.get("/exports/billing-annual/clients", { params: { year: reportingYear, start_month: annualStartMonth, end_month: annualEndMonth } })
+        .then(({ data }) => { if (active) setAnnualClientOptions({ key: annualPeriodKey, rows: data.rows }); })
+        .catch(() => { if (active) setAnnualClientsError("Não foi possível carregar os clientes com faturação."); });
+    }
+    return () => { active = false; };
+  }, [annualBillingOpen, annualPeriodKey, annualPeriodValid, annualStartMonth, annualEndMonth, reportingYear, annualClientsRetry]);
   const [paymentImportOpen, setPaymentImportOpen] = useState(false);
   const [paymentImportPreview, setPaymentImportPreview] = useState(null);
   const [paymentImportLoading, setPaymentImportLoading] = useState(false);
@@ -284,8 +291,7 @@ export default function Reporting() {
     }
   };
 
-  const openAnnualBillingExport = (format) => {
-    setAnnualBillingFormat(format);
+  const openAnnualBillingExport = () => {
     setAnnualBillingOpen(true);
   };
 
@@ -296,15 +302,21 @@ export default function Reporting() {
       toast.error(`Escolha um periodo valido dentro de ${reportingYear}.`);
       return;
     }
-    const query = `?year=${reportingYear}&start_month=${startMonth}&end_month=${endMonth}`;
+    if (!annualPeriodValid || annualClientsLoading || annualClientsError || annualExporting) return;
+    const params = new URLSearchParams({ year: String(reportingYear), start_month: startMonth, end_month: endMonth });
+    annualSelectedClients.forEach((id) => params.append("client_ids", id));
+    const query = `?${params}`;
     const suffix = annualBillingMode === "year" ? `${reportingYear}` : `${startMonth}_${endMonth}`;
     const extension = annualBillingFormat === "pdf" ? "pdf" : "csv";
+    setAnnualExporting(true);
     try {
       await download(`/exports/billing-annual.${extension}${query}`, `faturacao-${suffix}.${extension}`);
       setAnnualBillingOpen(false);
       toast.success(`Faturacao exportada (${suffix}, ${extension.toUpperCase()})`);
     } catch (error) {
       toast.error(error.message || "Nao foi possivel exportar a faturacao");
+    } finally {
+      setAnnualExporting(false);
     }
   };
 
@@ -384,15 +396,17 @@ export default function Reporting() {
       setOpps((oppsResponse.data.items || oppsResponse.data).filter((item) => recordYear(item, ["created_at"]) === reportingYear));
       setAllOpps(oppsResponse.data);
       setPropsList((propsResponse.data.items || propsResponse.data).filter((item) => recordYear(item, ["updated_at", "created_at"]) === reportingYear));
-      setAllProps(propsResponse.data);
+      setAllProps(propsResponse.data.items || propsResponse.data);
+      setAllOrders(ordersResponse.data.items || ordersResponse.data);
       setOrders((ordersResponse.data.items || ordersResponse.data).filter((item) => !["cancelada", "anulada"].includes(item.status) && recordYear(item, ["order_date", "created_at"]) === reportingYear));
       setClients(clientsResponse.data);
       setProducts(productsResponse.data);
     });
   }, [reportingYear]);
 
-  const openDetail = ({ title, description, columns, rows }) => {
-    setDetailConfig({ title, description, columns, rows });
+  const openDetail = ({ title, description, columns, rows, clientId, minWidth }) => {
+    setCustomizeClient(false);
+    setDetailConfig({ title, description, columns, rows, clientId, minWidth });
     setDetailOpen(true);
   };
 
@@ -400,36 +414,39 @@ export default function Reporting() {
     { key: "number", label: "Numero", w: "160px", mono: true },
     { key: "client", label: "Cliente" },
     { key: "status", label: "Estado", w: "140px" },
-    { key: "value", label: "Valor", w: "120px", align: "right", mono: true },
-    { key: "vab", label: "VAB", w: "120px", align: "right", mono: true },
-    { key: "date", label: "Data", w: "110px", mono: true },
+    { key: "value", label: "Valor", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawValue },
+    { key: "vab", label: "VAB", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawVab },
+    { key: "date", label: "Data", w: "110px", mono: true, sortValue: (row) => row.rawDate },
   ];
   const orderColumns = [
     { key: "number", label: "Numero", w: "160px", mono: true },
     { key: "client", label: "Cliente" },
     { key: "status", label: "Estado", w: "170px" },
-    { key: "value", label: "Valor", w: "120px", align: "right", mono: true },
-    { key: "vab", label: "VAB", w: "120px", align: "right", mono: true },
-    { key: "date", label: "Data", w: "110px", mono: true },
+    { key: "value", label: "Valor", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawValue },
+    { key: "vab", label: "VAB", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawVab },
+    { key: "date", label: "Data", w: "110px", mono: true, sortValue: (row) => row.rawDate },
   ];
   const opportunityColumns = [
     { key: "client", label: "Cliente" },
     { key: "description", label: "Descricao", w: "2fr" },
     { key: "status", label: "Estado", w: "140px" },
-    { key: "value", label: "Valor", w: "120px", align: "right", mono: true },
-    { key: "vab", label: "VAB", w: "120px", align: "right", mono: true },
+    { key: "value", label: "Valor", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawValue },
+    { key: "vab", label: "VAB", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawVab },
   ];
   const leadColumns = [
     { key: "client", label: "Cliente" },
     { key: "description", label: "Descricao", w: "2fr" },
     { key: "status", label: "Estado", w: "140px" },
-    { key: "value", label: "Valor", w: "120px", align: "right", mono: true },
+    { key: "value", label: "Valor", w: "120px", align: "right", mono: true, sortValue: (row) => row.rawValue },
   ];
 
   const mapProposalRows = (rows) => rows.map((proposal) => ({
     number: proposal.number,
     client: clientMap[proposal.client_id]?.name || proposal.client_id,
     status: PROP_STATUS[proposal.status] || proposal.status,
+    rawValue: Number(proposal.total_net) || 0,
+    rawVab: Number(proposal.total_vab) || 0,
+    rawDate: proposal.updated_at || proposal.created_at || "",
     value: eur(proposal.total_net),
     vab: eur(proposal.total_vab),
     date: dateShort(proposal.updated_at || proposal.created_at),
@@ -439,6 +456,9 @@ export default function Reporting() {
     number: order.number,
     client: clientMap[order.client_id]?.name || order.client_id,
     status: ORDER_STATUS[order.status] || order.status,
+    rawValue: Number(order.total_net) || 0,
+    rawVab: Number(order.total_vab) || 0,
+    rawDate: order.order_date || "",
     value: eur(order.total_net),
     vab: eur(order.total_vab),
     date: dateShort(order.order_date),
@@ -448,6 +468,8 @@ export default function Reporting() {
     client: clientMap[opportunity.client_id]?.name || opportunity.client_id,
     description: opportunity.description,
     status: OPP_STATUS[opportunity.status] || opportunity.status,
+    rawValue: Number(opportunity.estimated_value) || 0,
+    rawVab: Number(opportunity.estimated_vab) || 0,
     value: eur(opportunity.estimated_value),
     vab: eur(opportunity.estimated_vab),
   }));
@@ -456,6 +478,7 @@ export default function Reporting() {
     client: lead.client_id ? (clientMap[lead.client_id]?.name || lead.client_id) : (lead.client_name_raw || "-"),
     description: lead.description,
     status: LEAD_STATUS[lead.status] || lead.status,
+    rawValue: Number(lead.estimated_value) || 0,
     value: eur(lead.estimated_value),
   }));
 
@@ -500,33 +523,14 @@ export default function Reporting() {
 
   const openClientDetail = (row, metric) => {
     if (metric === "name") {
-      const mixedRows = [
-        ...propsList.filter((proposal) => proposal.client_id === row.client_id).map((proposal) => ({
-          type: "Proposta",
-          reference: proposal.number,
-          status: PROP_STATUS[proposal.status] || proposal.status,
-          value: eur(proposal.total_net),
-          date: dateShort(proposal.updated_at || proposal.created_at),
-        })),
-        ...orders.filter((order) => order.client_id === row.client_id).map((order) => ({
-          type: "Encomenda",
-          reference: order.number,
-          status: ORDER_STATUS[order.status] || order.status,
-          value: eur(order.total_net),
-          date: dateShort(order.order_date),
-        })),
-      ];
+      const mixedRows = buildClientCommercialRows(allProps, allOrders, row.client_id, reportingYear);
       openDetail({
         title: `Cliente · ${row.name}`,
         description: "Registos comerciais relacionados com este cliente.",
-        columns: [
-          { key: "type", label: "Tipo", w: "130px" },
-          { key: "reference", label: "Referencia", w: "160px", mono: true },
-          { key: "status", label: "Estado", w: "180px" },
-          { key: "value", label: "Valor", w: "120px", align: "right", mono: true },
-          { key: "date", label: "Data", w: "110px", mono: true },
-        ],
+        columns: clientCommercialColumns,
+        minWidth: 1120,
         rows: mixedRows,
+        clientId: row.client_id,
       });
       return;
     }
@@ -617,8 +621,7 @@ export default function Reporting() {
         <button onClick={() => download(`/exports/dashboard.pdf?year=${reportingYear}`, `dashboard-${reportingYear}.pdf`)} data-testid="export-dashboard-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Dashboard PDF</button>
         <button onClick={() => download(`/exports/proposals-follow-up.pdf?year=${reportingYear}`, `previsao-fecho-${reportingYear}.pdf`)} data-testid="export-proposals-follow-up-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Previsão de fecho PDF</button>
             <button onClick={() => setBillingOpen(true)} data-testid="export-billing-orders-btn" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Ordem faturacao (por mes)</button>
-            <button onClick={() => openAnnualBillingExport("pdf")} data-testid="export-annual-billing-pdf" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Faturação anual PDF</button>
-            <button onClick={() => openAnnualBillingExport("csv")} data-testid="export-annual-billing-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturação anual Excel/CSV</button>
+            <button onClick={openAnnualBillingExport} data-testid="export-annual-billing" className="border border-[#002FA7] px-3 py-1.5 text-[#002FA7] transition-colors hover:bg-[#002FA7] hover:text-white">↓ Exportar faturação</button>
             <button onClick={() => download("/exports/invoices.csv", "faturas.csv")} data-testid="export-invoices-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Faturas CSV</button>
             <button onClick={() => download(`/exports/reporting-commercial.csv?year=${reportingYear}`, `reporting-comerciais-${reportingYear}.csv`)} data-testid="export-commercial-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Comerciais CSV</button>
             <button onClick={() => download("/exports/timesheet.csv", "timesheet.csv")} data-testid="export-timesheet-csv" className="border border-neutral-300 px-3 py-1.5 hover:bg-neutral-50">↓ Timesheet CSV</button>
@@ -763,9 +766,19 @@ export default function Reporting() {
           </TabsContent>
 
           <TabsContent value="client" className="mt-6">
+            <div className="mb-4 flex flex-wrap items-end gap-3">
+              <div className="w-full sm:max-w-sm">
+                <Label htmlFor="reporting-client-search">Pesquisar clientes</Label>
+                <Input id="reporting-client-search" type="search" value={clientSearch} onChange={(event) => setClientSearch(event.target.value)} placeholder="Nome do cliente ou segmento" className="mt-1" />
+              </div>
+              {clientSearch && <Button type="button" variant="ghost" onClick={() => setClientSearch("")}>Limpar pesquisa</Button>}
+              <p role="status" className="pb-2 text-xs text-neutral-500">{visibleClients.length} de {cli.length} clientes</p>
+            </div>
             <Table
+              sortable
+              minWidth={980}
               testid="table-client"
-              rows={cli}
+              rows={visibleClients}
               columns={[
                 { key: "name", label: "Cliente", render: (row) => <DetailLink onClick={() => openClientDetail(row, "name")}>{row.name}</DetailLink> },
                 { key: "segment", label: "Segmento", w: "120px" },
@@ -825,13 +838,16 @@ export default function Reporting() {
       </div>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-h-[85vh] max-w-6xl overflow-hidden rounded-none">
+        <DialogContent className="flex max-h-[90dvh] w-[calc(100%-2rem)] max-w-7xl flex-col overflow-hidden rounded-none" data-testid="reporting-detail-dialog">
           <DialogHeader>
             <DialogTitle className="font-display">{detailConfig.title}</DialogTitle>
           </DialogHeader>
-          <div className="overflow-y-auto pr-1">
+          <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+            {detailConfig.clientId && <Button variant="outline" className="mb-3" aria-expanded={customizeClient} onClick={() => setCustomizeClient((value) => !value)}>{customizeClient ? "Voltar aos registos comerciais" : "Personalizar resultado"}</Button>}
+            {customizeClient ? <ClientBillingReport clientId={detailConfig.clientId} reportingYear={reportingYear} /> : <>
             {detailConfig.description && <div className="mb-3 text-sm text-neutral-600">{detailConfig.description}</div>}
-            <Table columns={detailConfig.columns} rows={detailConfig.rows} testid="reporting-detail-table" />
+            <Table key={detailConfig.title} sortable columns={detailConfig.columns} rows={detailConfig.rows} minWidth={detailConfig.minWidth || 900} testid="reporting-detail-table" />
+            </>}
           </div>
           <DialogFooter>
             <Button variant="ghost" onClick={() => setDetailOpen(false)} className="rounded-none">Fechar</Button>
@@ -840,7 +856,7 @@ export default function Reporting() {
       </Dialog>
 
       <Dialog open={annualBillingOpen} onOpenChange={setAnnualBillingOpen}>
-        <DialogContent className="max-w-md rounded-none" data-testid="annual-billing-dialog">
+        <DialogContent className="max-h-[90dvh] max-w-md overflow-y-auto rounded-none" data-testid="annual-billing-dialog">
           <DialogHeader><DialogTitle className="font-display">Faturacao anual</DialogTitle></DialogHeader>
           <div className="space-y-4">
             <div className="text-xs text-neutral-500">Escolha o ano completo ou um periodo especifico para exportar.</div>
@@ -854,12 +870,18 @@ export default function Reporting() {
                 <div><Label>Mes final</Label><Input type="month" value={annualBillingEnd} min={`${reportingYear}-01`} max={`${reportingYear}-12`} onChange={(event) => setAnnualBillingEnd(event.target.value)} className="rounded-none font-mono" data-testid="annual-billing-end" /></div>
               </div>
             )}
+            {!annualPeriodValid && <p role="alert" className="text-sm text-red-700">Escolha um período válido dentro de {reportingYear}.</p>}
+            <div className="space-y-2">
+              <Label>Clientes</Label>
+              <ClientMultiSelect options={annualClientOptions.key === annualPeriodKey ? annualClientOptions.rows : []} value={annualSelectedClients} onChange={(ids) => setAnnualClientSelection({ key: annualPeriodKey, ids })} disabled={!annualPeriodValid || annualClientsLoading || !!annualClientsError || annualExporting} />
+              {annualClientsError ? <p role="alert" className="text-xs text-red-700">{annualClientsError} <button type="button" className="underline" onClick={() => setAnnualClientsRetry((value) => value + 1)}>Tentar novamente</button></p> : annualPeriodValid && annualClientsLoading ? <p role="status" className="text-xs text-neutral-500">A carregar clientes…</p> : annualPeriodValid && <p className="text-xs text-neutral-500">{annualClientOptions.rows.length ? "Selecione um ou mais clientes com faturação no período. Sem seleção, o relatório inclui todos os clientes." : "Não há clientes com faturação no período. Pode exportar o plano de faturação existente."} Ao mudar o período, a seleção é limpa.</p>}
+            </div>
             <div><Label>Formato</Label><div className="mt-1 flex gap-2">
               <button type="button" onClick={() => setAnnualBillingFormat("pdf")} className={`flex-1 border px-3 py-2 text-xs ${annualBillingFormat === "pdf" ? "border-[#002FA7] bg-[#002FA7] text-white" : "border-neutral-300"}`}>PDF</button>
               <button type="button" onClick={() => setAnnualBillingFormat("csv")} className={`flex-1 border px-3 py-2 text-xs ${annualBillingFormat === "csv" ? "border-[#002FA7] bg-[#002FA7] text-white" : "border-neutral-300"}`}>Excel/CSV</button>
             </div></div>
           </div>
-          <DialogFooter><Button variant="ghost" onClick={() => setAnnualBillingOpen(false)} className="rounded-none">Cancelar</Button><Button onClick={submitAnnualBillingExport} data-testid="annual-billing-submit" className="rounded-none bg-[#002FA7] text-white">Exportar</Button></DialogFooter>
+          <DialogFooter><Button variant="ghost" onClick={() => setAnnualBillingOpen(false)} className="rounded-none">Cancelar</Button><Button onClick={submitAnnualBillingExport} disabled={!annualPeriodValid || annualClientsLoading || !!annualClientsError || annualExporting} data-testid="annual-billing-submit" className="rounded-none bg-[#002FA7] text-white">{annualExporting ? "A exportar…" : "Exportar"}</Button></DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -398,26 +398,33 @@ async def export_billing_orders(month: str, user: dict = Depends(get_current_use
     )
 
 
-async def _annual_billing_report(year: int, start_month: Optional[str] = None, end_month: Optional[str] = None):
+def _annual_billing_period(year: int, start_month: Optional[str], end_month: Optional[str]):
     start_month = start_month or f"{year}-01"
     end_month = end_month or f"{year}-12"
-    if not all(len(value) == 7 and value[4] == "-" for value in (start_month, end_month)):
+    if not all(re.fullmatch(r"\d{4}-(0[1-9]|1[0-2])", value) for value in (start_month, end_month)):
         raise HTTPException(400, "Os meses devem usar o formato AAAA-MM")
     if start_month[:4] != str(year) or end_month[:4] != str(year) or start_month > end_month:
         raise HTTPException(400, "O periodo deve estar dentro do ano selecionado")
+    return start_month, end_month
+
+
+async def _annual_billing_report(year: int, start_month: Optional[str] = None, end_month: Optional[str] = None, client_ids: Optional[list[str]] = None):
+    start_month, end_month = _annual_billing_period(year, start_month, end_month)
     active_orders = await _active_orders()
+    if client_ids:
+        active_orders = [order for order in active_orders if order.get("client_id") in client_ids]
     active_order_ids = [order["id"] for order in active_orders]
     orders = {order["id"]: order for order in active_orders}
-    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(2000)}
+    clients = {client["id"]: client.get("name", "") for client in await db.clients.find({}, {"_id": 0}).to_list(None)}
     plan_lines = await db.plan_lines.find(
         {"status": {"$ne": "cancelada"}, "order_id": {"$in": active_order_ids}},
         {"_id": 0},
-    ).to_list(10000)
+    ).to_list(None)
     plan_lines_by_id = {line.get("id"): line for line in plan_lines if line.get("id")}
     invoices = await db.invoices.find(
         {"status": {"$ne": "anulada"}, "order_id": {"$in": active_order_ids}},
         {"_id": 0},
-    ).to_list(10000)
+    ).to_list(None)
     invoices = [
         invoice for invoice in invoices
         if start_month <= str(invoice.get("issued_at") or invoice.get("created_at") or "")[:7] <= end_month
@@ -523,9 +530,20 @@ async def _annual_billing_report(year: int, start_month: Optional[str] = None, e
     return summary, rows
 
 
+@router.get("/exports/billing-annual/clients")
+async def annual_billing_clients(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
+    start_month, end_month = _annual_billing_period(year, start_month, end_month)
+    orders = {order["id"]: order for order in await _active_orders()}
+    invoices = await db.invoices.find({"status": {"$ne": "anulada"}, "order_id": {"$in": list(orders)}}, {"_id": 0, "order_id": 1, "issued_at": 1, "created_at": 1}).to_list(None)
+    client_ids = {orders[invoice["order_id"]].get("client_id") for invoice in invoices
+                  if start_month <= str(invoice.get("issued_at") or invoice.get("created_at") or "")[:7] <= end_month}
+    clients = await db.clients.find({"id": {"$in": list(client_ids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(None)
+    return {"rows": sorted(clients, key=lambda client: client.get("name", "").casefold())}
+
+
 @router.get("/exports/billing-annual.csv")
-async def export_billing_annual_csv(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
-    _summary, rows = await _annual_billing_report(year, start_month, end_month)
+async def export_billing_annual_csv(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), client_ids: Optional[list[str]] = Query(None), user: dict = Depends(get_current_user)):
+    _summary, rows = await _annual_billing_report(year, start_month, end_month, client_ids)
     fields = ["mes", "encomenda", "cliente", "item_fatura", "planeado", "faturado", "vab_faturado", "por_faturar", "vab_por_faturar"]
     return csv_response_pt(
         rows,
@@ -537,8 +555,8 @@ async def export_billing_annual_csv(start_month: Optional[str] = None, end_month
 
 
 @router.get("/exports/billing-annual.pdf")
-async def export_billing_annual_pdf(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), user: dict = Depends(get_current_user)):
-    summary, rows = await _annual_billing_report(year, start_month, end_month)
+async def export_billing_annual_pdf(start_month: Optional[str] = None, end_month: Optional[str] = None, year: int = Query(datetime.now().year, ge=2000, le=2100), client_ids: Optional[list[str]] = Query(None), user: dict = Depends(get_current_user)):
+    summary, rows = await _annual_billing_report(year, start_month, end_month, client_ids)
     return build_annual_billing_pdf_grouped(year, summary, rows)
 
 

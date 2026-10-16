@@ -59,6 +59,16 @@ Abrir:
 http://localhost:3000
 ```
 
+## Docker com base local isolada
+
+Para validar a aplicação sem apontar para o Atlas ou para qualquer base remota, use a stack de workspace descrita em [Docker Local](DOCKER_LOCAL.md):
+
+```powershell
+docker compose -f docker-compose.workspace.yml up --build
+```
+
+O frontend fica em `http://localhost:3010`, a API em `http://localhost:8010` e o Mongo local é publicado em `localhost:27018`. Esta stack usa uma base/volume próprios; apagar o volume remove os dados de desenvolvimento.
+
 ## Credenciais seed
 
 - `admin@whymob.pt / admin123`

@@ -31,7 +31,9 @@ export function AuthProvider({ children }) {
       setUser(me.data);
       return true;
     } catch (e) {
-      setError(formatApiErrorDetail(e.response?.data?.detail) || e.message);
+      setError(e.response
+        ? formatApiErrorDetail(e.response.data?.detail)
+        : "Não foi possível ligar ao servidor. Verifique se o serviço está disponível e tente novamente.");
       return false;
     }
   };

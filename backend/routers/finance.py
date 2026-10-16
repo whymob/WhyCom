@@ -288,20 +288,26 @@ async def reconcile(oid: str, user: dict = Depends(get_current_user)):
 
 # ------------- Invoices -------------
 @router.get("/invoices")
-async def list_invoices(order_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+async def list_invoices(order_id: Optional[str] = None, client_id: Optional[str] = None, user: dict = Depends(get_current_user)):
     q = {"order_id": order_id} if order_id else {}
-    invoices = await db.invoices.find(q, {"_id": 0}).sort("issued_at", -1).to_list(2000)
+    if client_id:
+        client_orders = await db.orders.find({"client_id": client_id}, {"_id": 0, "id": 1}).to_list(None)
+        # The order owns the client relationship. A stale invoice client_id
+        # must never include another client's order in a client report.
+        client_order_ids = [order["id"] for order in client_orders if not order_id or order["id"] == order_id]
+        q["order_id"] = {"$in": client_order_ids}
+    invoices = await db.invoices.find(q, {"_id": 0}).sort("issued_at", -1).to_list(None if client_id else 2000)
     invoice_ids = [invoice["id"] for invoice in invoices]
     order_ids = {invoice.get("order_id") for invoice in invoices if invoice.get("order_id")}
     plan_line_ids = {line.get("plan_line_id") for invoice in invoices for line in invoice.get("lines", []) if line.get("plan_line_id")}
-    orders = await db.orders.find({"id": {"$in": list(order_ids)}}, {"_id": 0, "id": 1, "number": 1, "client_id": 1, "total_net": 1, "total_vab": 1}).to_list(len(order_ids) or 1)
+    orders = await db.orders.find({"id": {"$in": list(order_ids)}}, {"_id": 0, "id": 1, "number": 1, "client_id": 1, "description": 1, "total_net": 1, "total_vab": 1}).to_list(len(order_ids) or 1)
     order_map = {order["id"]: order for order in orders}
     client_ids = {order.get("client_id") for order in orders if order.get("client_id")}
     clients = await db.clients.find({"id": {"$in": list(client_ids)}}, {"_id": 0, "id": 1, "name": 1}).to_list(len(client_ids) or 1)
     client_names = {client["id"]: client.get("name", "-") for client in clients}
     plan_lines = await db.plan_lines.find({"id": {"$in": list(plan_line_ids)}}, {"_id": 0, "id": 1, "expected_date": 1, "value": 1}).to_list(len(plan_line_ids) or 1)
     plan_map = {line["id"]: line for line in plan_lines}
-    payments = await db.payments.find({"invoice_id": {"$in": invoice_ids}, "status": {"$ne": "anulado"}}, {"_id": 0, "invoice_id": 1, "amount": 1}).to_list(5000) if invoice_ids else []
+    payments = await db.payments.find({"invoice_id": {"$in": invoice_ids}, "status": {"$ne": "anulado"}}, {"_id": 0, "invoice_id": 1, "amount": 1}).to_list(None if client_id else 5000) if invoice_ids else []
     received_by_invoice = {}
     for payment in payments:
         received_by_invoice[payment["invoice_id"]] = received_by_invoice.get(payment["invoice_id"], 0) + float(payment.get("amount") or 0)
@@ -312,8 +318,10 @@ async def list_invoices(order_id: Optional[str] = None, user: dict = Depends(get
         planned_value = round(sum(float(line.get("value") or 0) for line in planned_lines), 2)
         order_net = float(order.get("total_net") or 0)
         order_vab = float(order.get("total_vab") or 0)
+        invoice["order_description"] = order.get("description") or ""
+        invoice["order_client_id"] = order.get("client_id")
         invoice["order_number"] = order.get("number") or invoice.get("order_id") or "-"
-        invoice["client_name"] = client_names.get(invoice.get("client_id"), "-")
+        invoice["client_name"] = client_names.get(order.get("client_id"), "-")
         invoice["planned_date"] = min((str(line.get("expected_date") or "") for line in planned_lines if line.get("expected_date")), default="")
         invoice["planned_value"] = planned_value
         invoice["planned_vab"] = round(order_vab * planned_value / order_net, 2) if order_net else 0.0

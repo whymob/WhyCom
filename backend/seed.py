@@ -101,7 +101,8 @@ async def seed_startup():
                 "created_at": now_iso(),
             })
 
-    if await db.leads.count_documents({}) == 0:
+    demo_mode = any(os.environ.get(name, "false").lower() in {"1", "true", "yes"} for name in ("WORKSPACE_DEMO_DATA", "FUNNEL_DEMO_DATA"))
+    if await db.leads.count_documents({}) == 0 and not demo_mode:
         clients = await db.clients.find({}, {"_id": 0}).to_list(20)
         comercial = await db.users.find_one({"email": "comercial@whymob.pt"})
         cid = clients[0]["id"] if clients else None
@@ -128,6 +129,11 @@ async def seed_startup():
 
     if os.environ.get("WORKSPACE_DEMO_DATA", "false").lower() in {"1", "true", "yes"}:
         await seed_workspace_demo()
+        await seed_funnel_cohorts_demo()
+        await tune_2024_funnel_demo()
+    elif os.environ.get("FUNNEL_DEMO_DATA", "false").lower() in {"1", "true", "yes"}:
+        await seed_funnel_cohorts_demo()
+        await tune_2024_funnel_demo()
 
 
 async def seed_workspace_demo():
@@ -229,3 +235,227 @@ async def seed_workspace_demo():
         })
 
     await db.workspace_demo_seed.insert_one({"id": marker, "created_at": created_at})
+
+
+async def seed_funnel_cohorts_demo():
+    """Seed linked funnel cohorts in the isolated local workspace database."""
+    marker = "funnel-cohorts-v1"
+    if await db.workspace_demo_seed.find_one({"id": marker}):
+        return
+
+    clients = await db.clients.find({}, {"_id": 0, "id": 1}).to_list(100)
+    manufacturers = await db.manufacturers.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(100)
+    commercial = await db.users.find_one({"email": "comercial@whymob.pt"}, {"_id": 0, "id": 1})
+    if not clients or not manufacturers or not commercial:
+        return
+
+    owner_id = commercial["id"]
+    manufacturer_ids = [item["id"] for item in manufacturers]
+    product_ids = []
+    for index, manufacturer in enumerate(manufacturers):
+        product_id = new_id()
+        product_ids.append(product_id)
+        await db.products.insert_one({
+            "id": product_id,
+            "name": f"Demo Funnel Product {index + 1}",
+            "manufacturer_id": manufacturer["id"],
+            "category": "projeto",
+            "unit": "projeto",
+            "base_price": 10000 + index * 1000,
+            "base_cost": 7000 + index * 500,
+            "active": True,
+            "created_at": now_iso(),
+            "workspace_demo": True,
+        })
+
+    for year in sorted({2024, 2025, datetime.now(timezone.utc).year}):
+        opportunity_limit = 4 if year == 2024 else 6
+        proposal_limit = 2 if year == 2024 else 4
+        order_limit = 1 if year == 2024 else 2
+        for index in range(8):
+            client_id = clients[(index + year) % len(clients)]["id"]
+            manufacturer_index = index % len(manufacturer_ids)
+            manufacturer_id = manufacturer_ids[manufacturer_index]
+            product_id = product_ids[manufacturer_index]
+            base_value = 24000 + index * 7500 + (year - 2024) * 2500
+            base_vab = round(base_value * 0.28, 2)
+            lead_id = new_id()
+            lead_date = datetime(year, index + 1, 5, 12, tzinfo=timezone.utc)
+            lead_created = lead_date.isoformat()
+            opp_id = new_id() if index < opportunity_limit else None
+            await db.leads.insert_one({
+                "id": lead_id,
+                "client_id": client_id,
+                "client_name_raw": "",
+                "description": f"Demo funnel {year} - scenario {index + 1:02d}",
+                "manufacturer_id": manufacturer_id,
+                "product_ids": [product_id],
+                "estimated_value": base_value,
+                "owner_id": owner_id,
+                "status": "convertida" if opp_id else ("em_qualificacao" if index == 6 else "nova"),
+                "lost_reason": "",
+                "converted_opportunity_id": opp_id,
+                "converted_at": (lead_date + timedelta(days=3)).isoformat() if opp_id else None,
+                "created_at": lead_created,
+                "updated_at": lead_created,
+                "workspace_demo": True,
+            })
+            if not opp_id:
+                continue
+
+            opp_date = lead_date + timedelta(days=3)
+            proposal_id = new_id() if index < proposal_limit else None
+            opportunity = {
+                "id": opp_id,
+                "lead_id": lead_id,
+                "client_id": client_id,
+                "description": f"Demo funnel opportunity {year} - scenario {index + 1:02d}",
+                "manufacturer_id": manufacturer_id,
+                "product_ids": [product_id],
+                "estimated_value": base_value,
+                "estimated_vab": base_vab,
+                "probability": min(90, 40 + index * 8),
+                "expected_close_date": (opp_date + timedelta(days=45)).date().isoformat(),
+                "next_follow_up_date": (opp_date + timedelta(days=10)).date().isoformat(),
+                "next_follow_up_type": "follow_up",
+                "follow_up_history": [],
+                "priority": "media",
+                "competitor": "",
+                "notes": "Local funnel demo data.",
+                "owner_id": owner_id,
+                "status": "convertida" if proposal_id else ("em_analise" if index == 4 else "aberta"),
+                "lost_reason": "",
+                "converted_proposal_id": proposal_id,
+                "created_at": opp_date.isoformat(),
+                "updated_at": opp_date.isoformat(),
+                "workspace_demo": True,
+            }
+            await db.opportunities.insert_one(opportunity)
+            if not proposal_id:
+                continue
+
+            proposal_date = opp_date + timedelta(days=8)
+            proposal_status = "perdida" if year == 2024 and index == 1 else ("ganha" if index < order_limit else ("enviada" if index == 2 else "em_negociacao"))
+            order_id = new_id() if index < order_limit else None
+            proposal_value = round(base_value * 0.94, 2)
+            proposal_vab = round(proposal_value * 0.27, 2)
+            proposal = {
+                "id": proposal_id,
+                "number": f"DEMO-FUNNEL-{year}-{index + 1:02d}",
+                "version": 1,
+                "opportunity_id": opp_id,
+                "client_id": client_id,
+                "description": opportunity["description"],
+                "previous_proposal_id": None,
+                "replacement_reason": "",
+                "replacement_proposal_id": None,
+                "lines": [{
+                    "product_id": product_id,
+                    "description": f"Demo funnel product {index + 1:02d}",
+                    "quantity": 1,
+                    "unit": "projeto",
+                    "unit_price": proposal_value,
+                    "discount_pct": 0,
+                    "vat_pct": 23,
+                    "unit_cost": round(proposal_value - proposal_vab, 2),
+                }],
+                "valid_until": (proposal_date + timedelta(days=30)).date().isoformat(),
+                "notes": "Local funnel demo data.",
+                "sent_at": proposal_date.isoformat() if proposal_status != "em_elaboracao" else None,
+                "sent_to": "",
+                "status_change_reason": "",
+                "expected_close_date": (proposal_date + timedelta(days=30)).date().isoformat(),
+                "next_follow_up_date": (proposal_date + timedelta(days=7)).date().isoformat(),
+                "next_follow_up_type": "follow_up",
+                "follow_up_history": [],
+                "attachment": None,
+                "owner_id": owner_id,
+                "status": proposal_status,
+                "lost_reason": "Demo: cliente selecionou outra proposta." if proposal_status == "perdida" else "",
+                "converted_order_id": order_id,
+                "total_net": proposal_value,
+                "total_vat": round(proposal_value * 0.23, 2),
+                "total_gross": round(proposal_value * 1.23, 2),
+                "total_vab": proposal_vab,
+                "probability": 100 if proposal_status == "ganha" else 60,
+                "created_at": proposal_date.isoformat(),
+                "updated_at": proposal_date.isoformat(),
+                "workspace_demo": True,
+            }
+            await db.proposals.insert_one(proposal)
+            if order_id:
+                order_date = proposal_date + timedelta(days=14)
+                await db.orders.insert_one({
+                    "id": order_id,
+                    "number": f"DEMO-FUNNEL-ORDER-{year}-{index + 1:02d}",
+                    "po_number": "",
+                    "proposal_id": proposal_id,
+                    "opportunity_id": opp_id,
+                    "client_id": client_id,
+                    "order_date": order_date.isoformat(),
+                    "total_net": proposal_value,
+                    "total_vat": round(proposal_value * 0.23, 2),
+                    "total_gross": round(proposal_value * 1.23, 2),
+                    "total_vab": proposal_vab,
+                    "commercial_terms": "Local funnel demo data.",
+                    "owner_id": owner_id,
+                    "status": "aberta",
+                    "cancel_reason": "",
+                    "status_change_reason": "",
+                    "created_at": order_date.isoformat(),
+                    "workspace_demo": True,
+                })
+
+    await db.workspace_demo_seed.insert_one({"id": marker, "created_at": now_iso()})
+
+
+async def tune_2024_funnel_demo():
+    """Make the seeded 2024 cohort intentionally harder than later years."""
+    year_opportunities = await db.opportunities.find({
+        "workspace_demo": True,
+        "description": {"$regex": "^Demo funnel opportunity 2024 - scenario "},
+    }, {"_id": 0, "id": 1, "lead_id": 1, "description": 1}) .to_list(100)
+    if not year_opportunities:
+        return
+
+    remove_opportunities = [item for item in year_opportunities if item["description"].endswith(("05", "06"))]
+    remove_opportunity_ids = [item["id"] for item in remove_opportunities]
+    if remove_opportunity_ids:
+        child_proposals = await db.proposals.find({"workspace_demo": True, "opportunity_id": {"$in": remove_opportunity_ids}}, {"_id": 0, "id": 1}).to_list(100)
+        child_proposal_ids = [item["id"] for item in child_proposals]
+        if child_proposal_ids:
+            await db.orders.delete_many({"workspace_demo": True, "proposal_id": {"$in": child_proposal_ids}})
+            await db.proposals.delete_many({"workspace_demo": True, "id": {"$in": child_proposal_ids}})
+        await db.leads.update_many(
+            {"workspace_demo": True, "converted_opportunity_id": {"$in": remove_opportunity_ids}},
+            {"$set": {"status": "em_qualificacao", "converted_opportunity_id": None}, "$unset": {"converted_at": ""}},
+        )
+        await db.opportunities.delete_many({"workspace_demo": True, "id": {"$in": remove_opportunity_ids}})
+
+    proposal_opportunity_ids = [item["id"] for item in year_opportunities if item["description"].endswith(("03", "04"))]
+    if proposal_opportunity_ids:
+        proposals_to_remove = await db.proposals.find({"workspace_demo": True, "opportunity_id": {"$in": proposal_opportunity_ids}}, {"_id": 0, "id": 1}).to_list(100)
+        proposal_ids = [item["id"] for item in proposals_to_remove]
+        if proposal_ids:
+            await db.orders.delete_many({"workspace_demo": True, "proposal_id": {"$in": proposal_ids}})
+            await db.proposals.delete_many({"workspace_demo": True, "id": {"$in": proposal_ids}})
+        for opportunity in year_opportunities:
+            if opportunity["id"] in proposal_opportunity_ids:
+                status = "em_analise" if opportunity["description"].endswith("03") else "aberta"
+                await db.opportunities.update_one(
+                    {"workspace_demo": True, "id": opportunity["id"]},
+                    {"$set": {"status": status, "converted_proposal_id": None}},
+                )
+
+    scenario_two = await db.opportunities.find_one({
+        "workspace_demo": True,
+        "description": "Demo funnel opportunity 2024 - scenario 02",
+    }, {"_id": 0, "id": 1})
+    if scenario_two:
+        proposal = await db.proposals.find_one({"workspace_demo": True, "opportunity_id": scenario_two["id"]}, {"_id": 0, "id": 1})
+        if proposal:
+            await db.orders.delete_many({"workspace_demo": True, "proposal_id": proposal["id"]})
+            await db.proposals.update_one(
+                {"workspace_demo": True, "id": proposal["id"]},
+                {"$set": {"status": "perdida", "lost_reason": "Demo: cliente selecionou outra proposta.", "converted_order_id": None}},
+            )

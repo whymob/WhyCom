@@ -1,6 +1,20 @@
 name: whycom-workspace
 
 services:
+  mongo-workspace:
+    image: mongo:7
+    container_name: whymob-workspace-mongo
+    ports:
+      - "27018:27017"
+    volumes:
+      - mongo_workspace_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    restart: "no"
+
   backend-workspace:
     build:
       context: ./backend
@@ -8,8 +22,12 @@ services:
     env_file:
       - ./backend/.env.workspace
     environment:
+      MONGO_URL: mongodb://mongo-workspace:27017
+      DB_NAME: whycom_workspace_dev
       ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
-      WORKSPACE_DEMO_DATA: "true"
+      WORKSPACE_DEMO_DATA: "false"
+      FUNNEL_DEMO_DATA: "true"
+      ENABLE_STARTUP_SEED: "true"
       # O ambiente de validação não deve gerar e-mails externos.
       RESEND_API_KEY: ""
     ports:
@@ -17,6 +35,9 @@ services:
     volumes:
       - proposal_uploads_workspace:/app/uploads-workspace-dev
     restart: "no"
+    depends_on:
+      mongo-workspace:
+        condition: service_healthy
 
   frontend-workspace:
     build:
@@ -36,4 +57,5 @@ services:
     restart: "no"
 
 volumes:
+  mongo_workspace_data:
   proposal_uploads_workspace:
