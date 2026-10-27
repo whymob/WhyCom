@@ -45,8 +45,8 @@ docker compose up --build
 ## Como funciona
 
 - o container `backend` le as variaveis de `backend/.env`;
-- o container `frontend` arranca em modo desenvolvimento com `npm start`;
-- o frontend usa `REACT_APP_BACKEND_URL=http://localhost:8000` para que o browser fale com a API publicada no host.
+- o container `frontend` serve o build estático com Nginx;
+- o frontend usa `REACT_APP_BACKEND_URL=http://localhost:8000` em runtime para que o browser fale com a API publicada no host;
 
 ## Simulacao de producao com Mongo local em container
 

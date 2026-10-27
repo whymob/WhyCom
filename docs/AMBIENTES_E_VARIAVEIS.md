@@ -93,11 +93,12 @@ Recomendacao:
 
 ### Obrigatoria
 
-- `REACT_APP_BACKEND_URL`: URL publica da API consumida pelo browser.
+- `VITE_BACKEND_URL`: URL da API para execucao local do frontend.
+- `REACT_APP_BACKEND_URL`: URL publica da API injetada em runtime pelo container Nginx.
 
 ### Opcional
 
-- `ENABLE_HEALTH_CHECK`: ativa plugin de health check do frontend.
+- `ENABLE_HEALTH_CHECK`: ativa os endpoints detalhados de build no servidor Vite local; o Nginx fornece os endpoints basicos de saude nos containers.
 
 ## Regras operacionais
 

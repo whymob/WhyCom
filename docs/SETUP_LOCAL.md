@@ -13,7 +13,7 @@ cd backend
 Copy-Item .env.example .env
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
 ### Arrancar API
@@ -82,7 +82,7 @@ O frontend fica em `http://localhost:3010`, a API em `http://localhost:8010` e o
 
 Verificar:
 
-- se `frontend/.env` contem `REACT_APP_BACKEND_URL=http://localhost:8000`;
+- se `frontend/.env` contem `VITE_BACKEND_URL=http://localhost:8000`;
 - se o backend esta realmente a correr;
 - se `CORS_ORIGINS` no backend permite `http://localhost:3000`.
 

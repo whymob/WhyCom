@@ -6,12 +6,14 @@ O WhyMob CRM é uma aplicação web de gestão comercial B2B. O repositório con
 
 Esta análise foi revista em 13/10/2026 a partir do código e da documentação presentes no repositório. Não houve acesso a uma base de dados de produção nem foi executada uma validação funcional nesta revisão.
 
+Atualização de dependências em 26/10/2026: o frontend passou de CRA/CRACO para Vite 8 com build estático servido por Nginx; o backend passou de Motor para PyMongo Async; os locks Python e a auditoria automatizada foram adicionados. Os apontamentos históricos abaixo sobre essas dependências já foram substituídos.
+
 ## Produto e arquitetura
 
 Fluxo principal: `Lead → Oportunidade → Proposta → Encomenda → Plano/Fatura/Recebimento`. Projetos técnicos podem acompanhar a execução de encomendas quando aplicável.
 
-- **Frontend:** React, React Router, Tailwind, Radix/Shadcn, Axios, Recharts e CRACO.
-- **Backend:** FastAPI, Pydantic, MongoDB com Motor/PyMongo, autenticação JWT, APScheduler e integração de email Resend.
+- **Frontend:** React, React Router, Tailwind, Radix/Shadcn, Axios, Recharts e Vite; Nginx serve os artefactos estáticos nos containers.
+- **Backend:** FastAPI, Pydantic, MongoDB com PyMongo Async/PyMongo, autenticação JWT, APScheduler e integração de email Resend.
 - **Observabilidade:** integração OpenTelemetry/Jaeger opcional por configuração.
 - **Organização:** routers separados por domínio (pipeline, financeiro, analytics, técnico, utilizadores/dados mestre, notificações e auditoria/exportações).
 
@@ -44,7 +46,7 @@ Detalhes dos comportamentos e transições estão em [Análise Funcional e Regra
 3. **Scheduler:** corre dentro do processo da aplicação. Definir comportamento ao operar várias réplicas para evitar execução duplicada de tarefas.
 4. **Estados de encomenda:** `em_faturacao` existe no modelo e em listas de trabalho, mas não foi localizada atribuição pelo recálculo financeiro.
 5. **Qualidade:** há testes backend, smoke read-only e scaffold Playwright; esta revisão não executou testes. A cobertura de frontend e os gates de CI devem ser avaliados no pipeline real.
-6. **Manutenção frontend:** o projeto usa CRA/CRACO; uma migração pode ser avaliada quando houver benefício concreto e plano de compatibilidade.
+6. **Manutenção frontend:** o frontend usa Vite 8; manter a versão Node da imagem e os lockfiles alinhados com o CI.
 
 ## Plano recomendado
 

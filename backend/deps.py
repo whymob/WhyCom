@@ -12,13 +12,13 @@ import bcrypt
 import jwt
 import resend
 from datetime import datetime, timezone, timedelta
-from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo import AsyncMongoClient
 from fastapi import HTTPException, Depends, Request
 
 
 mongo_url = os.environ["MONGO_URL"]
 # Keep local/staging startup responsive even when Mongo is temporarily unavailable.
-mongo_client = AsyncIOMotorClient(
+mongo_client = AsyncMongoClient(
     mongo_url,
     serverSelectionTimeoutMS=2000,
     connectTimeoutMS=2000,

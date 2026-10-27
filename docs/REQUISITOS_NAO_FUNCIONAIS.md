@@ -34,7 +34,7 @@ Este documento regista características técnicas observáveis e requisitos oper
 | ID | Requisito/característica | Estado observado |
 | --- | --- | --- |
 | RNF-13 | Idioma e moeda | Interface orientada a PT-PT e valores em EUR; detalhes de localização devem continuar consistentes nas exportações. |
-| RNF-14 | Execução local | Há guias para execução nativa e Docker. Variáveis obrigatórias incluem `MONGO_URL`, `DB_NAME`, `JWT_SECRET` e `REACT_APP_BACKEND_URL`. |
+| RNF-14 | Execução local | Há guias para execução nativa e Docker. Variáveis obrigatórias incluem `MONGO_URL`, `DB_NAME`, `JWT_SECRET`, `VITE_BACKEND_URL` no desenvolvimento local e `REACT_APP_BACKEND_URL` nos containers. |
 | RNF-15 | Verificações automatizadas | Existem testes backend, smoke de leitura e scaffold Playwright. A cobertura e a execução contínua dependem de ambiente e CI. |
 | RNF-16 | Suporte de browsers e acessibilidade | Não foi encontrada matriz suportada de browsers nem meta de conformidade WCAG formal. |
 

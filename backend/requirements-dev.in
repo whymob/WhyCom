@@ -1,0 +1,9 @@
+# Test and code-quality dependencies. Edit this file, then regenerate requirements-dev.txt.
+-r requirements.in
+pytest>=9.0.3,<10
+pytest-xdist>=3.6,<4
+black>=24,<27
+isort>=5.13,<7
+flake8>=7,<8
+mypy>=1.8,<2
+pip-audit>=2.9,<3

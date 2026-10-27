@@ -67,12 +67,12 @@ Definir uma base minima de deploy para staging/producao sem reinventar a stack a
 
 - validar carregamento da aplicacao;
 - confirmar `REACT_APP_BACKEND_URL` correta;
-- opcionalmente manter `ENABLE_HEALTH_CHECK=true` em staging/producao.
+- opcionalmente usar `ENABLE_HEALTH_CHECK=true` no servidor Vite local; os containers de frontend fornecem `/health`, `/health/live`, `/health/simple` e `/health/ready` pelo Nginx.
 
 ## Riscos atuais conhecidos
 
 - os testes backend completos ainda assumem escrita em base de dados;
-- o frontend ainda corre em CRA/CRACO, o que aumenta custo de manutencao futura;
+- os detalhes de compilacao do frontend estao disponiveis no Vite de desenvolvimento; os containers servem apenas os ficheiros estaticos compilados.
 - o scheduler corre no processo da app, o que exige cuidado em ambientes com multiplas replicas.
 
 ## Proxima evolucao recomendada

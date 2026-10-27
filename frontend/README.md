@@ -10,7 +10,7 @@ Aplicacao React do WhyMob CRM, responsavel pela experiencia de utilizador do cic
 - Shadcn UI / Radix UI
 - Axios
 - Recharts
-- CRACO
+- Vite 8
 
 ## Arranque local
 
@@ -23,7 +23,7 @@ Copy-Item .env.example .env
 Instalar dependencias:
 
 ```powershell
-npm.cmd install
+npm.cmd ci
 ```
 
 Executar em desenvolvimento:
@@ -40,7 +40,8 @@ npm.cmd run build
 
 ## Variaveis de ambiente
 
-- `REACT_APP_BACKEND_URL`
+- `VITE_BACKEND_URL`
+- `VITE_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER`
 - `ENABLE_HEALTH_CHECK` opcional
 
 ## Estrutura principal
@@ -55,6 +56,6 @@ src/lib/           API, formatacao e utilitarios
 
 ## Notas
 
-- o frontend assume que a API esta disponivel em `REACT_APP_BACKEND_URL`;
-- o frontend ja foi ajustado para instalar corretamente com `npm.cmd install`;
+- o frontend usa `VITE_BACKEND_URL` em desenvolvimento local; os containers leem `REACT_APP_BACKEND_URL` em runtime para manter a mesma imagem em varios ambientes;
+- o frontend usa `package-lock.json`; instalar com `npm.cmd ci` para reproduzir o ambiente travado;
 - se um merge reintroduzir conflitos em paginas complexas, o build do frontend costuma acusar isso imediatamente.

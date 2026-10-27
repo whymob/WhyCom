@@ -52,18 +52,20 @@ Por omissao:
 
 ## Observacoes
 
-- este smoke E2E pode ser feito com Playwright no futuro;
+- o workflow `dependency-audit.yml` executa este fluxo com Playwright numa stack efemera e isolada;
 - o fluxo acima evita criacao, edicao e remocao de dados;
 - serve como validacao segura apos merge, rebuild de container ou alteracao de autenticacao/layout.
 
 ## Estado atual
 
-O scaffold minimo de Playwright ja existe no frontend:
+O teste Playwright e executado pelo workflow independente de dependencias e qualidade:
 
 - config: `frontend/playwright.config.js`
 - teste: `frontend/tests/e2e/smoke-readonly.spec.js`
 
-## Como executar
+O workflow inicia um MongoDB descartavel, semeia apenas a base de CI, desativa o scheduler e nao configura credenciais de email.
+
+## Como executar localmente
 
 Com frontend e backend ja a correr:
 

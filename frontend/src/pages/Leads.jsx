@@ -63,7 +63,7 @@ export default function Leads() {
   const [sort, setSort] = useState({ key: "client", direction: "asc" });
   const handledOpenId = useRef("");
 
-  const load = async (page = pagination.page) => {
+  const load = useCallback(async (page = 1) => {
     const [leadResponse, clientResponse] = await Promise.all([
       api.get("/leads", { params: { page, page_size: filters.pageSize || 30, search: filters.search, status: filters.statuses.join(","), sort_by: sort.key === "value" ? "estimated_value" : sort.key, sort_dir: sort.direction } }),
       api.get("/clients"),
@@ -71,12 +71,11 @@ export default function Leads() {
     setLeads(leadResponse.data.items || []);
     setPagination({ page: leadResponse.data.page, pages: leadResponse.data.pages, total: leadResponse.data.total, page_size: leadResponse.data.page_size });
     setClients(clientResponse.data);
-  };
+  }, [filters.pageSize, filters.search, filters.statuses, sort]);
 
   useEffect(() => {
     load(1);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.statuses, filters.pageSize, sort]);
+  }, [load]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -119,7 +118,6 @@ export default function Leads() {
       next.delete("open");
       setSearchParams(next, { replace: true });
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setSearchParams]);
 
   const submit = async () => {
@@ -133,7 +131,7 @@ export default function Leads() {
         toast.success("Lead criada");
       }
       setOpen(false);
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -145,7 +143,7 @@ export default function Leads() {
       await api.post(`/leads/${convertOpen}/convert`);
       toast.success("Lead convertida em oportunidade");
       setConvertOpen(null);
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -161,7 +159,7 @@ export default function Leads() {
       toast.success("Lead descartada");
       setLostOpen(null);
       setLostReason("");
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }

@@ -35,13 +35,9 @@ services:
     container_name: whymob-frontend
     environment:
       REACT_APP_BACKEND_URL: http://localhost:8000
-      HOST: 0.0.0.0
-      PORT: 3000
-      CHOKIDAR_USEPOLLING: "true"
-      WATCHPACK_POLLING: "true"
       REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER: "true"
     ports:
-      - "3000:3000"
+      - "3000:80"
     depends_on:
       - backend
     restart: unless-stopped

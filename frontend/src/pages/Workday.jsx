@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertTriangle, CalendarDays, CalendarClock, CheckCircle2, ChevronRight, RefreshCw } from "lucide-react";
 import { api } from "@/lib/api";
@@ -41,12 +41,12 @@ export default function Workday() {
   const [savingBulk, setSavingBulk] = useState(false);
   const isManager = ["admin", "ceo"].includes(user?.role);
 
-  const load = (selectedOwner = ownerId) => {
+  const load = useCallback((selectedOwner = ownerId) => {
     setLoading(true);
     api.get("/workday", { params: selectedOwner ? { owner_id: selectedOwner } : {} }).then((response) => setWorkday(response.data)).finally(() => setLoading(false));
-  };
+  }, [ownerId]);
 
-  useEffect(load, []);
+  useEffect(() => { load(); }, [load]);
   useEffect(() => { if (isManager) api.get("/users").then((response) => setOwners((response.data || []).filter((item) => item.active))); }, [isManager]);
 
   const openAction = (item, action) => {
@@ -127,7 +127,7 @@ export default function Workday() {
       <PageHeader
         kicker="Execução comercial"
         title="O meu dia"
-        actions={<><>{isManager && <select value={ownerId} onChange={(event) => { setOwnerId(event.target.value); load(event.target.value); }} className="h-9 rounded-lg border border-[var(--wc-border)] bg-white px-3 text-xs text-slate-700 outline-none focus:border-[#14E0E0] focus:ring-4 focus:ring-[#14E0E0]/15"><option value="">Toda a equipa</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select>}</><button onClick={() => load()} className="flex items-center gap-2 rounded-lg border border-[#14E0E0] bg-[#14E0E0] px-3 py-2 text-xs font-semibold text-[#14181F] shadow-[0_0_14px_rgba(20,224,224,.22)] hover:bg-[#0B8E8E] hover:text-white"><RefreshCw size={14} /> Atualizar</button></>}
+        actions={<><>{isManager && <select value={ownerId} onChange={(event) => { setOwnerId(event.target.value); }} className="h-9 rounded-lg border border-[var(--wc-border)] bg-white px-3 text-xs text-slate-700 outline-none focus:border-[#14E0E0] focus:ring-4 focus:ring-[#14E0E0]/15"><option value="">Toda a equipa</option>{owners.map((owner) => <option key={owner.id} value={owner.id}>{owner.name}</option>)}</select>}</><button onClick={() => load()} className="flex items-center gap-2 rounded-lg border border-[#14E0E0] bg-[#14E0E0] px-3 py-2 text-xs font-semibold text-[#14181F] shadow-[0_0_14px_rgba(20,224,224,.22)] hover:bg-[#0B8E8E] hover:text-white"><RefreshCw size={14} /> Atualizar</button></>}
       />
       <div className="space-y-6 p-7">
         <section className="grid grid-cols-1 gap-4 md:grid-cols-3">

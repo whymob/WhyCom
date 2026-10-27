@@ -25,12 +25,12 @@ docs/            Documentacao consolidada do projeto
 - Shadcn UI / Radix UI
 - Axios
 - Recharts
-- CRACO
+- Vite 8
 
 ### Backend
 
 - FastAPI
-- Motor / PyMongo
+- PyMongo Async / PyMongo
 - MongoDB
 - Pydantic
 - JWT custom
@@ -94,7 +94,7 @@ Instalar dependencias:
 cd backend
 python -m venv .venv
 .venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install --require-hashes -r requirements-dev.txt
 ```
 
 Arrancar a API:
@@ -121,7 +121,7 @@ Instalar dependencias:
 
 ```powershell
 cd frontend
-npm.cmd install
+npm.cmd ci
 ```
 
 Arrancar a aplicacao:
@@ -163,7 +163,7 @@ http://localhost:3000
 
 ### Frontend obrigatorias
 
-- `REACT_APP_BACKEND_URL`
+- `VITE_BACKEND_URL` para frontend local; `REACT_APP_BACKEND_URL` em runtime nos containers
 
 ### Frontend opcionais
 

@@ -92,7 +92,7 @@ export default function Opportunities() {
   const canEditDescription = ["admin", "comercial"].includes(user?.role);
   const canEditProbability = (opportunity) => canEditDescription && ["aberta", "em_analise"].includes(opportunity.status);
 
-  const load = async (page = pagination.page) => {
+  const load = useCallback(async (page = 1) => {
     const [opportunityResponse, clientResponse] = await Promise.all([
       api.get("/opportunities", { params: { page, page_size: filters.pageSize || 30, search: filters.search, status: filters.statuses.join(","), sort_by: sort.key === "value" ? "estimated_value" : sort.key, sort_dir: sort.direction } }),
       api.get("/clients"),
@@ -100,12 +100,11 @@ export default function Opportunities() {
     setOpps(opportunityResponse.data.items || []);
     setPagination({ page: opportunityResponse.data.page, pages: opportunityResponse.data.pages, total: opportunityResponse.data.total, page_size: opportunityResponse.data.page_size });
     setClients(clientResponse.data);
-  };
+  }, [filters.pageSize, filters.search, filters.statuses, sort]);
 
   useEffect(() => {
     load(1);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filters.search, filters.statuses, filters.pageSize, sort]);
+  }, [load]);
 
   useEffect(() => {
     const next = new URLSearchParams();
@@ -201,7 +200,6 @@ export default function Opportunities() {
       next.delete("open");
       setSearchParams(next, { replace: true });
     });
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, setSearchParams]);
 
   const openDescriptionEdit = () => {
@@ -229,7 +227,7 @@ export default function Opportunities() {
       setViewing(response.data);
       setDescriptionEditOpen(false);
       toast.success("Descrição da oportunidade atualizada");
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -261,7 +259,7 @@ export default function Opportunities() {
         toast.success("Oportunidade criada");
       }
       setOpen(false);
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -273,7 +271,7 @@ export default function Opportunities() {
       await api.post(`/opportunities/${convertOpen}/convert`);
       toast.success("Proposta criada a partir da oportunidade");
       setConvertOpen(null);
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }
@@ -290,7 +288,7 @@ export default function Opportunities() {
       setNewProposalOpen(false);
       setViewOpen(false);
       setReplacementReason("");
-      load();
+      load(pagination.page);
       navigate(`/propostas/${response.data.id}`);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
@@ -307,7 +305,7 @@ export default function Opportunities() {
       toast.success("Oportunidade marcada como perdida");
       setLostOpen(null);
       setLostReason("");
-      load();
+      load(pagination.page);
     } catch (e) {
       toast.error(formatApiErrorDetail(e.response?.data?.detail));
     }

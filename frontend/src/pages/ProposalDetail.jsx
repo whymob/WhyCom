@@ -101,7 +101,8 @@ export default function ProposalDetail() {
   const isSubstituted = proposal.status === "substituida";
   const isConverted = Boolean(proposal.converted_order_id) || isSubstituted;
   const canEditProbability = ["admin", "comercial"].includes(user?.role) && ["em_elaboracao", "enviada", "em_negociacao"].includes(proposal.status);
-  const canEditAttachmentAfterConversion = process.env.REACT_APP_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER !== "false";
+  const allowAttachmentEdit = window.__WHYCOM_CONFIG__?.allowProposalAttachmentAfterOrder ?? import.meta.env.VITE_ALLOW_PROPOSAL_ATTACHMENT_AFTER_ORDER;
+  const canEditAttachmentAfterConversion = allowAttachmentEdit !== "false";
   const attachmentLocked = isSubstituted || (isConverted && !canEditAttachmentAfterConversion);
   const isAdmin = user?.role === "admin";
   const lineManuf = (line) => {

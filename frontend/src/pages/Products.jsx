@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Plus } from "lucide-react";
 import { toast } from "sonner";
 
@@ -54,8 +54,8 @@ export default function Products() {
     setOpen(true);
   };
 
-  const manufacturerName = (id) => manuf.find((manufacturer) => manufacturer.id === id)?.name || "—";
-  const rows = useMemo(() => { const term = filters.search.trim().toLowerCase(); const enriched = items.map((item) => ({ ...item, manufacturer_name: manufacturerName(item.manufacturer_id) })); const matched = enriched.filter((item) => (!term || [item.name, item.category, item.unit, item.manufacturer_name].some((value) => String(value || "").toLowerCase().includes(term))) && (!filters.statuses.length || filters.statuses.includes(item.category))); return [...matched].sort((a, b) => { const left = a[sort.key] ?? ""; const right = b[sort.key] ?? ""; const result = typeof left === "number" ? left - right : String(left).localeCompare(String(right), "pt"); return sort.direction === "asc" ? result : -result; }); }, [filters.search, filters.statuses, items, manuf, sort]);
+  const manufacturerName = useCallback((id) => manuf.find((manufacturer) => manufacturer.id === id)?.name || "—", [manuf]);
+  const rows = useMemo(() => { const term = filters.search.trim().toLowerCase(); const enriched = items.map((item) => ({ ...item, manufacturer_name: manufacturerName(item.manufacturer_id) })); const matched = enriched.filter((item) => (!term || [item.name, item.category, item.unit, item.manufacturer_name].some((value) => String(value || "").toLowerCase().includes(term))) && (!filters.statuses.length || filters.statuses.includes(item.category))); return [...matched].sort((a, b) => { const left = a[sort.key] ?? ""; const right = b[sort.key] ?? ""; const result = typeof left === "number" ? left - right : String(left).localeCompare(String(right), "pt"); return sort.direction === "asc" ? result : -result; }); }, [filters.search, filters.statuses, items, manufacturerName, sort]);
   const pages = Math.max(1, Math.ceil(rows.length / filters.pageSize)); const visible = rows.slice((page - 1) * filters.pageSize, page * filters.pageSize);
   const toggleSort = (key) => setSort((current) => current.key === key ? { key, direction: current.direction === "asc" ? "desc" : "asc" } : { key, direction: ["base_price", "base_cost"].includes(key) ? "desc" : "asc" });
 

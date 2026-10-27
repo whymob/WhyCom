@@ -4,6 +4,7 @@ The app is composed of thin routers under /app/backend/routers/.
 Shared infra lives in deps.py (mongo, jwt, security) and helpers.py (business helpers).
 """
 import os
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, APIRouter
 from starlette.middleware.cors import CORSMiddleware
 
@@ -24,7 +25,30 @@ from routers.notifications import router as notifications_router
 from routers.search import router as search_router
 
 
-app = FastAPI(title="WhyMob CRM API")
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    seed_enabled = os.environ.get("ENABLE_STARTUP_SEED", "true").lower() in ("1", "true", "yes")
+    if seed_enabled:
+        try:
+            await seed_startup()
+            logger.info("Seed OK")
+        except Exception as e:
+            logger.exception("Seed error: %s", e)
+    else:
+        logger.info("Seed disabled by ENABLE_STARTUP_SEED")
+    try:
+        await ensure_search_indexes()
+    except Exception as e:
+        logger.exception("Global search index setup error: %s", e)
+    start_scheduler()
+    try:
+        yield
+    finally:
+        stop_scheduler()
+        await mongo_client.close()
+
+
+app = FastAPI(title="WhyMob CRM API", lifespan=lifespan)
 configure_telemetry(app)
 api = APIRouter(prefix="/api")
 
@@ -71,27 +95,3 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-@app.on_event("startup")
-async def on_startup():
-    seed_enabled = os.environ.get("ENABLE_STARTUP_SEED", "true").lower() in ("1", "true", "yes")
-    if seed_enabled:
-        try:
-            await seed_startup()
-            logger.info("Seed OK")
-        except Exception as e:
-            logger.exception("Seed error: %s", e)
-    else:
-        logger.info("Seed disabled by ENABLE_STARTUP_SEED")
-    try:
-        await ensure_search_indexes()
-    except Exception as e:
-        logger.exception("Global search index setup error: %s", e)
-    start_scheduler()
-
-
-@app.on_event("shutdown")
-async def on_shutdown():
-    stop_scheduler()
-    mongo_client.close()

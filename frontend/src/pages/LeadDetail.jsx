@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { ArrowRight, Save, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -21,7 +21,7 @@ export default function LeadDetail() {
   const [discardReason, setDiscardReason] = useState("");
   const [converting, setConverting] = useState(false);
 
-  const load = () => {
+  const load = useCallback(() => {
     Promise.all([
       api.get("/leads", { params: { page: 1, page_size: 1, search: id } }),
       api.get("/clients"),
@@ -32,9 +32,9 @@ export default function LeadDetail() {
       setForm({ client_id: item.client_id || "", client_name_raw: item.client_name_raw || "", description: item.description || "", estimated_value: item.estimated_value || 0, status: item.status });
       setClients(clientResponse.data || []);
     }).catch(() => toast.error("Não foi possível carregar a lead."));
-  };
+  }, [id, navigate]);
 
-  useEffect(load, [id]);
+  useEffect(() => { load(); }, [load]);
 
   const save = async () => {
     try {

@@ -136,7 +136,7 @@ def test_alerts_digest_no_alerts_returns_sent_false(http, admin_token):
 def test_alerts_digest_with_forced_alert(http, admin_token):
     """Force an alert by inserting a 'ganha' proposal directly in Mongo, then verify digest sends."""
     import asyncio
-    from motor.motor_asyncio import AsyncIOMotorClient
+    from pymongo import AsyncMongoClient
 
     mongo_url = os.environ.get("MONGO_URL", "mongodb://localhost:27017")
     db_name = os.environ.get("DB_NAME", "whymob_db")
@@ -153,16 +153,16 @@ def test_alerts_digest_with_forced_alert(http, admin_token):
     }
 
     async def _seed():
-        client = AsyncIOMotorClient(mongo_url)
+        client = AsyncMongoClient(mongo_url)
         db = client[db_name]
         await db.proposals.insert_one(doc)
-        client.close()
+        await client.close()
 
     async def _cleanup():
-        client = AsyncIOMotorClient(mongo_url)
+        client = AsyncMongoClient(mongo_url)
         db = client[db_name]
         await db.proposals.delete_one({"id": forced_id})
-        client.close()
+        await client.close()
 
     asyncio.run(_seed())
     try:

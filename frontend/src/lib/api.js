@@ -1,6 +1,6 @@
 import axios from "axios";
 
-const BASE = process.env.REACT_APP_BACKEND_URL;
+const BASE = window.__WHYCOM_CONFIG__?.backendUrl || import.meta.env.VITE_BACKEND_URL || "";
 export const API = `${BASE}/api`;
 
 export const api = axios.create({ baseURL: API });
